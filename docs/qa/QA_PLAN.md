@@ -132,6 +132,12 @@ Three layers, cheapest first. Run all three before every release or merge to `ma
 | 8 | Typecheck | `Omit<>` over a Zod `looseObject` erased envelope field types | Explicit `EnvelopeBase` interface |
 | 9 | Review | `.parse()` on bad scope/release ids would have returned 500 | `safeParse` → 400 |
 | 10 | Review | The Swagger page CSP hash was a placeholder | Hash computed from the script at start-up |
+| 11 | Browser check (headless Edge) | Maps blank: "Worker failed to load". MapLibre 6 resolves its worker next to its own module, which doesn't exist once Next.js bundles it. | `scripts/copy-maplibre-worker.mjs` (predev/prebuild) copies the worker into `public/maplibre/`; `setWorkerUrl()` |
+| 12 | Browser check (canvas measured 0 px) | Map container collapsed to 0 px high: `.maplibregl-map { position: relative }` overrode `absolute inset-0` | The container is sized with `h-full w-full` |
+| 13 | Browser check (screenshot) | The planned path was hidden under the actual path when the robot follows the plan exactly | Planned (dashed) is drawn on top of the actual path |
+| 14 | Browser check | `/favicon.ico` 404 on every page | `app/icon.svg` (Arnobot mark) |
+
+**Browser check:** all 27 views, covering 12 pages, 12 robot tabs, mission and product detail, 404 and keyboard tabs, are clean in **light and dark** themes in headless Microsoft Edge. That means no console errors, no failed API calls, no error screens, and every map renders a canvas.
 
 ## Before go-live (outside the automated suite)
 
