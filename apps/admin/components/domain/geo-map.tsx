@@ -57,6 +57,9 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
     (async () => {
       try {
         const maplibre = await import('maplibre-gl');
+        // The bundled chunk can't find MapLibre's worker next to itself; serve it from public/
+        // (copied by scripts/copy-maplibre-worker.mjs on predev/prebuild).
+        maplibre.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
         if (cancelled || !container.current) return;
         map = new maplibre.Map({
           container: container.current,
@@ -135,7 +138,9 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
 
   return (
     <div className={cn('relative overflow-hidden rounded-lg border border-border bg-surface-2', className ?? 'h-80')}>
-      <div ref={container} className="absolute inset-0" role="region" aria-label={ariaLabel} />
+      {/* Explicit size: MapLibre sets `.maplibregl-map { position: relative }`, which would override
+          `absolute inset-0` and collapse the container to 0 px high (blank map). */}
+      <div ref={container} className="h-full w-full" role="region" aria-label={ariaLabel} />
       {failed && <p className="absolute inset-0 flex items-center justify-center text-sm text-muted">Map could not be loaded.</p>}
     </div>
   );

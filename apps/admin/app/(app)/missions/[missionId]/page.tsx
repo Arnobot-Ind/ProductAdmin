@@ -37,13 +37,15 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
   const { lines, points } = useMemo(() => {
     const lines: MapLine[] = [];
     const points: MapPoint[] = [];
-    if (m.planned_path?.coordinates.length) lines.push({ id: 'planned', coordinates: m.planned_path.coordinates, color: 'var(--map-planned)', dashed: true, width: 3 });
+    // Actual (wide, solid) first, planned (dashed) on top: when the robot follows the plan exactly,
+    // the plan would otherwise be hidden underneath.
     if (m.actual_path?.coordinates.length) {
       const c = m.actual_path.coordinates;
-      lines.push({ id: 'actual', coordinates: c, color: 'var(--map-actual)', width: 4 });
+      lines.push({ id: 'actual', coordinates: c, color: 'var(--map-actual)', width: 5 });
       points.push({ id: 'start', lon: c[0][0], lat: c[0][1], color: '#16a34a', label: 'Start' });
       points.push({ id: 'end', lon: c[c.length - 1][0], lat: c[c.length - 1][1], color: '#dc2626', label: 'End' });
     }
+    if (m.planned_path?.coordinates.length) lines.push({ id: 'planned', coordinates: m.planned_path.coordinates, color: 'var(--map-planned)', dashed: true, width: 2.5 });
     return { lines, points };
   }, [m.planned_path, m.actual_path]);
 
