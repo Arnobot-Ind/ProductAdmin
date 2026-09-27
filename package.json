@@ -1,0 +1,40 @@
+{
+  "name": "arnobot-pms",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Arnobot PMS Product Admin: robot registry, ingestion, live state, telemetry, missions, events, documents and credentials",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "build:packages": "turbo run build --filter=./packages/*",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:migrate": "npm run migrate -w @arnobot/db",
+    "db:status": "npm run status -w @arnobot/db",
+    "db:seed": "npm run seed -w @arnobot/db",
+    "dev": "turbo run dev --parallel --filter=@arnobot/api --filter=@arnobot/ingest --filter=@arnobot/admin",
+    "dev:api": "npm run dev -w @arnobot/api",
+    "dev:ingest": "npm run dev -w @arnobot/ingest",
+    "dev:admin": "npm run dev -w @arnobot/admin",
+    "sim": "npm run start -w @arnobot/robot-sim --",
+    "qa": "node --env-file=.env tools/qa/run-qa.mjs",
+    "setup": "npm install && npm run build:packages && npm run db:create && npm run db:migrate && npm run db:seed",
+    "db:create": "npm run create -w @arnobot/db",
+    "db:timescale": "npm run timescale -w @arnobot/db",
+    "db:reset": "npm run reset -w @arnobot/db -- --confirm && npm run db:create && npm run db:migrate && npm run db:seed",
+    "start": "turbo run start --filter=@arnobot/api --filter=@arnobot/ingest --filter=@arnobot/admin"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "turbo": "^2.11.4",
+    "typescript": "~5.9.3"
+  },
+  "packageManager": "npm@10.9.2"
+}

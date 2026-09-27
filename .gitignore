@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.sim-keys.json
+*.log
+next-env.d.ts
+docs/qa/reports/*.json
+.sim-state.json
+storage/
+.qa-storage/

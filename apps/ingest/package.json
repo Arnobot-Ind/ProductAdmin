@@ -1,0 +1,28 @@
+{
+  "name": "@arnobot/ingest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internet-facing ingestion service: robot/GCS messages over HTTPS (and optional MQTT) → PostgreSQL.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch --env-file=../../.env src/main.ts",
+    "start": "node --env-file=../../.env dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@arnobot/db": "*",
+    "@arnobot/message-schema": "*",
+    "@fastify/rate-limit": "^10.3.0",
+    "fastify": "^5.12.5",
+    "mqtt": "^5.16.0",
+    "pg": "^8.23.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.2"
+  }
+}

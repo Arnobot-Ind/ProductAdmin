@@ -1,0 +1,439 @@
+import { registerRobot, withTransaction, type Queryable } from '@arnobot/db';
+import type {
+  ConnectivityDto,
+  DispatchWarrantyDto,
+  OwnershipDto,
+  Paginated,
+  RobotDetailDto,
+  RobotListItemDto,
+  RobotRegisteredDto,
+  SoftwareDto,
+} from '@arnobot/message-schema';
+import type { FastifyInstance } from 'fastify';
+import { isIP } from 'node:net';
+import { z } from 'zod';
+import type { AppContext } from '../context';
+import { badRequest, conflict, notFound } from '../lib/errors';
+import { anyScope, platform, robotParam, route } from '../lib/route';
+import { iso, paginate, Where } from '../lib/sql';
+import { includeDeleted, isoDate, isoDateTime, nullableText, pageQuery, uuidSchema } from '../lib/validation';
+import { ROBOT_SELECT, ROBOT_SORTS, toRobotListItem } from '../services/robots.service';
+
+const listQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  product: z.string().max(50).optional(),
+  status: z.enum(['online', 'stale', 'offline']).optional(),
+  sort: z.string().regex(/^-?[a-z_]+$/).optional(),
+  ...includeDeleted,
+  ...pageQuery,
+});
+const registerBody = z.object({
+  product_id: uuidSchema,
+  serial_number: z.string().trim().min(1).max(100),
+  hardware_revision_id: uuidSchema.nullable().optional(),
+  notes: nullableText(2000).optional(),
+});
+const patchBody = z
+  .object({
+    serial_number: z.string().trim().min(1).max(100).optional(),
+    hardware_revision_id: uuidSchema.nullable().optional(),
+    notes: nullableText(2000).optional(),
+  })
+  .strict();
+const ownershipBody = z.object({ company_id: uuidSchema, reason: nullableText(500).optional(), valid_from: isoDateTime.optional() });
+const ipField = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v),
+  z.string().refine((v) => isIP(v) !== 0, 'must be an IPv4/IPv6 address').nullable(),
+);
+const noCreds = (v: string | null) => v === null || !/:\/\/[^/@]*@/.test(v);
+const hostOrUrl = nullableText(500).refine(noCreds, 'must not contain user:password@');
+const connectivityBody = z
+  .object({
+    network_address: nullableText(200).optional(),
+    ssh_ip: ipField.optional(),
+    cloudflare_tunnel_hostname: nullableText(253).optional(),
+    omni_ip: ipField.optional(),
+    wifi_router_ip: ipField.optional(),
+    gcs_camera_domain: hostOrUrl.optional(),
+    gcs_server_domain: hostOrUrl.optional(),
+  })
+  .strict();
+const cameraBody = z
+  .object({
+    ip: ipField.optional(),
+    // Rule 11: camera stream URLs in normal tables never carry user:password.
+    stream_url: nullableText(1000).refine(noCreds, 'stream URL must not contain credentials; store them under Credentials').optional(),
+    model: nullableText(200).optional(),
+  })
+  .strict();
+const dispatchBody = z
+  .object({
+    dispatch_date: isoDate.nullable().optional(),
+    warranty_start: isoDate.nullable().optional(),
+    warranty_end: isoDate.nullable().optional(),
+    warranty_document_id: uuidSchema.nullable().optional(),
+    notes: nullableText(2000).optional(),
+  })
+  .strict();
+
+export function robotRoutes(f: FastifyInstance, app: AppContext): void {
+  const tag = 'Robots';
+  const { db, robots } = app;
+
+  // ── identity (spec §3 row 1) ─────────────────────────────────────────────
+  route(f, app, {
+    method: 'GET',
+    path: '/robots',
+    summary: 'Robot summary list (spec §5 view 1) with computed status and mission totals',
+    tag,
+    access: { can: 'robot.read', target: anyScope() },
+    query: listQuery,
+    handler: ({ query: q, user }): Promise<Paginated<RobotListItemDto>> => {
+      const w = new Where();
+      app.perms.applyRobotScope(w, app.perms.robotScope(user, 'robot.read'), 'r.robot_id');
+      if (!q.include_deleted) w.add('r.deleted_at IS NULL');
+      if (q.product) w.add('p.code = ?', q.product);
+      if (q.q) w.add('(r.robot_id ILIKE ? OR r.serial_number ILIKE ? OR r.notes ILIKE ?)', `%${q.q}%`, `%${q.q}%`, `%${q.q}%`);
+      if (q.status) {
+        w.add(
+          `(CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
+                 WHEN now() - ls.last_seen_at < interval '60 seconds' THEN 'online'
+                 WHEN now() - ls.last_seen_at <= interval '5 minutes' THEN 'stale' ELSE 'offline' END) = ?`,
+          q.status,
+        );
+      }
+      const desc = q.sort?.startsWith('-');
+      const col = ROBOT_SORTS[q.sort?.replace(/^-/, '') ?? 'robot_id'] ?? ROBOT_SORTS.robot_id;
+      return paginate(db, ROBOT_SELECT, w, `${col} ${desc ? 'DESC' : 'ASC'} NULLS LAST, r.robot_id`, q.page, q.limit, toRobotListItem) as Promise<
+        Paginated<RobotListItemDto>
+      >;
+    },
+  });
+
+  route(f, app, {
+    method: 'POST',
+    path: '/robots',
+    summary: 'Register a robot: allocates the permanent Robot ID, opens ownership, issues its ingest key (shown once)',
+    tag,
+    access: { can: 'robot.write', target: platform() },
+    body: registerBody,
+    status: 201,
+    handler: ({ body, user }): Promise<RobotRegisteredDto> =>
+      withTransaction(db, async (tx) => {
+        const reg = await registerRobot(tx, {
+          productId: body.product_id,
+          serialNumber: body.serial_number,
+          hardwareRevisionId: body.hardware_revision_id ?? null,
+          notes: body.notes ?? null,
+          createdBy: user.id,
+        });
+        return { robot: await robots.detail(reg.robotId, tx), ingest_key: reg.ingestKey, ingest_client_id: reg.ingestClientId };
+      }),
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId',
+    summary: 'Robot detail',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: ({ params }): Promise<RobotDetailDto> => robots.detail(params.robotId),
+  });
+
+  route(f, app, {
+    method: 'PATCH',
+    path: '/robots/:robotId',
+    summary: 'Edit serial number, hardware revision or notes. Robot ID and product are permanent.',
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    body: patchBody,
+    handler: ({ params, body }): Promise<RobotDetailDto> =>
+      withTransaction(db, async (tx) => {
+        const robotId = params.robotId;
+        await robots.assertExists(robotId, {}, tx);
+        const before = await robots.detail(robotId, tx);
+        if (body.hardware_revision_id) {
+          const ok = await tx.query('SELECT 1 FROM hardware_revisions WHERE id = $1 AND product_id = $2 AND deleted_at IS NULL', [
+            body.hardware_revision_id,
+            before.product_id,
+          ]);
+          if (!ok.rowCount) throw badRequest('hardware revision does not belong to this robot’s product');
+        }
+        if (body.serial_number) {
+          const dup = await tx.query('SELECT robot_id FROM robots WHERE upper(serial_number) = upper($1) AND robot_id <> $2', [body.serial_number, robotId]);
+          if (dup.rowCount) throw conflict(`serial number already registered to ${dup.rows[0].robot_id}`);
+        }
+        const sets: string[] = [];
+        const values: unknown[] = [robotId];
+        for (const k of ['serial_number', 'hardware_revision_id', 'notes'] as const) {
+          if (body[k] !== undefined) {
+            values.push(body[k]);
+            sets.push(`${k} = $${values.length}`);
+          }
+        }
+        if (sets.length) await tx.query(`UPDATE robots SET ${sets.join(', ')} WHERE robot_id = $1`, values);
+        return robots.detail(robotId, tx);
+      }),
+  });
+
+  const setDeleted = (deleted: boolean) => async ({ params }: { params: Record<string, string> }): Promise<RobotDetailDto> =>
+    withTransaction(db, async (tx) => {
+      const res = await tx.query(
+        `UPDATE robots SET deleted_at = ${deleted ? 'now()' : 'NULL'} WHERE robot_id = $1 AND deleted_at IS ${deleted ? '' : 'NOT'} NULL`,
+        [params.robotId],
+      );
+      if (!res.rowCount) {
+        await robots.assertExists(params.robotId, { allowDeleted: true }, tx);
+        throw conflict(deleted ? 'robot is already deleted' : 'robot is not deleted');
+      }
+      return robots.detail(params.robotId, tx);
+    });
+  route(f, app, {
+    method: 'DELETE',
+    path: '/robots/:robotId',
+    summary: 'Soft-delete a robot (restorable; its ID is never reused)',
+    tag,
+    access: { can: 'robot.delete', target: robotParam() },
+    handler: setDeleted(true),
+  });
+  route(f, app, {
+    method: 'POST',
+    path: '/robots/:robotId/restore',
+    summary: 'Restore a soft-deleted robot',
+    tag,
+    access: { can: 'robot.delete', target: robotParam() },
+    handler: setDeleted(false),
+  });
+
+  // ── live state (row 10) ──────────────────────────────────────────────────
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/live',
+    summary: 'Current live state with computed status',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: ({ params }) => robots.live(params.robotId),
+  });
+
+  // ── ownership (row 2) ────────────────────────────────────────────────────
+  const ownershipRows = async (robotId: string, q: Queryable): Promise<OwnershipDto[]> => {
+    const rows = await q.query(
+      `SELECT h.id, h.company_id, c.name AS company_name, h.valid_from, h.valid_to, h.reason, u.name AS created_by_name, h.created_at
+       FROM company_assignment_history h JOIN companies c ON c.id = h.company_id LEFT JOIN users u ON u.id = h.created_by
+       WHERE h.robot_id = $1 ORDER BY h.valid_from DESC`,
+      [robotId],
+    );
+    return rows.rows.map((r) => ({ ...r, valid_from: iso(r.valid_from)!, valid_to: iso(r.valid_to), created_at: iso(r.created_at)! }));
+  };
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/ownership',
+    summary: 'Ownership history (newest first)',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: async ({ params }) => {
+      await robots.assertExists(params.robotId, { allowDeleted: true });
+      return ownershipRows(params.robotId, db);
+    },
+  });
+  route(f, app, {
+    method: 'POST',
+    path: '/robots/:robotId/ownership',
+    summary: 'Transfer ownership: closes the current period and opens a new one (history kept)',
+    tag,
+    access: { can: 'ownership.write', target: robotParam() },
+    body: ownershipBody,
+    handler: ({ params, body, user }) =>
+      withTransaction(db, async (tx) => {
+        const robotId = params.robotId;
+        await robots.assertExists(robotId, {}, tx);
+        await tx.query('SELECT 1 FROM robots WHERE robot_id = $1 FOR UPDATE', [robotId]);
+        const company = await tx.query('SELECT 1 FROM companies WHERE id = $1 AND deleted_at IS NULL', [body.company_id]);
+        if (!company.rowCount) throw notFound('company');
+        const current = (
+          await tx.query<{ id: string; company_id: string; valid_from: Date }>(
+            'SELECT id, company_id, valid_from FROM company_assignment_history WHERE robot_id = $1 AND valid_to IS NULL',
+            [robotId],
+          )
+        ).rows[0];
+        const from = body.valid_from ? new Date(body.valid_from) : new Date();
+        if (current?.company_id === body.company_id) throw conflict('robot is already owned by this company');
+        if (current && from <= current.valid_from) throw badRequest('valid_from must be after the start of the current ownership period');
+        if (current) await tx.query('UPDATE company_assignment_history SET valid_to = $2 WHERE id = $1', [current.id, from]);
+        await tx.query('INSERT INTO company_assignment_history (robot_id, company_id, valid_from, reason, created_by) VALUES ($1, $2, $3, $4, $5)', [
+          robotId,
+          body.company_id,
+          from,
+          body.reason ?? null,
+          user.id,
+        ]);
+        return ownershipRows(robotId, tx);
+      }),
+  });
+
+  // ── software (row 4) ─────────────────────────────────────────────────────
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/software',
+    summary: 'Current software/firmware and version history',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: async ({ params }): Promise<SoftwareDto> => {
+      await robots.assertExists(params.robotId, { allowDeleted: true });
+      const rows = await db.query(
+        'SELECT id, sw_ver, fw_ver, enabled_features, reported_at, boot_id FROM software_history WHERE robot_id = $1 ORDER BY reported_at DESC, created_at DESC',
+        [params.robotId],
+      );
+      const history = rows.rows.map((r) => ({ ...r, reported_at: iso(r.reported_at)! }));
+      return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, history };
+    },
+  });
+
+  // ── connectivity (row 5) ─────────────────────────────────────────────────
+  const connectivityDto = async (robotId: string, q: Queryable): Promise<ConnectivityDto> => {
+    const c = (
+      await q.query(
+        `SELECT network_address, host(ssh_ip) AS ssh_ip, cloudflare_tunnel_hostname, host(omni_ip) AS omni_ip,
+                host(wifi_router_ip) AS wifi_router_ip, gcs_camera_domain, gcs_server_domain, reported_ips, reported_at, updated_at
+         FROM connectivity WHERE robot_id = $1`,
+        [robotId],
+      )
+    ).rows[0];
+    const cams = await q.query('SELECT slot, host(ip) AS ip, stream_url, model FROM robot_cameras WHERE robot_id = $1 ORDER BY slot', [robotId]);
+    const bySlot = new Map(cams.rows.map((r) => [r.slot as number, r]));
+    return {
+      robot_id: robotId,
+      network_address: c?.network_address ?? null,
+      ssh_ip: c?.ssh_ip ?? null,
+      cloudflare_tunnel_hostname: c?.cloudflare_tunnel_hostname ?? null,
+      omni_ip: c?.omni_ip ?? null,
+      wifi_router_ip: c?.wifi_router_ip ?? null,
+      gcs_camera_domain: c?.gcs_camera_domain ?? null,
+      gcs_server_domain: c?.gcs_server_domain ?? null,
+      reported_ips: c?.reported_ips ?? null,
+      reported_at: iso(c?.reported_at),
+      updated_at: iso(c?.updated_at),
+      cameras: [1, 2, 3, 4].map((slot) => ({
+        slot,
+        ip: bySlot.get(slot)?.ip ?? null,
+        stream_url: bySlot.get(slot)?.stream_url ?? null,
+        model: bySlot.get(slot)?.model ?? null,
+      })),
+    };
+  };
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/connectivity',
+    summary: 'Network addresses, tunnel, cameras (no secrets) + IPs last reported by the robot',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: async ({ params }) => {
+      await robots.assertExists(params.robotId, { allowDeleted: true });
+      return connectivityDto(params.robotId, db);
+    },
+  });
+  route(f, app, {
+    method: 'PUT',
+    path: '/robots/:robotId/connectivity',
+    summary: 'Update admin-entered connectivity fields',
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    body: connectivityBody,
+    handler: ({ params, body, user }) =>
+      withTransaction(db, async (tx) => {
+        await robots.assertExists(params.robotId, {}, tx);
+        const entries = Object.entries(body).filter(([, v]) => v !== undefined);
+        if (entries.length) {
+          const sets = entries.map(([k], i) => `${k} = $${i + 3}`);
+          await tx.query(`UPDATE connectivity SET ${sets.join(', ')}, updated_by = $2 WHERE robot_id = $1`, [params.robotId, user.id, ...entries.map(([, v]) => v)]);
+        }
+        return connectivityDto(params.robotId, tx);
+      }),
+  });
+  route(f, app, {
+    method: 'PUT',
+    path: '/robots/:robotId/cameras/:slot',
+    summary: 'Set camera 1–4 IP / stream URL (URL must not contain credentials)',
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    body: cameraBody,
+    handler: ({ params, body, user }) => {
+      const slot = Number(params.slot);
+      if (!Number.isInteger(slot) || slot < 1 || slot > 4) throw badRequest('camera slot must be 1–4');
+      return withTransaction(db, async (tx) => {
+        await robots.assertExists(params.robotId, {}, tx);
+        await tx.query(
+          `INSERT INTO robot_cameras (robot_id, slot, ip, stream_url, model, updated_by) VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (robot_id, slot) DO UPDATE SET
+             ip         = CASE WHEN $7 THEN excluded.ip ELSE robot_cameras.ip END,
+             stream_url = CASE WHEN $8 THEN excluded.stream_url ELSE robot_cameras.stream_url END,
+             model      = CASE WHEN $9 THEN excluded.model ELSE robot_cameras.model END,
+             updated_by = excluded.updated_by`,
+          [params.robotId, slot, body.ip ?? null, body.stream_url ?? null, body.model ?? null, user.id, body.ip !== undefined, body.stream_url !== undefined, body.model !== undefined],
+        );
+        return connectivityDto(params.robotId, tx);
+      });
+    },
+  });
+
+  // ── dispatch & warranty (row 8) ──────────────────────────────────────────
+  const dispatchDto = async (robotId: string, q: Queryable): Promise<DispatchWarrantyDto> => {
+    const d = (
+      await q.query(
+        `SELECT dispatch_date, warranty_start, warranty_end, warranty_document_id, notes, updated_at,
+                CASE WHEN warranty_end IS NULL THEN 'none'
+                     WHEN warranty_end < current_date THEN 'expired'
+                     WHEN warranty_end <= current_date + 30 THEN 'expiring'
+                     ELSE 'active' END AS warranty_status
+         FROM dispatch_warranty WHERE robot_id = $1`,
+        [robotId],
+      )
+    ).rows[0];
+    return {
+      robot_id: robotId,
+      dispatch_date: d?.dispatch_date ?? null,
+      warranty_start: d?.warranty_start ?? null,
+      warranty_end: d?.warranty_end ?? null,
+      warranty_document_id: d?.warranty_document_id ?? null,
+      warranty_document: d?.warranty_document_id ? await app.documents.getDto(d.warranty_document_id, q) : null,
+      warranty_status: d?.warranty_status ?? 'none',
+      notes: d?.notes ?? null,
+      updated_at: iso(d?.updated_at),
+    };
+  };
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/dispatch',
+    summary: 'Dispatch date and warranty (with computed warranty status)',
+    tag,
+    access: { can: 'robot.read', target: robotParam() },
+    handler: async ({ params }) => {
+      await robots.assertExists(params.robotId, { allowDeleted: true });
+      return dispatchDto(params.robotId, db);
+    },
+  });
+  route(f, app, {
+    method: 'PUT',
+    path: '/robots/:robotId/dispatch',
+    summary: 'Update dispatch & warranty; the clauses file must be one of the robot’s documents',
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    body: dispatchBody,
+    handler: ({ params, body, user }) =>
+      withTransaction(db, async (tx) => {
+        await robots.assertExists(params.robotId, {}, tx);
+        if (body.warranty_document_id) {
+          const docs = await app.documents.effectiveForRobot(params.robotId, tx);
+          if (!docs.some((d) => d.id === body.warranty_document_id)) {
+            throw badRequest('warranty document must be attached to this robot, its revision or its product');
+          }
+        }
+        const entries = Object.entries(body).filter(([, v]) => v !== undefined);
+        if (entries.length) {
+          const sets = entries.map(([k], i) => `${k} = $${i + 3}`);
+          await tx.query(`UPDATE dispatch_warranty SET ${sets.join(', ')}, updated_by = $2 WHERE robot_id = $1`, [params.robotId, user.id, ...entries.map(([, v]) => v)]);
+        }
+        return dispatchDto(params.robotId, tx);
+      }),
+  });
+}
