@@ -1,0 +1,7 @@
+node_modules/
+*.tsbuildinfo
+*.log
+.env
+.env.local
+.sim-keys.json
+backups/
