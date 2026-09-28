@@ -13,4 +13,4 @@ docs/qa/reports/*.json
 .sim-state.json
 storage/
 .qa-storage/
-apps/admin/public/maplibre/
+apps/frontend/public/maplibre/
