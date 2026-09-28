@@ -1,5 +1,5 @@
 /**
- * Response shapes of the admin REST API (`apps/api`, `/api/v1`), shared with the admin panel.
+ * Response shapes of the admin REST API (`apps/backend`, `/api/v1`), shared with the admin panel.
  * All timestamps are ISO-8601 UTC strings ending in `Z`. Units are in the field name.
  * Secrets NEVER appear in any of these types (CLAUDE.md rule 11).
  */
@@ -137,6 +137,8 @@ export interface RobotListItemDto extends MissionSummaryDto {
   current_mission_id: string | null;
   sw_ver: string | null;
   fw_ver: string | null;
+  /** Critical events on this robot nobody has acknowledged yet. */
+  unacked_critical_events: number;
   created_at: string;
   deleted_at: string | null;
 }
@@ -437,19 +439,6 @@ export interface ReleaseDto {
 }
 
 // ── dashboard / realtime ────────────────────────────────────────────
-export interface DashboardDto {
-  robots_total: number;
-  by_status: Record<RobotStatus, number>;
-  unacked_critical_events: number;
-  unacked_events: number;
-  robots_with_fault: { robot_id: string; devices: string[] }[];
-  missions_last_7d: { completed: number; failed: number; aborted: number; in_progress: number };
-  recent_missions: MissionListItemDto[];
-  recent_events: EventDto[];
-  messages_last_24h: number;
-  warranty_expiring: { robot_id: string; warranty_end: string }[];
-}
-
 export interface IngestLogItemDto {
   msg_id: string;
   robot_id: string;

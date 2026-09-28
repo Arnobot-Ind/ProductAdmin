@@ -1,16 +1,21 @@
 import { buildApp } from './app';
 import { createContext } from './context';
+import { startMqtt } from './ingest/mqtt';
+import { IngestPipeline } from './ingest/pipeline';
 import { loadConfig } from './lib/config';
 import { startRealtime } from './realtime';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const ctx = createContext(cfg);
-  const app = await buildApp(ctx);
+  let pipeline: IngestPipeline | undefined;
+  const app = await buildApp(ctx, (log) => (pipeline = new IngestPipeline(ctx.db, log)));
   const realtime = startRealtime(app.server, ctx, app.log);
+  const mqttClient = startMqtt(cfg.ingest, pipeline!, app.log);
 
   const shutdown = async (signal: string) => {
     app.log.info(`${signal}: shutting down`);
+    mqttClient?.end();
     await realtime.close();
     await app.close();
     await ctx.db.end();

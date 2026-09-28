@@ -1,12 +1,16 @@
-import rateLimit from '@fastify/rate-limit';
+/**
+ * Robot / GCS ingestion routes, served by the same backend as the admin API. They are NOT admin
+ * routes: callers authenticate with an ingest key (`Authorization: Bearer …`), not a session, so they
+ * sit outside route() and outside the admin CSRF hook, with their own body limit, rate limit and errors.
+ */
 import { withTransaction, type Db } from '@arnobot/db';
-import { gcsMissionReportSchema, INGEST_MAX_BATCH, MESSAGE_FORMAT_VERSION } from '@arnobot/message-schema';
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { gcsMissionReportSchema, INGEST_MAX_BATCH } from '@arnobot/message-schema';
+import type { FastifyInstance, FastifyReply, FastifyRequest, RouteShorthandOptions } from 'fastify';
 import { z } from 'zod';
+import type { ApiConfig } from '../lib/config';
 import { IngestAuth, type IngestClient } from './auth';
-import type { IngestConfig } from './config';
 import { MissionConflictError, mergeGcsReport } from './handlers/mission';
-import { IngestPipeline } from './pipeline';
+import type { IngestPipeline } from './pipeline';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -18,27 +22,13 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
   return reply.code(status).send({ error: { code, message, ...(details !== undefined ? { details } : {}) } });
 }
 
-export async function buildServer(db: Db, config: Pick<IngestConfig, 'logLevel' | 'bodyLimitBytes' | 'rateLimitPerMinute'>): Promise<FastifyInstance> {
-  const app = Fastify({
-    logger: {
-      level: config.logLevel,
-      // Rule 11: keys and bodies never reach the logs.
-      redact: { paths: ['req.headers.authorization', 'req.headers.cookie', 'headers.authorization'], censor: '[redacted]' },
-    },
-    bodyLimit: config.bodyLimitBytes,
-    trustProxy: true,
-    disableRequestLogging: false,
-  });
-
+export function ingestRoutes(
+  app: FastifyInstance,
+  db: Db,
+  pipeline: IngestPipeline,
+  cfg: Pick<ApiConfig['ingest'], 'bodyLimitBytes' | 'rateLimitPerMinute'>,
+): void {
   const auth = new IngestAuth(db);
-  const pipeline = new IngestPipeline(db, app.log);
-
-  await app.register(rateLimit, {
-    max: config.rateLimitPerMinute,
-    timeWindow: '1 minute',
-    // Per credential, not per IP: many robots may share one site NAT.
-    keyGenerator: (req) => (req.headers.authorization ? `k:${req.headers.authorization.slice(-16)}` : `ip:${req.ip}`),
-  });
 
   app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, _req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
@@ -53,21 +43,25 @@ export async function buildServer(db: Db, config: Pick<IngestConfig, 'logLevel' 
     req.ingestClient = client;
   };
 
-  app.get('/healthz', async (_req, reply) => {
-    try {
-      await db.query('SELECT 1');
-      return { ok: true, service: 'ingest', format_version: MESSAGE_FORMAT_VERSION, time: new Date().toISOString() };
-    } catch {
-      return reply.code(503).send({ ok: false, service: 'ingest' });
-    }
-  });
+  const opts: RouteShorthandOptions = {
+    bodyLimit: cfg.bodyLimitBytes,
+    // Per credential, not per IP: many robots may share one site NAT.
+    config: {
+      rateLimit: {
+        max: cfg.rateLimitPerMinute,
+        timeWindow: '1 minute',
+        keyGenerator: (req: FastifyRequest) => (req.headers.authorization ? `k:${req.headers.authorization.slice(-16)}` : `ip:${req.ip}`),
+      },
+    },
+    preHandler: requireClient,
+  };
 
   /**
    * POST /api/v1/ingest — one envelope or an array (backlog, oldest first).
    * Always 200 once authenticated; each message gets its own result. The sender deletes its local
    * copy on `stored` or `duplicate`, retries on `retryable: true`, and drops+logs other rejections.
    */
-  app.post('/api/v1/ingest', { preHandler: requireClient }, async (req, reply) => {
+  app.post('/ingest', opts, async (req, reply) => {
     const body = req.body;
     const list = Array.isArray(body) ? body : [body];
     if (!list.length) return sendError(reply, 400, 'empty_batch', 'no messages in request');
@@ -79,7 +73,7 @@ export async function buildServer(db: Db, config: Pick<IngestConfig, 'logLevel' 
   });
 
   /** POST /api/v1/gcs/missions/:missionId/report — the GCS's completed mission report (spec §5). */
-  app.post<{ Params: { missionId: string } }>('/api/v1/gcs/missions/:missionId/report', { preHandler: requireClient }, async (req, reply) => {
+  app.post<{ Params: { missionId: string } }>('/gcs/missions/:missionId/report', opts, async (req, reply) => {
     const missionId = req.params.missionId;
     if (!/^[A-Za-z0-9._:-]{1,200}$/.test(missionId)) return sendError(reply, 400, 'bad_mission_id', 'invalid mission id');
     const parsed = gcsMissionReportSchema.safeParse(req.body);
@@ -105,5 +99,4 @@ export async function buildServer(db: Db, config: Pick<IngestConfig, 'logLevel' 
     }
   });
 
-  return app;
 }

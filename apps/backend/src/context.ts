@@ -20,7 +20,7 @@ export interface AppContext {
   documents: DocumentsService;
 }
 
-export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUrl, { application_name: 'pms-api', max: 20 })): AppContext {
+export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUrl, { application_name: 'pms-backend', max: 30 })): AppContext {
   const storage = new StorageService(cfg);
   return {
     cfg,

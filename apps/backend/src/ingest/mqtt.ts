@@ -5,18 +5,18 @@
  *          arnobot/v1/{robot_id}/ack          PMS → sender: { msg_id, status, error? }
  *
  * Authentication happens at the BROKER: each robot/GCS gets broker credentials and an ACL that only
- * lets it publish under its own robot_id(s). The ingest service then treats the topic's robot_id as
+ * lets it publish under its own robot_id(s). The backend then treats the topic's robot_id as
  * the authenticated identity and rejects envelopes whose robot_id differs from the topic.
  */
 import mqtt, { type MqttClient } from 'mqtt';
-import type { IngestConfig } from './config';
+import type { ApiConfig } from '../lib/config';
 import type { IngestPipeline } from './pipeline';
 
 const TOPIC = 'arnobot/v1/+/+';
 const TOPIC_RE = /^arnobot\/v1\/([a-z][a-z0-9_]*[0-9]+)\/(hello|live|telemetry|event|mission)$/;
 
 export function startMqtt(
-  config: IngestConfig,
+  config: ApiConfig['ingest'],
   pipeline: IngestPipeline,
   log: { info: (o: object | string, m?: string) => void; warn: (o: object, m: string) => void },
 ): MqttClient | null {
@@ -24,7 +24,7 @@ export function startMqtt(
   const client = mqtt.connect(config.mqttUrl, {
     username: config.mqttUsername ?? undefined,
     password: config.mqttPassword ?? undefined,
-    clientId: `pms-ingest-${process.pid}`,
+    clientId: `pms-backend-${process.pid}`,
     clean: false, // persistent session: QoS1 messages queued while we were down are delivered
     reconnectPeriod: 5_000,
   });

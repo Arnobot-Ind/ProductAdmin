@@ -17,7 +17,8 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
             WHEN now() - ls.last_seen_at <= interval '5 minutes'  THEN 'stale'
             ELSE 'offline' END AS status,
        ms.total_missions, ms.completed, ms.failed, ms.aborted, ms.in_progress,
-       ms.total_distance_m, ms.total_duration_s, ms.avg_duration_s
+       ms.total_distance_m, ms.total_duration_s, ms.avg_duration_s,
+       ev.unacked_critical_events
 FROM robots r
 JOIN products p ON p.id = r.product_id
 LEFT JOIN hardware_revisions hr ON hr.id = r.hardware_revision_id
@@ -37,7 +38,11 @@ LEFT JOIN LATERAL (
          coalesce(sum(duration_s), 0)::float8 AS total_duration_s,
          avg(duration_s)::float8 AS avg_duration_s
   FROM missions WHERE robot_id = r.robot_id
-) ms ON true`;
+) ms ON true
+LEFT JOIN LATERAL (
+  SELECT count(*)::int AS unacked_critical_events
+  FROM events WHERE robot_id = r.robot_id AND severity = 'critical' AND acknowledged_at IS NULL
+) ev ON true`;
 
 type RobotRow = Record<string, unknown> & {
   robot_id: string;
@@ -76,6 +81,7 @@ export function toRobotListItem(r: RobotRow): RobotListItemDto {
     total_distance_m: Number(r.total_distance_m ?? 0),
     total_duration_s: Number(r.total_duration_s ?? 0),
     avg_duration_s: r.avg_duration_s === null || r.avg_duration_s === undefined ? null : Number(r.avg_duration_s),
+    unacked_critical_events: Number(r.unacked_critical_events ?? 0),
     created_at: iso(r.created_at)!,
     deleted_at: iso(r.deleted_at),
   };

@@ -10,8 +10,9 @@ import { SESSION_COOKIE, type AuthUser } from './services/auth.service';
 export const CHANGE_CHANNEL = 'pms_changes';
 
 /**
- * Live push to the admin panel. apps/ingest calls pg_notify('pms_changes', …) inside its transaction
- * (delivered only on COMMIT); this process LISTENs on a dedicated connection and fans each change out
+ * Live push to the admin panel. The ingest pipeline calls pg_notify('pms_changes', …) inside its transaction
+ * (delivered only on COMMIT, so rolled-back data is never announced, and it works across several backend
+ * instances); this process LISTENs on a dedicated connection and fans each change out
  * over Socket.IO — only to users allowed to read that robot. No extra broker needed in v1; for several
  * API instances, add the Socket.IO Redis adapter (see docs/improvements).
  */

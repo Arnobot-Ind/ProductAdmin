@@ -31,7 +31,7 @@ const createBody = z.object({
 });
 
 /**
- * Who may push data into the PMS (apps/ingest). A robot client is created with each robot; GCS clients
+ * Who may push data into the PMS (POST /api/v1/ingest). A robot client is created with each robot; GCS clients
  * are created here and assigned the robots they relay for. Keys are shown once and stored as SHA-256.
  * Rotation = issue a new key, deploy it, then revoke the old one (zero downtime).
  */

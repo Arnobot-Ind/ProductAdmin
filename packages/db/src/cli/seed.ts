@@ -97,7 +97,7 @@ async function seedDemoRobots(tx: PoolClient, adminId: string): Promise<void> {
   const keys: SimKeys = existsSync(SIM_KEYS_PATH)
     ? (JSON.parse(readFileSync(SIM_KEYS_PATH, 'utf8')) as SimKeys)
     : { ingest_url: '', robots: {} };
-  keys.ingest_url = `http://localhost:${process.env.INGEST_PORT ?? 4100}`;
+  keys.ingest_url = `http://localhost:${process.env.API_PORT ?? 4000}`;
   keys.api_url = `http://localhost:${process.env.API_PORT ?? 4000}`;
 
   const robotIds: string[] = [];
@@ -162,7 +162,7 @@ async function seedDemoRobots(tx: PoolClient, adminId: string): Promise<void> {
       name: 'Simulated GCS',
       kind: 'gcs',
       robotIds,
-      notes: 'Used by tools/robot-sim to play the GCS role (mission reports)',
+      notes: 'Demo GCS ingest client (mission reports)',
       createdBy: adminId,
     });
     keys.gcs = { client_id: gcs.clientId, key: gcs.key };

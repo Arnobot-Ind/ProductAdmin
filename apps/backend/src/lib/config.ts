@@ -8,6 +8,15 @@ export interface ApiConfig {
   cookieSecure: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   maxUploadBytes: number;
+  /** Robot / GCS ingestion (POST /api/v1/ingest, optional MQTT). */
+  ingest: {
+    /** Max HTTP body (a reconnecting robot uploads backlog in batches). */
+    bodyLimitBytes: number;
+    rateLimitPerMinute: number;
+    mqttUrl: string | null;
+    mqttUsername: string | null;
+    mqttPassword: string | null;
+  };
   storage: {
     driver: 'local' | 's3';
     localDir: string;
@@ -41,6 +50,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     cookieSecure: env.COOKIE_SECURE === 'true',
     logLevel: ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info',
     maxUploadBytes: Number(env.MAX_UPLOAD_MB || 1024) * 1024 * 1024,
+    ingest: {
+      bodyLimitBytes: Number(env.INGEST_BODY_LIMIT_MB || 20) * 1024 * 1024,
+      rateLimitPerMinute: Number(env.INGEST_RATE_LIMIT_PER_MIN || 600),
+      mqttUrl: env.MQTT_BROKER_URL || null,
+      mqttUsername: env.MQTT_USERNAME || null,
+      mqttPassword: env.MQTT_PASSWORD || null,
+    },
     storage: {
       driver,
       localDir: env.STORAGE_LOCAL_DIR || './storage',
