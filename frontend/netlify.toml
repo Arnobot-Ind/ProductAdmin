@@ -5,3 +5,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# Next.js runtime: server-rendered routes, the /api/v1 proxy (rewrites) and headers. Without it Netlify
+# serves the raw .next folder as static files and every page is a 404.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
