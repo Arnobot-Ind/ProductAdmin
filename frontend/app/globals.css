@@ -1,0 +1,158 @@
+@import 'tailwindcss';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+/* Theme switch: <html data-theme="dark|light">. Default follows the OS (set before paint in layout). */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * Arnobot brand (ARNOBOT_BRAND_CONTEXT.md): black / near-black surfaces, white type,
+ * steel-blue (#A7BCE3) and brand blue (#38559D) accents, Syne for display, DM Sans for body.
+ * Every foreground/background pair below meets WCAG 2.2 AA (≥ 4.5:1 for text).
+ */
+:root,
+[data-theme='light'] {
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --border: #d4d8e0;
+  --text: #111111;
+  --text-muted: #4a4f5a;
+  --accent: #38559d;
+  --accent-fg: #ffffff;
+  --accent-soft: #e3e9f6;
+  --accent-text: #2d4582;
+  --ok: #15803d;
+  --ok-bg: #dcfce7;
+  --warn: #92400e;
+  --warn-bg: #fef3c7;
+  --fault: #b91c1c;
+  --fault-bg: #fee2e2;
+  --offline: #4b5563;
+  --offline-bg: #e5e7eb;
+  --focus: #38559d;
+  --map-planned: #b45309;
+  --map-actual: #1d4ed8;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface-2: #181b22;
+  --border: #2a2e37;
+  --text: #f2f2f2;
+  --text-muted: #a8adb8;
+  --accent: #a7bce3;
+  --accent-fg: #0a0a0a;
+  --accent-soft: #1b2338;
+  --accent-text: #a7bce3;
+  --ok: #4ade80;
+  --ok-bg: #0f2a1a;
+  --warn: #fbbf24;
+  --warn-bg: #2d2205;
+  --fault: #f87171;
+  --fault-bg: #2e1111;
+  --offline: #a3a3a3;
+  --offline-bg: #1f2126;
+  --focus: #a7bce3;
+  --map-planned: #fbbf24;
+  --map-actual: #60a5fa;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-fault: var(--fault);
+  --color-fault-bg: var(--fault-bg);
+  --color-offline: var(--offline);
+  --color-offline-bg: var(--offline-bg);
+  --font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  /* Visible, consistent keyboard focus everywhere (WCAG 2.4.7 / 2.4.11). */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: #1d4ed8;
+}
+
+/* Map point labels (fleet map, robot position). */
+.pms-map-popup .maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+.pms-map-popup .maplibregl-popup-tip {
+  display: none;
+}

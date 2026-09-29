@@ -1,0 +1,29 @@
+{
+  "name": "@arnobot/storage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Arnobot PMS storage service: the PostgreSQL database (schema, migrations, seed) and the S3 video bucket. The backend server only connects to them.",
+  "scripts": {
+    "setup": "npm install && npm run db:create && npm run db:migrate && npm run db:seed",
+    "db:create": "tsx --env-file=.env src/cli/create-db.ts",
+    "db:migrate": "tsx --env-file=.env src/cli/migrate.ts up",
+    "db:status": "tsx --env-file=.env src/cli/migrate.ts status",
+    "db:seed": "tsx --env-file=.env src/cli/seed.ts",
+    "db:timescale": "tsx --env-file=.env src/cli/timescale.ts",
+    "db:reset": "tsx --env-file=.env src/cli/reset-db.ts --confirm && npm run db:create && npm run db:migrate && npm run db:seed",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.2.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
