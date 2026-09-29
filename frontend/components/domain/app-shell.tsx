@@ -3,18 +3,21 @@
 import {
   Activity,
   Bot,
+  Building2,
   Boxes,
+  Download,
   Inbox,
   LayoutDashboard,
   LogOut,
   Menu,
   Moon,
   Package,
+  ScrollText,
   Settings,
+  ShieldCheck,
   Sun,
   UserCog,
   Users,
-  Video,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -22,7 +25,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { useCan, useMe } from '@/lib/auth';
+import { useCan, useCanAnywhere, useMe } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useRealtime } from '@/lib/realtime';
 import { useTheme } from '@/lib/theme';
@@ -35,6 +38,8 @@ interface NavItem {
   /** Platform-level permission needed to show the link (the API enforces regardless). */
   perm?: string;
   anyOf?: string[];
+  /** Permission held in any scope (customers hold theirs on their organization). */
+  scoped?: string;
 }
 
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -44,8 +49,8 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/', label: 'Dashboard', Icon: LayoutDashboard },
       // Missions and events belong to one robot: they live on that robot's page, not here.
       { href: '/robots', label: 'Robots', Icon: Bot },
-      // Camera recordings of every robot (also on each robot's "Videos" tab).
-      { href: '/videos', label: 'Videos', Icon: Video },
+      // Recordings are watched on each robot's Videos tab; all recorded data (video, IMU, GPS, LiDAR, encoders) exports here.
+      { href: '/downloads', label: 'Data export', Icon: Download, scoped: 'data.download' },
     ],
   },
   {
@@ -56,11 +61,19 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    section: 'Access',
+    items: [
+      { href: '/admin/organizations', label: 'Organizations', Icon: Building2, perm: 'org.manage' },
+      { href: '/admin/users', label: 'Users', Icon: Users, perm: 'user.manage' },
+      { href: '/admin/access', label: 'Roles & permissions', Icon: ShieldCheck },
+      { href: '/admin/audit', label: 'Audit log', Icon: ScrollText, perm: 'audit.read' },
+    ],
+  },
+  {
     section: 'Platform',
     items: [
       { href: '/ingest', label: 'Ingest', Icon: Inbox, anyOf: ['ingest.read', 'ingest.manage'] },
-      { href: '/admin/users', label: 'Users & roles', Icon: Users, perm: 'user.manage' },
-      { href: '/settings', label: 'Settings & status', Icon: Settings },
+      { href: '/settings', label: 'Settings & status', Icon: Settings, perm: 'system.read' },
       { href: '/account', label: 'My account', Icon: UserCog },
     ],
   },
@@ -74,6 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const me = useMe();
   const can = useCan();
+  const canAnywhere = useCanAnywhere();
   const { connected } = useRealtime();
   const { theme, toggle } = useTheme();
   const qc = useQueryClient();
@@ -93,7 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = (
     <nav aria-label="Main" className="flex flex-col gap-5 px-3 py-4">
       {NAV.map((group) => {
-        const items = group.items.filter((i) => (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))));
+        const items = group.items.filter((i) => (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))) && (!i.scoped || canAnywhere(i.scoped)));
         if (!items.length) return null;
         return (
           <div key={group.section}>
@@ -175,7 +189,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             <span className="hidden text-right text-xs leading-tight md:block">
               <span className="block font-semibold text-fg">{me.name}</span>
-              <span className="block text-muted">{me.email}</span>
+              <span className="block text-muted">
+                {me.email}{me.organization && <> · {me.organization.name}</>}
+              </span>
             </span>
             <button type="button" onClick={logout} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-sm hover:bg-surface-2">
               <LogOut className="size-4" aria-hidden />

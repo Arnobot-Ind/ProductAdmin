@@ -1,7 +1,7 @@
 'use client';
 
 import type { ArchiveRobotLinkDto, ArchiveSessionDto } from '@arnobot/message-schema';
-import { AlertTriangle, Download, Play } from 'lucide-react';
+import { AlertTriangle, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Badge, Time } from '@/components/ui/misc';
@@ -81,6 +81,7 @@ export function SessionsTable({ sessions, showRobot, caption, empty }: { session
             <span className="flex flex-wrap gap-1">
               <SessionStatusBadge status={s.status} />
               <UploadBadge upload={s.upload} status={s.status} />
+              {s.deleted_at && <Badge tone="fault">Deleted</Badge>}
             </span>
           ),
         },
@@ -93,9 +94,9 @@ export function SessionsTable({ sessions, showRobot, caption, empty }: { session
               href={videoHref(s)}
               onClick={(e) => e.stopPropagation()}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-surface-2"
-              aria-label={`Watch or download ${s.session_id}`}
+              aria-label={`Open recording ${s.session_id}`}
             >
-              <Download className="size-3.5" aria-hidden /> Watch / download
+              <Play className="size-3.5" aria-hidden /> Open
             </Link>
           ),
         },

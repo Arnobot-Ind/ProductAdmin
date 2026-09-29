@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { GeoMap, MapLegend, type MapLine, type MapPoint } from '@/components/domain/geo-map';
 import { MissionResultBadge } from '@/components/domain/status';
+import { MissionReportButton } from '@/components/domain/mission-reports';
 import { Badge, Card, EmptyState, KeyValue, Mono, PageHeader, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
@@ -72,7 +73,13 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
           Missions
         </Link>
       </nav>
-      <PageHeader eyebrow="Mission report" title={<span className="font-mono">{m.mission_id}</span>} description={m.name ?? undefined} actions={<MissionResultBadge result={m.result} />} />
+      <PageHeader eyebrow="Mission report" title={<span className="font-mono">{m.mission_id}</span>} description={m.name ?? undefined} actions={
+          <>
+            <MissionResultBadge result={m.result} />
+            <MissionReportButton mission={m} />
+          </>
+        }
+      />
 
       <div className="grid gap-6 xl:grid-cols-3">
         <Card title="Summary" className="xl:col-span-1">

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Suspense, useEffect, type ReactNode } from 'react';
 import { AppShell } from '@/components/domain/app-shell';
 import { BrandMark } from '@/components/domain/brand';
+import { PasswordChangeGate } from '@/components/domain/password-change-gate';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 import { Spinner } from '@/components/ui/spinner';
 import { ApiError } from '@/lib/api';
@@ -38,6 +39,9 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
       </main>
     );
   }
+
+  // Temporary password: the API refuses everything else until it is changed.
+  if (me.data.must_change_password) return <PasswordChangeGate me={me.data} />;
 
   return (
     <MeProvider me={me.data}>

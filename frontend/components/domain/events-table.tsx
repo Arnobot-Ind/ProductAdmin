@@ -10,7 +10,7 @@ import { Badge, EmptyState, ErrorState, LoadingBlock, Pagination, Time } from '@
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
-import { useCan } from '@/lib/auth';
+import { useCanAnywhere } from '@/lib/auth';
 import { fromLocalInput, toLocalInput } from '@/lib/format';
 import { useLivePoll } from '@/lib/realtime';
 import { EVENT_SEVERITIES, EVENT_TYPES } from '@/lib/schema';
@@ -39,7 +39,8 @@ export function EventsTable({
   onFilters: (patch: Partial<EventFilters>) => void;
   robotId: string;
 }) {
-  const can = useCan();
+  // Per robot: an organization manager may acknowledge events on their own robots (the API checks each one).
+  const can = useCanAnywhere();
   const canAck = can('event.ack');
   const qc = useQueryClient();
   const toast = useToast();

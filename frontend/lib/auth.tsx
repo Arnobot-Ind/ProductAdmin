@@ -34,3 +34,18 @@ export function useCan(): (permission: string) => boolean {
   const me = useContext(MeContext);
   return (permission: string) => !!me?.permissions.includes(permission);
 }
+
+/**
+ * Holds the permission in ANY scope (platform, organization or robot): a customer user's view of what they may do
+ * on their own robots. UI only; per-robot answers come from the API (e.g. ArchiveSessionDetailDto.access).
+ */
+export function useCanAnywhere(): (permission: string) => boolean {
+  const me = useContext(MeContext);
+  // Falls back to platform permissions for a backend that predates scoped permissions.
+  return (permission: string) => !!(me?.scoped_permissions ?? me?.permissions)?.includes(permission);
+}
+
+/** Signed in as a customer organization's user (e.g. Adani), not Arnobot staff. */
+export function useIsCustomer(): boolean {
+  return useContext(MeContext)?.organization?.kind === 'customer';
+}

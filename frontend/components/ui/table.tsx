@@ -14,6 +14,8 @@ export interface Column<T> {
   className?: string;
   /** Row header cell (th scope=row) for the identifying column. */
   rowHeader?: boolean;
+  /** Stays in view while the table scrolls sideways (first column of wide tables). */
+  sticky?: boolean;
 }
 
 export interface SortState {
@@ -74,7 +76,7 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => {
-                  const cls = cn(dense ? 'px-3 py-1.5' : 'px-3 py-2.5', alignClass(c.align), c.className);
+                  const cls = cn(dense ? 'px-3 py-1.5' : 'px-3 py-2.5', alignClass(c.align), c.className, c.sticky && 'sticky left-0 z-[1] bg-surface shadow-[1px_0_0_var(--border)]');
                   return c.rowHeader ? (
                     <th key={c.key} scope="row" className={cn(cls, 'font-medium')}>
                       {c.cell(row)}
@@ -101,7 +103,12 @@ function alignClass(a?: 'left' | 'right' | 'center') {
 function HeaderCell<T>({ column, sort, onSort }: { column: Column<T>; sort?: SortState | null; onSort?: (s: SortState) => void }) {
   const active = sort && column.sortKey && sort.key === column.sortKey;
   const ariaSort: ThHTMLAttributes<HTMLTableCellElement>['aria-sort'] = active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : column.sortKey ? 'none' : undefined;
-  const cls = cn('px-3 py-2.5 text-xs font-semibold tracking-wide text-muted uppercase', alignClass(column.align), column.className);
+  const cls = cn(
+    'px-3 py-2.5 text-xs font-semibold tracking-wide text-muted uppercase',
+    alignClass(column.align),
+    column.className,
+    column.sticky && 'sticky left-0 z-[2] bg-surface-2 shadow-[1px_0_0_var(--border)]',
+  );
   if (!column.sortKey || !onSort) {
     return (
       <th scope="col" className={cls}>

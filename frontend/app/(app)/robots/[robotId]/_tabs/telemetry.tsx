@@ -250,6 +250,8 @@ function TimeChart({
   summary: string;
 }) {
   const fmt = tickTime(from, to);
+  // Leave out series the robot never reports (e.g. battery / motor temperature on Saibya).
+  const shown = lines.filter((l) => data.some((d) => d[l.key] !== null && d[l.key] !== undefined));
   return (
     <figure>
       <div className="h-64" role="img" aria-label={`${label}. ${summary}.`}>
@@ -258,13 +260,13 @@ function TimeChart({
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
             <XAxis dataKey="t" type="number" scale="time" domain={[Date.parse(from), Date.parse(to)]} tickFormatter={fmt} stroke="var(--text-muted)" fontSize={11} />
             <YAxis yAxisId="left" stroke="var(--text-muted)" fontSize={11} unit={` ${leftUnit}`} width={64} />
-            {rightUnit && <YAxis yAxisId="right" orientation="right" stroke="var(--text-muted)" fontSize={11} unit={` ${rightUnit}`} width={56} />}
+            {rightUnit && shown.some((l) => l.axis === 'right') && <YAxis yAxisId="right" orientation="right" stroke="var(--text-muted)" fontSize={11} unit={` ${rightUnit}`} width={56} />}
             <Tooltip
               labelFormatter={(v) => fmtDateTime(new Date(Number(v)).toISOString())}
               contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)' }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            {lines.map((l) => (
+            {shown.map((l) => (
               <Line key={l.key} yAxisId={l.axis} dataKey={l.key} name={l.name} stroke={l.color} dot={false} strokeWidth={2} connectNulls isAnimationActive={false} />
             ))}
           </LineChart>

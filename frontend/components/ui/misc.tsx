@@ -35,7 +35,8 @@ export function Card({ title, actions, children, className, bodyClassName }: { t
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cn('p-4', bodyClassName)}>{children}</div>
+      {/* A custom body class replaces the default padding (cn() does not resolve Tailwind conflicts). */}
+      <div className={bodyClassName ?? 'p-4'}>{children}</div>
     </section>
   );
 }

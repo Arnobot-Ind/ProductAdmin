@@ -20,20 +20,41 @@ export interface MapPoint {
   label?: string;
 }
 
-/** OpenStreetMap raster tiles. Attribution is required by the OSM tile usage policy. */
+/**
+ * Google map tiles, the same public tile servers the GCS uses (roadmap `lyrs=m`, satellite `lyrs=s`), spread over
+ * mt0–mt3. No key. Unofficial route: Google may rate-limit or block it, and its terms restrict use outside Google's
+ * own apps — swap `tiles` for a keyed provider (Google Map Tiles API, MapTiler) or self-hosted OSM tiles if needed.
+ * Real detail to zoom 20; MapLibre over-zooms to 22.
+ */
+const googleTiles = (layer: 'm' | 's') => ['mt0', 'mt1', 'mt2', 'mt3'].map((s) => `https://${s}.google.com/vt/lyrs=${layer}&x={x}&y={y}&z={z}`);
+const GOOGLE_ATTRIBUTION = 'Map data © Google';
 const STYLE = {
   version: 8 as const,
   sources: {
-    osm: {
-      type: 'raster' as const,
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    },
+    'google-road': { type: 'raster' as const, tiles: googleTiles('m'), tileSize: 256, maxzoom: 20, attribution: GOOGLE_ATTRIBUTION },
+    'google-sat': { type: 'raster' as const, tiles: googleTiles('s'), tileSize: 256, maxzoom: 20, attribution: GOOGLE_ATTRIBUTION },
   },
-  layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
+  layers: [
+    { id: 'google-road', type: 'raster' as const, source: 'google-road' },
+    { id: 'google-sat', type: 'raster' as const, source: 'google-sat', layout: { visibility: 'none' as const } },
+  ],
 };
+
+type BaseLayer = 'road' | 'satellite';
+const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+
+/**
+ * Google has no dark roadmap: in dark mode the roadmap tiles are inverted (brightness min/max swapped) and
+ * hue-rotated so water stays blue. Only the tile layer is touched, so robot tracks and markers keep their colours.
+ * Satellite imagery is never inverted.
+ */
+function applyTheme(map: MlMap) {
+  const dark = isDark();
+  map.setPaintProperty('google-road', 'raster-brightness-min', dark ? 1 : 0);
+  map.setPaintProperty('google-road', 'raster-brightness-max', dark ? 0.1 : 1);
+  map.setPaintProperty('google-road', 'raster-hue-rotate', dark ? 180 : 0);
+  map.setPaintProperty('google-road', 'raster-saturation', dark ? -0.3 : 0);
+}
 
 function cssVar(value: string): string {
   if (!value.startsWith('var(')) return value;
@@ -45,11 +66,32 @@ function cssVar(value: string): string {
  * MapLibre map (client only). Lines and points are redrawn when props change; the view fits all
  * geometry. A text summary is provided for screen readers via `ariaLabel` + the legend outside.
  */
-export function GeoMap({ lines = [], points = [], className, ariaLabel }: { lines?: MapLine[]; points?: MapPoint[]; className?: string; ariaLabel: string }) {
+const NO_LINES: MapLine[] = [];
+const NO_POINTS: MapPoint[] = [];
+
+export function GeoMap({
+  lines = NO_LINES,
+  points = NO_POINTS,
+  className,
+  ariaLabel,
+  onPointClick,
+}: {
+  lines?: MapLine[];
+  points?: MapPoint[];
+  className?: string;
+  ariaLabel: string;
+  /** Makes the points clickable (e.g. open that robot); hovering shows their label. */
+  onPointClick?: (id: string) => void;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
+  // The view is fitted to the geometry once per set of ids, so live refreshes never undo the user's zoom / pan.
+  const fittedFor = useRef<string | null>(null);
+  const clickRef = useRef(onPointClick);
+  clickRef.current = onPointClick;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [base, setBase] = useState<BaseLayer>('road');
 
   useEffect(() => {
     let cancelled = false;
@@ -66,25 +108,68 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
           style: STYLE,
           center: [72.5714, 23.0225],
           zoom: 3,
+          maxZoom: 22,
           attributionControl: { compact: true },
           cooperativeGestures: true,
         });
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), 'top-right');
         map.on('load', () => {
-          if (!cancelled) setReady(true);
+          if (cancelled || !map) return;
+          applyTheme(map);
+          setReady(true);
+        });
+        // Point labels on hover; click → onPointClick (the layer is re-created on every data change, the handlers are not).
+        const popup = new maplibre.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'pms-map-popup' });
+        map.on('mouseenter', 'pms-points', (e) => {
+          const f = e.features?.[0];
+          if (!f || !map) return;
+          map.getCanvas().style.cursor = clickRef.current ? 'pointer' : '';
+          const label = String(f.properties?.label ?? '');
+          if (label) popup.setLngLat((f.geometry as unknown as { coordinates: [number, number] }).coordinates).setText(label).addTo(map);
+        });
+        map.on('mouseleave', 'pms-points', () => {
+          if (map) map.getCanvas().style.cursor = '';
+          popup.remove();
+        });
+        map.on('click', 'pms-points', (e) => {
+          const id = e.features?.[0]?.properties?.id;
+          if (id && clickRef.current) clickRef.current(String(id));
         });
         mapRef.current = map;
       } catch {
         setFailed(true);
       }
     })();
+    // Follow the panel's light / dark toggle.
+    // (isStyleLoaded() is false while tiles are still loading, so it is not a usable guard here.)
+    const themeObserver = new MutationObserver(() => {
+      try {
+        if (mapRef.current) applyTheme(mapRef.current);
+      } catch {
+        /* style not ready yet: the load handler applies the theme */
+      }
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // The map measures its box once at creation; a box that grows later (grid / tab layout settling) would
+    // otherwise keep a narrow strip of tiles.
+    const resizeObserver = new ResizeObserver(() => mapRef.current?.resize());
+    if (container.current) resizeObserver.observe(container.current);
     return () => {
       cancelled = true;
+      themeObserver.disconnect();
+      resizeObserver.disconnect();
       map?.remove();
       mapRef.current = null;
       setReady(false);
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    map.setLayoutProperty('google-road', 'visibility', base === 'road' ? 'visible' : 'none');
+    map.setLayoutProperty('google-sat', 'visibility', base === 'satellite' ? 'visible' : 'none');
+  }, [base, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -119,7 +204,7 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
-          features: points.map((p) => ({ type: 'Feature', properties: { color: cssVar(p.color), label: p.label ?? '' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })),
+          features: points.map((p) => ({ type: 'Feature', properties: { id: p.id, color: cssVar(p.color), label: p.label ?? '' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })),
         },
       });
       map.addLayer({
@@ -130,7 +215,9 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
       });
       for (const p of points) extend(p.lon, p.lat);
     }
-    if (Number.isFinite(bounds[0])) {
+    const fitKey = [...lines.map((l) => `l:${l.id}`), ...points.map((p) => `p:${p.id}`)].join('|');
+    if (Number.isFinite(bounds[0]) && fittedFor.current !== fitKey) {
+      fittedFor.current = fitKey;
       if (bounds[0] === bounds[2] && bounds[1] === bounds[3]) map.jumpTo({ center: [bounds[0], bounds[1]], zoom: 16 });
       else map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
     }
@@ -141,6 +228,21 @@ export function GeoMap({ lines = [], points = [], className, ariaLabel }: { line
       {/* Explicit size: MapLibre sets `.maplibregl-map { position: relative }`, which would override
           `absolute inset-0` and collapse the container to 0 px high (blank map). */}
       <div ref={container} className="h-full w-full" role="region" aria-label={ariaLabel} />
+      {ready && (
+        <div role="group" aria-label="Map type" className="absolute top-2 left-2 z-10 flex overflow-hidden rounded-md border border-border bg-surface text-xs font-medium shadow-sm">
+          {(['road', 'satellite'] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              aria-pressed={base === b}
+              onClick={() => setBase(b)}
+              className={cn('px-2.5 py-1.5', base === b ? 'bg-accent text-accent-fg' : 'text-fg hover:bg-surface-2')}
+            >
+              {b === 'road' ? 'Map' : 'Satellite'}
+            </button>
+          ))}
+        </div>
+      )}
       {failed && <p className="absolute inset-0 flex items-center justify-center text-sm text-muted">Map could not be loaded.</p>}
     </div>
   );

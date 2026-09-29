@@ -10,7 +10,7 @@ import { Checkbox, Field, Input, Select } from '@/components/ui/field';
 import { EmptyState, ErrorState, LoadingBlock, PageHeader, Pagination } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
-import { useCan } from '@/lib/auth';
+import { useCan, useCanAnywhere, useIsCustomer } from '@/lib/auth';
 import { fmtBytes } from '@/lib/format';
 import { useDebounced, useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
@@ -30,6 +30,9 @@ export default function VideosPage() {
   const robot = params.get('robot') ?? '';
   const status = params.get('status') ?? '';
   const includeSim = params.get('include_sim') === 'true';
+  const includeDeleted = params.get('include_deleted') === 'true';
+  const canAnywhere = useCanAnywhere();
+  const isCustomer = useIsCustomer();
   const page = Number(params.get('page') ?? 1) || 1;
 
   useEffect(() => {
@@ -44,8 +47,9 @@ export default function VideosPage() {
     staleTime: 60_000,
   });
   const sessions = useQuery({
-    queryKey: ['archive', 'sessions', { q, product, robot, status, includeSim, page }],
-    queryFn: () => api.get<ArchiveSessionListDto>('/archive/sessions', { q, product, robot, status, include_sim: includeSim, page, limit: LIMIT }),
+    queryKey: ['archive', 'sessions', { q, product, robot, status, includeSim, includeDeleted, page }],
+    queryFn: () =>
+      api.get<ArchiveSessionListDto>('/archive/sessions', { q, product, robot, status, include_sim: includeSim, include_deleted: includeDeleted, page, limit: LIMIT }),
     placeholderData: keepPreviousData,
     refetchInterval: poll === false ? 60_000 : poll,
   });
@@ -123,6 +127,9 @@ export default function VideosPage() {
           </Select>
         </Field>
         <Checkbox label="Bench simulations" checked={includeSim} onChange={(e) => setParams({ include_sim: e.target.checked ? 'true' : null, page: null })} className="h-10" />
+        {canAnywhere('data.delete') && (
+          <Checkbox label="Deleted" checked={includeDeleted} onChange={(e) => setParams({ include_deleted: e.target.checked ? 'true' : null, page: null })} className="h-10" />
+        )}
       </form>
 
       {sessions.isLoading ? (
@@ -133,7 +140,11 @@ export default function VideosPage() {
         <EmptyState
           icon={<Video className="size-8" />}
           title="No recordings yet"
-          description="Robots upload camera segments with their ingest key (PUT /api/v1/archive/upload). To try it locally, run npm run archive:sim in backend/."
+          description={
+            isCustomer
+              ? 'Your organization’s robots have not uploaded any recordings yet.'
+              : 'Robots upload camera segments with their ingest key (PUT /api/v1/archive/upload), and recordings already in the archive bucket appear within minutes. To try it locally, run npm run archive:sim in backend/.'
+          }
         />
       ) : (
         <>

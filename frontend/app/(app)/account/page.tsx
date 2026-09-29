@@ -40,11 +40,11 @@ export default function AccountPage() {
     }
   };
 
-  const active = me.grants.filter((g) => !g.revoked_at);
+  const active = (me.grants ?? []).filter((g) => !g.revoked_at);
 
   return (
     <>
-      <PageHeader eyebrow="Platform" title="My account" />
+      <PageHeader eyebrow="Platform" title="My account" description="See Roles & permissions for what each permission allows." />
       <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
         <Card title="Profile">
           <KeyValue
@@ -52,6 +52,7 @@ export default function AccountPage() {
             items={[
               { label: 'Name', value: me.name },
               { label: 'Email', value: me.email },
+              { label: 'Organization', value: me.organization ? `${me.organization.name}${me.organization.kind === 'internal' ? ' (Arnobot staff)' : ''}` : '—' },
               {
                 label: 'Roles',
                 value: active.length ? (
@@ -59,7 +60,7 @@ export default function AccountPage() {
                     {active.map((g) => (
                       <li key={g.id} className="flex items-center gap-2 text-sm">
                         <Badge tone="accent">{g.role_name}</Badge>
-                        {g.scope_type === 'platform' ? 'Platform' : `${g.scope_type}: ${g.scope_id}`}
+                        {g.scope_type === 'platform' ? 'All of Arnobot' : g.scope_type === 'company' ? (me.organization?.name ?? g.scope_id) : `${g.scope_type}: ${g.scope_id}`}
                       </li>
                     ))}
                   </ul>
@@ -68,10 +69,10 @@ export default function AccountPage() {
                 ),
               },
               {
-                label: 'Platform permissions',
+                label: 'What you can do',
                 value: (
                   <span className="flex flex-wrap gap-1">
-                    {me.permissions.map((p) => (
+                    {(me.scoped_permissions ?? me.permissions ?? []).map((p) => (
                       <code key={p} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">
                         {p}
                       </code>

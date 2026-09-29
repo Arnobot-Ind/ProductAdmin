@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge, Card, InlineAlert, KeyValue, Mono, PageHeader } from '@/components/ui/misc';
 import { api, ApiError } from '@/lib/api';
 import { fmtBytes, fmtDuration, fmtRelative } from '@/lib/format';
+import { useCan } from '@/lib/auth';
 import { useDocumentTitle, useNow } from '@/lib/hooks';
 import { useRealtime } from '@/lib/realtime';
 
@@ -16,6 +17,19 @@ const POLL_MS = 5_000;
 
 export default function SettingsPage() {
   useDocumentTitle('Settings & status');
+  const can = useCan();
+  if (!can('system.read')) {
+    return (
+      <>
+        <PageHeader eyebrow="Platform" title="Settings & status" />
+        <InlineAlert tone="fault">The server status page is for Arnobot staff.</InlineAlert>
+      </>
+    );
+  }
+  return <SettingsView />;
+}
+
+function SettingsView() {
   const now = useNow(1000);
   const { connected } = useRealtime();
   const q = useQuery({

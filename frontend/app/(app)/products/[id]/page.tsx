@@ -17,6 +17,7 @@ import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
+import { fmtDistance } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 import { usePartTypes } from '@/lib/queries';
 
@@ -248,6 +249,8 @@ function ProductRobots({ code, name }: { code: string; name: string }) {
           d.items.length === 0 ? (
             <EmptyState title="No robots yet" description={`Register one to get ${code}01 and its serial number.`} />
           ) : (
+            <>
+            <ProductTotals robots={d.items} />
             <DataTable
               caption={`Robots of ${name}`}
               dense
@@ -267,6 +270,14 @@ function ProductRobots({ code, name }: { code: string; name: string }) {
                 },
                 { key: 'serial', header: 'Serial number', cell: (r) => <Mono>{r.serial_number}</Mono> },
                 { key: 'status', header: 'Status', cell: (r) => <RobotStatusBadge lastSeenAt={r.last_seen_at} /> },
+                { key: 'missions', header: 'Missions', align: 'right', cell: (r) => r.total_missions },
+                {
+                  key: 'driven',
+                  header: 'Total driven',
+                  align: 'right',
+                  cell: (r) => (r.odometer_m !== null ? fmtDistance(r.odometer_m) : <span className="text-muted" title="The robot does not report its odometer yet">—</span>),
+                },
+                { key: 'mdist', header: 'Mission distance', align: 'right', cell: (r) => fmtDistance(r.total_distance_m) },
                 {
                   key: 'data',
                   header: 'Data',
@@ -284,6 +295,7 @@ function ProductRobots({ code, name }: { code: string; name: string }) {
                 },
               ]}
             />
+            </>
           )
         }
       </QueryView>
@@ -430,5 +442,30 @@ function RevisionDialog({ productId, value, onClose }: { productId: string; valu
         </fieldset>
       </div>
     </Dialog>
+  );
+}
+
+/** Totals of all robots of this product: robots, missions, total driven (odometers) and mission distance. */
+function ProductTotals({ robots }: { robots: RobotListItemDto[] }) {
+  const missions = robots.reduce((n, r) => n + r.total_missions, 0);
+  const mission = robots.reduce((n, r) => n + r.total_distance_m, 0);
+  const odo = robots.filter((r) => r.odometer_m !== null);
+  const total = robots.reduce((n, r) => n + (r.odometer_m ?? r.total_distance_m), 0);
+  const items: [string, string, string?][] = [
+    ['Robots', String(robots.length)],
+    ['Missions', missions.toLocaleString()],
+    ['Total driven', fmtDistance(total), odo.length < robots.length ? `${odo.length} of ${robots.length} robots report an odometer` : 'All driving'],
+    ['Mission distance', fmtDistance(mission), 'Driven on missions'],
+  ];
+  return (
+    <dl className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {items.map(([label, value, sub]) => (
+        <div key={label} className="rounded-lg bg-surface-2 px-3 py-2.5">
+          <dt className="text-xs font-medium tracking-wide text-muted uppercase">{label}</dt>
+          <dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd>
+          {sub && <dd className="text-xs text-muted">{sub}</dd>}
+        </div>
+      ))}
+    </dl>
   );
 }

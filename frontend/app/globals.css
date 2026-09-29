@@ -141,3 +141,18 @@
 .maplibregl-ctrl-attrib a {
   color: #1d4ed8;
 }
+
+/* Map point labels (fleet map, robot position). */
+.pms-map-popup .maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+.pms-map-popup .maplibregl-popup-tip {
+  display: none;
+}
