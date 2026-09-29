@@ -16,8 +16,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
-      "@arnobot/message-schema": ["../backend/src/shared/index.ts"],
-      "@arnobot/message-schema/*": ["../backend/src/shared/*"]
+      "@arnobot/message-schema": ["./shared/index.ts"],
+      "@arnobot/message-schema/*": ["./shared/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],

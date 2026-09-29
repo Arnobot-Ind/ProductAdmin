@@ -1,9 +1,8 @@
-import path from 'node:path';
 import type { NextConfig } from 'next';
 
 const apiInternal = (process.env.API_INTERNAL_URL || 'http://localhost:4000').replace(/\/$/, '');
-// Parent folder, so Turbopack can compile the shared contract in ../backend/src/shared.
-const repoRoot = path.join(__dirname, '..');
+// This folder: the shared API contract is a local copy in ./shared, so the panel builds on its own.
+const appRoot = __dirname;
 const wsOrigin = new URL(process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000');
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -27,8 +26,8 @@ const csp = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  turbopack: { root: repoRoot },
-  outputFileTracingRoot: repoRoot,
+  turbopack: { root: appRoot },
+  outputFileTracingRoot: appRoot,
   env: {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000',
   },

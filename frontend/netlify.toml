@@ -1,0 +1,7 @@
+# Netlify: set the site's base directory to `frontend`. Paths below are relative to it.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
