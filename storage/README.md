@@ -31,6 +31,12 @@ lives in PostgreSQL (e.g. AWS RDS) and S3, which keep running whether or not the
 Add a new numbered file to `migrations/` (never edit an applied one), then run `npm run db:migrate` once,
 then restart the backend. `npm run db:status` lists applied and pending migrations.
 
+Migration `0015` adds organizations (`companies.kind`, users' `company_id`), customer roles and data
+permissions, invitations, soft-delete of recordings and the append-only `audit_log`. With
+`SEED_DEMO_ROBOTS=true` the seed also creates the demo customer **Adani** and assigns `saibya02` to it
+(no users: invite them from the panel).
+Migration `0016` reduces the roles to Admin, Manager and Viewer and makes LiDAR / IMU Admin-only (`data.sensors`).
+
 ## Commands
 
 | Command | What |

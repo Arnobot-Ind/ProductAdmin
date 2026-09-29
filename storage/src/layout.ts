@@ -15,7 +15,7 @@ export interface SqlArea {
 }
 
 export const SQL_AREAS: SqlArea[] = [
-  { area: 'Access', what: 'Companies, sites, users, roles, permissions, login sessions', tables: ['companies', 'sites', 'users', 'roles', 'permissions', 'role_permissions', 'role_grants', 'sessions'] },
+  { area: 'Access', what: 'Organizations (companies), sites, users, roles, permissions, login sessions', tables: ['companies', 'sites', 'users', 'roles', 'permissions', 'role_permissions', 'role_grants', 'sessions'] },
   { area: 'Catalogue', what: 'Products, hardware revisions, part types', tables: ['products', 'hardware_revisions', 'part_types', 'hardware_revision_components'] },
   {
     area: 'Robots',
@@ -27,6 +27,7 @@ export const SQL_AREAS: SqlArea[] = [
   { area: 'Telemetry', what: 'GPS, encoder, battery and health time series', tables: ['telemetry_gps', 'telemetry_encoder', 'telemetry_battery', 'telemetry_health'] },
   { area: 'Documents', what: 'Document records and versions (the files themselves are in document storage)', tables: ['files', 'documents', 'document_versions', 'releases'] },
   { area: 'Video index', what: 'Recording sessions, trips and one row per stored file (the video itself is in the S3 bucket)', tables: ['archive_sessions', 'archive_trips', 'archive_files', 'archive_robot_link'] },
+  { area: 'Audit', what: 'Append-only audit log: sign-ins, data access and downloads, robot assignments, permission changes', tables: ['audit_log'] },
   { area: 'Schema', what: 'Applied migrations', tables: ['schema_migrations'] },
 ];
 

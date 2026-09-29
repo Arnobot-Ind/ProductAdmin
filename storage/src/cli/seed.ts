@@ -84,11 +84,12 @@ async function seedAdmin(tx: PoolClient): Promise<string> {
   const problem = passwordProblem(password);
   if (problem) throw new Error(`SEED_ADMIN_PASSWORD: ${problem}`);
   const id = (
-    await tx.query<{ id: string }>('INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id', [
-      email,
-      name,
-      await hashPassword(password),
-    ])
+    // The first super-admin belongs to Arnobot, the internal organization (migration 0015).
+    await tx.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, company_id, password_changed_at)
+       SELECT $1, $2, $3, id, now() FROM companies WHERE kind = 'internal' AND deleted_at IS NULL RETURNING id`,
+      [email, name, await hashPassword(password)],
+    )
   ).rows[0].id;
   await tx.query(
     `INSERT INTO role_grants (user_id, role_id, scope_type, scope_id, created_by)
@@ -221,6 +222,32 @@ async function seedDemoRobots(tx: PoolClient, adminId: string): Promise<void> {
   console.log(`✓ simulator keys written to ${SIM_KEYS_PATH} (gitignored)`);
 }
 
+/**
+ * Demo customer organization: Adani, owning saibya02 (its recordings are the demo data in the archive bucket).
+ * No users are seeded: an admin invites Adani's team from Organizations → Adani.
+ */
+async function seedDemoOrganization(tx: PoolClient, adminId: string): Promise<void> {
+  let org = (await tx.query<{ id: string }>("SELECT id FROM companies WHERE lower(name) = 'adani' AND deleted_at IS NULL")).rows[0]?.id;
+  if (!org) {
+    org = (
+      await tx.query<{ id: string }>("INSERT INTO companies (name, kind, notes, created_by) VALUES ('Adani', 'customer', 'Demo customer organization', $1) RETURNING id", [adminId])
+    ).rows[0].id;
+    console.log('✓ created demo organization Adani');
+  }
+  const current = (await tx.query<{ company_id: string }>("SELECT company_id FROM company_assignment_history WHERE robot_id = 'saibya02' AND valid_to IS NULL")).rows[0];
+  if (!current || current.company_id === org) return;
+  // Only move saibya02 if it still sits with Arnobot (never undo an assignment someone made by hand).
+  const internal = (await tx.query("SELECT 1 FROM companies WHERE id = $1 AND kind = 'internal'", [current.company_id])).rowCount;
+  if (!internal) return;
+  // Adani then sees saibya02 and all its recordings (none were made while another customer owned it).
+  await tx.query("UPDATE company_assignment_history SET valid_to = now() WHERE robot_id = 'saibya02' AND valid_to IS NULL");
+  await tx.query(
+    "INSERT INTO company_assignment_history (robot_id, company_id, valid_from, reason, created_by) VALUES ('saibya02', $1, now(), 'Demo: assigned to Adani', $2)",
+    [org, adminId],
+  );
+  console.log('✓ assigned saibya02 → Adani');
+}
+
 async function seedRobotDetails(tx: PoolClient, robotId: string, adminId: string, n: number): Promise<void> {
   const fitted = [
     ['controller', null, 'NVIDIA Jetson Orin', `JO-${robotId.toUpperCase()}`],
@@ -274,7 +301,10 @@ async function main(): Promise<void> {
     await withTransaction(pool, async (tx) => {
       const adminId = await seedAdmin(tx);
       await seedCatalogueDetails(tx, adminId);
-      if ((process.env.SEED_DEMO_ROBOTS ?? 'true') === 'true') await seedDemoRobots(tx, adminId);
+      if ((process.env.SEED_DEMO_ROBOTS ?? 'true') === 'true') {
+        await seedDemoRobots(tx, adminId);
+        await seedDemoOrganization(tx, adminId);
+      }
     });
   } finally {
     await pool.end();
