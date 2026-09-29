@@ -35,6 +35,8 @@ src/
   shared/                 API types shared with the admin panel
 ```
 
+Production server setup, update and rollback: [`deploy/README.md`](deploy/README.md).
+
 ## Robots and their data
 
 - A robot is registered under a product and gets a permanent **Robot ID** (`saibya02`, `ductcleaning01`),
