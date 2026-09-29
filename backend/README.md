@@ -41,8 +41,48 @@ src/
   a unique **8-digit serial number** (generated) and an **ingest key** (shown once).
 - Only registered robots are accepted: a robot uploads with its ingest key, and only under its own ID
   (`<robot_id>/sessions/<session>/…`). Data for unknown robots is refused.
+- **Hardware**: each fitted part may carry a `product_url` (product page / datasheet). `PATCH /hardware/:id`
+  corrects model, serial, URL, fitted date or notes (audited); a different part is still Remove + Fit.
+- **Software**: the robot reports versions at boot; an admin can also record an update from the panel
+  (`POST /robots/:id/software`, kept in the history as `manual` with who entered it). It records, it does not install.
+- **Two distances**: `live.odometer_m` is the robot's lifetime odometer (all driving; a live message without it
+  keeps the last value), shown as "Total driven". Mission distance is the sum of `distance_m` over missions.
+- **Mission report PDFs** (robot → Missions tab, and each mission page) are built in the browser. Per-waypoint
+  rows come from the GCS report's `waypoints: [{sequence, label, lat, lng, reached, reached_at}]`.
 - The Saibya Archive server's paths still work for cloud_sync (`PUT /api/ingest/upload`,
   `POST /api/ingest`, `POST /api/ingest/heartbeat`): only the host and the key change.
+
+## Organizations, roles and access
+
+- **Organizations** (`/organizations`): Arnobot (internal) and customers (e.g. Adani). Every user belongs to
+  one. A robot belongs to the organization in its current ownership period; assign it with
+  `POST /organizations/:id/robots` (or the robot's Ownership tab). The old owner's robot-level grants are revoked.
+- **Roles** (see `GET /access-model` or the panel's *Roles & permissions* page), three of them:
+  **Admin** (key `super_admin`, Arnobot only: everything, including LiDAR / IMU and user management),
+  **Manager** (Arnobot or customer: view, download video + metadata, control robots, acknowledge events) and
+  **Viewer** (Arnobot or customer: view, download video + metadata). LiDAR / IMU (`data.sensors`,
+  `data.download_restricted`) are Admin-only, so customers never see them. `robot.control` is reserved:
+  no remote commands exist yet.
+- **Isolation**: customer users see only robots currently assigned to their organization, and never data
+  recorded while another customer owned the robot. Customer users can only get grants inside their own
+  organization; only a super-admin can give platform roles. Other organizations' recordings answer 404.
+- **Logins**: admins create users with an **invitation link** (`/invite#<token>`, single use, 72 h) or a
+  **temporary password** (must be changed at first sign-in; the API refuses everything else until then).
+  Robot/device credentials and ingest keys stay separate and are never visible to customer roles.
+- **Audit log** (`/audit`, CSV export): sign-ins (and failures), invitations, recording views, downloads,
+  deletes, robot assignments, grant changes, credential reveals and refused requests. Append-only in the DB.
+
+## S3 archive (video, LiDAR, IMU)
+
+- Bucket `ARCHIVE_S3_BUCKET` (default `arnobot-saibya-data`, `ap-south-1`). Credentials: `ARCHIVE_S3_ACCESS_KEY` /
+  `ARCHIVE_S3_SECRET_KEY`, or the EC2 instance role. They need `s3:ListBucket` + `s3:GetObject` (+ `s3:PutObject`
+  for robot uploads through the server). The Settings page shows whether the bucket is reachable.
+- `ARCHIVE_SYNC_MINUTES` (default 10) re-indexes the bucket at start-up and periodically, so data already in S3
+  (e.g. `saibya02/sessions/...`) appears without a manual re-index. Only registered robots are indexed.
+- `GET /archive/sessions/:id` always returns all four streams (`video`, `lidar`, `imu`, `metadata`) with
+  `available` + `reason`, plus what the caller may do (`access`). LiDAR/IMU previews:
+  `/archive/sessions/:id/sensors/lidar?chunk=` and `/sensors/imu`, decoded on the server; unreadable or missing
+  files come back as `status: 'unavailable'` with a `problem` code instead of an error.
 
 ## Commands
 

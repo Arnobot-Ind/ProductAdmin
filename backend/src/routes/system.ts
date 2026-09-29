@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { SystemStatusDto } from '../shared';
 import type { AppContext } from '../context';
-import { route } from '../lib/route';
+import { platform, route } from '../lib/route';
 
 /** Schema version this server needs (latest migration in storage/migrations it relies on). */
-const REQUIRED_SCHEMA_VERSION = 13;
+const REQUIRED_SCHEMA_VERSION = 17;
 
 const VERSION = (() => {
   try {
@@ -21,9 +21,9 @@ export function systemRoutes(f: FastifyInstance, app: AppContext): void {
   route(f, app, {
     method: 'GET',
     path: '/system/status',
-    summary: 'Server, database, storage, ffmpeg and fleet link status (Settings page)',
+    summary: 'Server, database, storage, ffmpeg and fleet link status (Settings page). Arnobot staff only: it shows fleet-wide counts',
     tag: 'Meta',
-    access: 'signed_in',
+    access: { can: 'system.read', target: platform() },
     handler: async (): Promise<SystemStatusDto> => {
       const db: SystemStatusDto['database'] = {
         ok: false,

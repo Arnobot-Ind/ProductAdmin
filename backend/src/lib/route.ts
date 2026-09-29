@@ -13,7 +13,7 @@ import type { z } from 'zod';
 import type { AppContext } from '../context';
 import { SESSION_COOKIE, type AuthUser } from '../services/auth.service';
 import type { Target } from '../services/permissions.service';
-import { forbidden, notFound, unauthenticated } from './errors';
+import { ApiError, forbidden, notFound, unauthenticated } from './errors';
 import { readMultipart, type UploadedFile } from './multipart';
 import { assertRobotId, assertUuid, parseWith } from './validation';
 
@@ -43,6 +43,8 @@ export interface RouteDef<B = unknown, Q = unknown> {
   query?: z.ZodType<Q>;
   /** multipart/form-data with one `file` field; text fields are validated with `body`. */
   upload?: boolean;
+  /** Reachable while the user still has a temporary password (me, sign-out, change password). */
+  allowWithTemporaryPassword?: boolean;
   /** Default 200 (204 when the handler returns undefined). */
   status?: number;
   handler: (ctx: HandlerCtx<B, Q>) => Promise<unknown> | unknown;
@@ -84,6 +86,24 @@ export const robotFromBody = (field = 'robot_id') =>
     return typeof v === 'string' && v ? { type: 'robot', id: assertRobotId(v) } : { type: 'platform' };
   }, `robot in body.${field}, else platform`);
 
+/**
+ * A second permission a handler needs only in some cases (e.g. `?download=1` on a file it may already view).
+ * Same rule as the declared access: denied → 403 and an `access.denied` audit entry.
+ */
+export async function assertCan(app: AppContext, req: FastifyRequest, user: AuthUser, action: string, target: Target): Promise<void> {
+  if (await app.perms.can(user, action, target)) return;
+  app.audit.note({
+    action: 'access.denied',
+    outcome: 'denied',
+    actor: user,
+    target: target.type === 'robot' || target.type === 'company' ? { type: target.type, id: target.id } : null,
+    robotId: target.type === 'robot' ? target.id : null,
+    detail: { permission: action, method: req.method, path: req.routeOptions.url },
+    req,
+  });
+  throw forbidden(`requires ${action}`);
+}
+
 // ── registration ────────────────────────────────────────────────────────────
 export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: AppContext, def: RouteDef<B, Q>): void {
   registry.push(def as RouteDef<unknown, unknown>);
@@ -95,6 +115,10 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
       if (def.access !== 'public') {
         user = await app.auth.userFromToken(req.cookies[SESSION_COOKIE]);
         if (!user) throw unauthenticated();
+        // Signed in with a temporary password: nothing else works until it is changed.
+        if (user.mustChangePassword && !def.allowWithTemporaryPassword) {
+          throw new ApiError(403, 'password_change_required', 'change your temporary password first');
+        }
       }
 
       const query = def.query ? parseWith(def.query, req.query ?? {}, 'query parameters') : (undefined as Q);
@@ -110,7 +134,18 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
         const body = def.body ? parseWith(def.body, rawBody ?? {}, 'request body') : (undefined as B);
         if (user && typeof def.access === 'object') {
           const target = await def.access.target(req, app.db, body);
-          if (!(await app.perms.can(user, def.access.can, target))) throw forbidden(`requires ${def.access.can}`);
+          if (!(await app.perms.can(user, def.access.can, target))) {
+            app.audit.note({
+              action: 'access.denied',
+              outcome: 'denied',
+              actor: user,
+              target: target.type === 'robot' || target.type === 'company' ? { type: target.type, id: target.id } : null,
+              robotId: target.type === 'robot' ? target.id : null,
+              detail: { permission: def.access.can, method: def.method, path: def.path },
+              req,
+            });
+            throw forbidden(`requires ${def.access.can}`);
+          }
         }
         const result = await def.handler({
           req,

@@ -9,7 +9,7 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
        r.hardware_revision_id, hr.name AS hardware_revision, r.running_number, r.notes,
        r.created_at, r.updated_at, r.deleted_at,
        o.company_id AS owner_company_id, c.name AS owner_company, o.valid_from AS owner_since,
-       ls.last_seen_at, ls.battery_pct, ls.current_mission_id,
+       ls.last_seen_at, ls.battery_pct, ls.current_mission_id, ls.odometer_m,
        ls.health_controller, ls.health_lidar, ls.health_cameras, ls.health_gps,
        coalesce(ls.sw_ver, sw.sw_ver) AS sw_ver, coalesce(ls.fw_ver, sw.fw_ver) AS fw_ver,
        CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
@@ -79,6 +79,7 @@ export function toRobotListItem(r: RobotRow): RobotListItemDto {
       gps: (r.health_gps as HealthLevel | null) ?? null,
     },
     current_mission_id: (r.current_mission_id as string | null) ?? null,
+    odometer_m: r.odometer_m === null || r.odometer_m === undefined ? null : Number(r.odometer_m),
     sw_ver: (r.sw_ver as string | null) ?? null,
     fw_ver: (r.fw_ver as string | null) ?? null,
     total_missions: Number(r.total_missions ?? 0),
@@ -121,6 +122,7 @@ export const ROBOT_SORTS: Record<string, string> = {
   battery_pct: 'ls.battery_pct',
   total_missions: 'ms.total_missions',
   total_distance_m: 'ms.total_distance_m',
+  odometer_m: 'ls.odometer_m',
   total_duration_s: 'ms.total_duration_s',
   avg_duration_s: 'ms.avg_duration_s',
   unacked_critical_events: 'ev.unacked_critical_events',
@@ -177,6 +179,8 @@ export class RobotsService {
         gps: (r.health_gps as HealthLevel | null) ?? null,
       },
       current_mission_id: (r.current_mission_id as string | null) ?? null,
+      odometer_m: n('odometer_m'),
+      odometer_ts: iso(r.odometer_ts as Date | null),
     };
   }
 }

@@ -20,6 +20,8 @@ import { hardwareRoutes } from './routes/hardware';
 import { ingestAdminRoutes } from './routes/ingest-admin';
 import { metaRoutes } from './routes/meta';
 import { missionRoutes } from './routes/missions';
+import { organizationRoutes } from './routes/organizations';
+import { auditRoutes } from './routes/audit';
 import { releaseRoutes } from './routes/releases';
 import { robotRoutes } from './routes/robots';
 import { telemetryRoutes } from './routes/telemetry';
@@ -60,6 +62,16 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
 
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler((req, reply) => reply.code(404).send({ error: { code: 'not_found', message: `no route ${req.method} ${req.url.split('?')[0]}` } }));
+
+  // cloud_sync (server mode) polls GET /api/health and expects { ok: true } before uploading.
+  app.get('/api/health', async (_req, reply) => {
+    try {
+      await ctx.db.query('SELECT 1');
+      return { ok: true, service: 'pms-backend', time: new Date().toISOString() };
+    } catch {
+      return reply.code(503).send({ ok: false, service: 'pms-backend', error: 'database unreachable' });
+    }
+  });
 
   // Robot / GCS ingestion: ingest-key auth, no session, so no CSRF hook (registered outside the admin scope).
   await app.register(async (ingest) => ingestRoutes(ingest, ctx.db, makePipeline(app.log), ctx.cfg.ingest), { prefix: API_PREFIX });
@@ -103,6 +115,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       documentRoutes(api, ctx);
       releaseRoutes(api, ctx);
       userRoutes(api, ctx);
+      organizationRoutes(api, ctx);
+      auditRoutes(api, ctx);
       archiveRoutes(api, ctx);
       systemRoutes(api, ctx);
     },

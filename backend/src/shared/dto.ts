@@ -42,15 +42,28 @@ export interface MeDto {
   id: string;
   email: string;
   name: string;
+  /** The organization this login belongs to (Arnobot = internal, customers = customer). */
+  organization: { id: string; name: string; kind: OrganizationKind };
   /** Permission keys the user holds at platform scope (drives UI visibility; the API still enforces). */
   permissions: string[];
+  /** Permission keys the user holds in ANY scope (platform, organization or robot). A customer user's view. */
+  scoped_permissions: string[];
+  /** Signed in with a temporary password: the panel sends them to change it first. */
+  must_change_password: boolean;
   grants: GrantDto[];
 }
 export interface UserDto {
   id: string;
   email: string;
   name: string;
+  company_id: string;
+  company_name: string;
+  company_kind: OrganizationKind;
   is_active: boolean;
+  /** Invited and has not set a password yet. */
+  invite_pending: boolean;
+  invite_expires_at: string | null;
+  must_change_password: boolean;
   last_login_at: string | null;
   created_at: string;
   deleted_at: string | null;
@@ -61,7 +74,78 @@ export interface RoleDto {
   key: string;
   name: string;
   description: string | null;
+  /** staff = Arnobot only (Admin); any = Arnobot or a customer organization (Manager, Viewer). */
+  audience: 'staff' | 'customer' | 'any';
   permissions: string[];
+}
+export interface PermissionDto {
+  key: string;
+  description: string;
+}
+/** GET /access-model: every role, every permission, and which role holds which (the permission matrix). */
+export interface AccessModelDto {
+  roles: RoleDto[];
+  permissions: PermissionDto[];
+}
+/** Returned once when a user is created or re-invited. The token is never stored or shown again. */
+export interface UserCredentialsDto {
+  user: UserDto;
+  /** Invitation link (the user sets their own password). */
+  invite_url: string | null;
+  invite_expires_at: string | null;
+  /** Generated temporary password (the user must change it at first sign-in). */
+  temporary_password: string | null;
+}
+export interface InviteInfoDto {
+  email: string;
+  name: string;
+  organization: string;
+  expires_at: string;
+}
+
+// ── organizations ───────────────────────────────────────────────────────────
+export type OrganizationKind = 'internal' | 'customer';
+export interface OrganizationDto {
+  id: string;
+  name: string;
+  kind: OrganizationKind;
+  contact_name: string | null;
+  contact_email: string | null;
+  notes: string | null;
+  robot_count: number;
+  user_count: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface OrganizationRobotDto {
+  robot_id: string;
+  serial_number: string;
+  product_name: string;
+  assigned_since: string;
+  status: RobotStatus;
+}
+export interface OrganizationDetailDto extends OrganizationDto {
+  robots: OrganizationRobotDto[];
+  users: UserDto[];
+}
+
+// ── audit log ───────────────────────────────────────────────────────────────
+export type AuditOutcome = 'success' | 'denied' | 'failure';
+export interface AuditEntryDto {
+  id: string;
+  at: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_name: string | null;
+  action: string;
+  outcome: AuditOutcome;
+  target_type: string | null;
+  target_id: string | null;
+  robot_id: string | null;
+  company_id: string | null;
+  company_name: string | null;
+  detail: Record<string, unknown>;
+  ip: string | null;
 }
 
 // ── catalogue ───────────────────────────────────────────────────────────────
@@ -99,9 +183,11 @@ export interface PartTypeDto {
   name: string;
   max_per_robot: number | null;
 }
+/** Short organization reference (pickers). */
 export interface CompanyDto {
   id: string;
   name: string;
+  kind: OrganizationKind;
   created_at: string;
 }
 
@@ -135,6 +221,8 @@ export interface RobotListItemDto extends MissionSummaryDto {
   battery_pct: number | null;
   health: DeviceHealthDto;
   current_mission_id: string | null;
+  /** Lifetime odometer (m) reported by the robot. total_distance_m is mission driving only. */
+  odometer_m: number | null;
   sw_ver: string | null;
   fw_ver: string | null;
   /** Critical events on this robot nobody has acknowledged yet. */
@@ -188,6 +276,9 @@ export interface LiveStateDto {
   mode: string | null;
   health: DeviceHealthDto;
   current_mission_id: string | null;
+  /** Lifetime odometer (m) from the robot: all driving, missions or not. */
+  odometer_m: number | null;
+  odometer_ts: string | null;
 }
 
 export interface OwnershipDto {
@@ -213,7 +304,12 @@ export interface HardwarePartDto {
   removal_reason: string | null;
   maintenance_log_id: string | null;
   notes: string | null;
+  /** Product page / datasheet of the part. */
+  product_url: string | null;
   created_at: string;
+  /** Last correction made in the panel. */
+  updated_at: string | null;
+  updated_by_name: string | null;
 }
 
 export interface SoftwareHistoryDto {
@@ -223,6 +319,10 @@ export interface SoftwareHistoryDto {
   enabled_features: string[] | null;
   reported_at: string;
   boot_id: string | null;
+  /** robot = reported at boot; manual = recorded in the panel by `entered_by_name`. */
+  source: 'robot' | 'manual';
+  entered_by_name: string | null;
+  note: string | null;
 }
 export interface SoftwareDto {
   current: SoftwareHistoryDto | null;
@@ -383,6 +483,9 @@ export interface MissionListItemDto {
   ended_at: string | null;
   duration_s: number | null;
   distance_m: number | null;
+  distance_planned_m: number | null;
+  waypoints_total: number | null;
+  waypoints_reached: number | null;
   result: MissionState;
   end_reason: string | null;
   file_count: number;
@@ -399,7 +502,17 @@ export interface MissionFileDto {
   created_at: string;
 }
 /** Spec §5 view 3. */
+/** One waypoint of a mission, from the GCS report (null when the GCS did not send them). */
+export interface MissionWaypointDto {
+  sequence: number;
+  label: string | null;
+  lat: number;
+  lng: number;
+  reached: boolean;
+  reached_at: string | null;
+}
 export interface MissionDetailDto extends MissionListItemDto {
+  waypoints: MissionWaypointDto[] | null;
   planned_path: GeoLineString | null;
   actual_path: GeoLineString | null;
   distance_planned_m: number | null;
@@ -458,6 +571,17 @@ export interface DashboardDto {
   recent_events: EventDto[];
   messages_last_24h: number;
   warranty_expiring: { robot_id: string; warranty_end: string }[];
+  /** Every robot the user may see, with its last position (fleet map). */
+  fleet: {
+    robot_id: string;
+    product_name: string;
+    status: RobotStatus;
+    lat: number | null;
+    lon: number | null;
+    battery_pct: number | null;
+    last_seen_at: string | null;
+    faults: string[];
+  }[];
 }
 
 export interface IngestLogItemDto {
@@ -516,9 +640,15 @@ export interface ArchiveSessionDto {
   cameras: string[];
   has_lidar: boolean;
   has_imu: boolean;
+  has_gps: boolean;
+  has_encoder: boolean;
   file_count: number;
   bytes: { camera: number; sensors: number; meta: number; total: number };
+  /** Bytes per sensor stream (for download size estimates). */
+  sensor_bytes: { lidar: number; imu: number; gps: number; encoder: number };
   last_upload_at: string | null;
+  /** Deleted (hidden) recordings are listed only for users who may restore them. */
+  deleted_at: string | null;
 }
 
 export interface ArchiveCameraDto {
@@ -538,7 +668,7 @@ export interface ArchiveFileDto {
   name: string;
   kind: 'camera' | 'sensors' | 'meta';
   camera: string | null;
-  sensor: 'lidar' | 'imu' | null;
+  sensor: 'lidar' | 'imu' | 'gps' | 'encoder' | null;
   chunk_start: string | null;
   size_bytes: number;
   uploaded_at: string;
@@ -546,14 +676,76 @@ export interface ArchiveFileDto {
   download_url: string;
 }
 
+/** What the signed-in user may do with one recording (the API enforces the same rules). */
+export interface ArchiveAccessDto {
+  /** LiDAR / IMU are shown at all (Admin). Without it the lidar / imu streams come back as not available. */
+  sensors: boolean;
+  /** Camera video (MP4 / .ts), session.json, upload log. */
+  download: boolean;
+  /** Raw LiDAR / IMU chunks (restricted sensor data). */
+  download_restricted: boolean;
+  delete: boolean;
+}
+
+/**
+ * Availability of one data stream. The shape is always present, whatever was uploaded:
+ *   available   — files exist
+ *   missing     — the robot did not upload this stream (placeholder in the panel)
+ */
+export interface ArchiveStreamDto {
+  available: boolean;
+  files: number;
+  bytes: number;
+  /** Why it is missing, in words for the placeholder. null when available. */
+  reason: string | null;
+}
+
 export interface ArchiveSessionDetailDto {
   session: ArchiveSessionDto;
   manifest: Record<string, unknown> | null;
   cameras: ArchiveCameraDto[];
   files: ArchiveFileDto[];
+  /** One entry per stream, always all four keys (missing streams included). */
+  streams: { video: ArchiveStreamDto; lidar: ArchiveStreamDto; imu: ArchiveStreamDto; gps: ArchiveStreamDto; encoder: ArchiveStreamDto; metadata: ArchiveStreamDto };
+  /** This recording as one zip (add &include=video,imu,gps,lidar,encoder,meta and &cameras=cam1 to narrow it). */
+  zip_url: string;
+  access: ArchiveAccessDto;
   /** MP4 export needs ffmpeg on the backend host. */
   mp4_available: boolean;
   interrupted_after_min: number;
+  deleted_at: string | null;
+  delete_reason: string | null;
+}
+
+/** Why a sensor preview could not be drawn (stable codes for the panel's placeholder). */
+export type SensorPreviewProblem = 'missing' | 'unreadable' | 'storage_unavailable' | 'too_large';
+
+/** IMU preview: every chunk read, merged and down-sampled for charts. */
+export interface ImuPreviewDto {
+  status: 'ok' | 'partial' | 'unavailable';
+  problem: SensorPreviewProblem | null;
+  message: string | null;
+  chunks_total: number;
+  chunks_read: number;
+  chunks_failed: { name: string; error: string }[];
+  samples_total: number;
+  /** Down-sampled rows: t_ms (epoch), accel m/s², gyro °/s, attitude °. Columns missing from the CSV are null. */
+  columns: string[];
+  rows: (number | null)[][];
+}
+
+/** LiDAR preview of one chunk: a few scans spread over its time span, down-sampled for a polar plot. */
+export interface LidarPreviewDto {
+  status: 'ok' | 'unavailable';
+  problem: SensorPreviewProblem | null;
+  message: string | null;
+  chunk: string | null;
+  chunks: string[];
+  scans_total: number;
+  points_total: number;
+  /** Each scan: t_ms and points as [angle_deg (body frame, 0 = front, clockwise), range_m]. */
+  scans: { t_ms: number; points: [number, number][] }[];
+  max_range_m: number;
 }
 
 export interface ArchiveAlertDto {

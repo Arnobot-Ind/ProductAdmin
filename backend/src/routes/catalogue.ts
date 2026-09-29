@@ -1,5 +1,5 @@
 import { withTransaction, type Queryable } from '../db';
-import type { CompanyDto, DocumentDto, HardwareRevisionDto, PartTypeDto, ProductDto } from '../shared';
+import type { DocumentDto, HardwareRevisionDto, PartTypeDto, ProductDto } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
@@ -76,16 +76,6 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       ]);
     }
   };
-
-  route(f, app, {
-    method: 'GET',
-    path: '/companies',
-    summary: 'Companies (v1: Arnobot only)',
-    tag,
-    access: read,
-    handler: async (): Promise<CompanyDto[]> =>
-      (await db.query('SELECT id, name, created_at FROM companies WHERE deleted_at IS NULL ORDER BY name')).rows.map((r) => ({ ...r, created_at: iso(r.created_at)! })),
-  });
 
   route(f, app, {
     method: 'GET',

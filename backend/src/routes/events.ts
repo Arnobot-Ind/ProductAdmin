@@ -2,7 +2,7 @@ import { EVENT_SEVERITIES, EVENT_TYPES, type EventDto, type Paginated } from '..
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
-import { conflict } from '../lib/errors';
+import { conflict, notFound } from '../lib/errors';
 import { anyScope, robotParam, robotVia, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { isoDateTime, optionalBool, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
@@ -49,7 +49,7 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'robot.read', target: anyScope() },
     query: listQuery,
-    handler: ({ query, user }) => list(query, app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'e.robot_id')),
+    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'e.robot_id', 'e.ts')),
   });
 
   route(f, app, {
@@ -59,9 +59,10 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'robot.read', target: robotParam() },
     query: listQuery,
-    handler: async ({ params, query }) => {
+    handler: async ({ params, query, user }) => {
       await app.robots.assertExists(params.robotId, { allowDeleted: true });
-      return list({ ...query, robot: undefined }, new Where().add('e.robot_id = ?', params.robotId));
+      const w = new Where().add('e.robot_id = ?', params.robotId);
+      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.read'), 'e.robot_id', 'e.ts'));
     },
   });
 
@@ -72,6 +73,8 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'event.ack', target: robotVia('SELECT robot_id FROM events WHERE id = $1', 'event') },
     handler: async ({ params, user }) => {
+      const ev = (await db.query<{ robot_id: string; ts: Date }>('SELECT robot_id, ts FROM events WHERE id = $1', [params.id])).rows[0];
+      if (!(await app.perms.canSeeData(user, 'event.ack', ev.robot_id, ev.ts))) throw notFound('event');
       const res = await db.query('UPDATE events SET acknowledged_by = $2, acknowledged_at = now() WHERE id = $1 AND acknowledged_at IS NULL', [params.id, user.id]);
       if (!res.rowCount) throw conflict('event is already acknowledged');
       return toEvent((await db.query(`${EVENT_SELECT} WHERE e.id = $1`, [params.id])).rows[0]);
@@ -87,7 +90,7 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     body: z.object({ ids: z.array(uuidSchema).min(1).max(500) }),
     handler: async ({ body, user }) => {
       const w = new Where().add('e.id = ANY(?::uuid[])', body.ids).add('e.acknowledged_at IS NULL');
-      app.perms.applyRobotScope(w, app.perms.robotScope(user, 'event.ack'), 'e.robot_id');
+      app.perms.applyDataScope(w, app.perms.robotScope(user, 'event.ack'), 'e.robot_id', 'e.ts');
       const res = await db.query(`UPDATE events e SET acknowledged_by = ${w.param(user.id)}, acknowledged_at = now() ${w.toSql()}`, w.params);
       return { acknowledged: res.rowCount ?? 0 };
     },

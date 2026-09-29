@@ -22,6 +22,9 @@ export async function handleLive(tx: PoolClient, msg: LiveMessage): Promise<bool
        health_controller = $20, health_lidar = $21, health_cameras = $22, health_gps = $23,
        current_mission_id = $24,
        source_msg_id = $25,
+       -- The odometer only grows; a live message without it keeps the last known value.
+       odometer_m = coalesce($26, odometer_m),
+       odometer_ts = CASE WHEN $26::float8 IS NULL THEN odometer_ts ELSE $2 END,
        updated_at = now()
      WHERE robot_id = $1 AND (state_ts IS NULL OR state_ts < $2)`,
     [
@@ -50,6 +53,7 @@ export async function handleLive(tx: PoolClient, msg: LiveMessage): Promise<bool
       p.health?.gps ?? null,
       p.current_mission_id ?? null,
       msg.msg_id,
+      p.odometer_m ?? null,
     ],
   );
   const replaced = (res.rowCount ?? 0) > 0;

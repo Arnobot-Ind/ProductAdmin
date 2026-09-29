@@ -5,6 +5,7 @@ import type { AppContext } from '../context';
 import { badRequest } from '../lib/errors';
 import { robotParam, route } from '../lib/route';
 import { isoDateTime } from '../lib/validation';
+import type { AuthUser } from '../services/auth.service';
 
 const RAW_LIMIT = 5000;
 const TARGET_POINTS = 1000;
@@ -42,18 +43,26 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
   const tag = 'Telemetry';
   const access = { can: 'robot.read', target: robotParam() };
 
-  async function series<T>(robotId: string, q: z.infer<typeof rangeQuery>, rawSql: string, bucketSql: string): Promise<TelemetrySeriesDto<T>> {
+  async function series<T>(user: AuthUser, robotId: string, q: z.infer<typeof rangeQuery>, rawSql: string, bucketSql: string): Promise<TelemetrySeriesDto<T>> {
     await robots.assertExists(robotId, { allowDeleted: true });
     const { from, to, bucket } = resolveRange(q);
+    // Organizations never see telemetry recorded while another customer owned the robot: the range is clipped.
+    const periods = await app.perms.dataPeriods(user, 'robot.read', robotId);
+    const spans = (periods ?? [{ from, to }])
+      .map((p) => ({ from: new Date(Math.max(from.getTime(), (p.from ?? from).getTime())), to: new Date(Math.min(to.getTime(), (p.to ?? to).getTime())) }))
+      .filter((s) => s.from < s.to);
     const sql = bucket === 0 ? `${rawSql} LIMIT ${RAW_LIMIT}` : bucketSql;
-    const params = bucket === 0 ? [robotId, from, to] : [robotId, from, to, `${bucket} seconds`];
-    const rows = await db.query(sql, params);
+    const points: Record<string, unknown>[] = [];
+    for (const s of spans) {
+      const params = bucket === 0 ? [robotId, s.from, s.to] : [robotId, s.from, s.to, `${bucket} seconds`];
+      points.push(...(await db.query(sql, params)).rows);
+    }
     return {
       robot_id: robotId,
       from: from.toISOString(),
       to: to.toISOString(),
       bucket_s: bucket,
-      points: rows.rows.map((r) => ({ ...r, ts: (r.ts as Date).toISOString() })) as T[],
+      points: points.slice(0, bucket === 0 ? RAW_LIMIT : undefined).map((r) => ({ ...r, ts: (r.ts as Date).toISOString() })) as T[],
     };
   }
   const W = 'WHERE robot_id = $1 AND ts >= $2 AND ts < $3';
@@ -66,8 +75,9 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access,
     query: rangeQuery,
-    handler: ({ params, query }) =>
+    handler: ({ params, query, user }) =>
       series<GpsPointDto>(
+        user,
         params.robotId,
         query,
         `SELECT ts, lat, lon, alt_m, speed_mps, heading_deg, fix_quality AS fix FROM telemetry_gps ${W} ORDER BY ts`,
@@ -84,8 +94,9 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access,
     query: rangeQuery,
-    handler: ({ params, query }) =>
+    handler: ({ params, query, user }) =>
       series<BatteryPointDto>(
+        user,
         params.robotId,
         query,
         `SELECT ts, pct, voltage_v, current_a, temp_c FROM telemetry_battery ${W} ORDER BY ts`,
@@ -101,8 +112,9 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access,
     query: rangeQuery,
-    handler: ({ params, query }) =>
+    handler: ({ params, query, user }) =>
       series<EncoderPointDto>(
+        user,
         params.robotId,
         query,
         `SELECT ts, encoder, ticks, velocity_mps, rpm FROM telemetry_encoder ${W} ORDER BY ts, encoder`,
@@ -119,9 +131,10 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access,
     query: rangeQuery,
-    handler: async ({ params, query }) => {
+    handler: async ({ params, query, user }) => {
       const motorsMax = `(SELECT max(value::float8) FROM jsonb_each_text(temp_motors_c))`;
       const s = await series<HealthPointDto & { health_controller?: HealthLevel }>(
+        user,
         params.robotId,
         query,
         `SELECT ts, health_controller AS controller, health_lidar AS lidar, health_cameras AS cameras, health_gps AS gps,

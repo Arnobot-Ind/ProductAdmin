@@ -10,6 +10,7 @@ import type { ApiConfig } from '../../lib/config';
 import { notFound } from '../../lib/errors';
 import { iso, Where } from '../../lib/sql';
 import type {
+  ArchiveAccessDto,
   ArchiveCameraDto,
   ArchiveFileDto,
   ArchiveReindexDto,
@@ -18,12 +19,16 @@ import type {
   ArchiveSessionDto,
   ArchiveSessionListDto,
   ArchiveSessionStatus,
+  ArchiveStreamDto,
+  ImuPreviewDto,
+  LidarPreviewDto,
   RobotArchiveDto,
 } from '../../shared';
 import { classify, COMPLETE_FILE, parseSessionKey, SESSION_FILE, sessionPrefix, sessionsPrefix, sortCameras, type ClassifiedFile } from './keys';
 import { Mp4Builder } from './mp4';
 import { SESSION_SELECT, summarize, videoSegmentSec, type SessionRow } from './summary';
-import { createArchiveStorage, type ArchiveStorage } from './storage';
+import { imuPreview, lidarUnavailable, parseLidarChunk, PreviewCache, readAll, SensorFormatError, type LidarChunk } from './sensors';
+import { createArchiveStorage, ObjectNotFound, type ArchiveStorage } from './storage';
 
 export const API_ARCHIVE_BASE = '/api/v1/archive/sessions';
 const SENDING_WINDOW_MS = 2 * 60_000;
@@ -56,6 +61,7 @@ export interface SessionListFilter {
   q?: string;
   status?: ArchiveSessionStatus;
   include_sim?: boolean;
+  include_deleted?: boolean;
   page: number;
   limit: number;
 }
@@ -97,6 +103,8 @@ const fileUrl = (id: string, name: string) => `${API_ARCHIVE_BASE}/${id}/files/$
 export class ArchiveService {
   readonly storage: ArchiveStorage;
   readonly mp4: Mp4Builder;
+  private readonly imuCache = new PreviewCache<ImuPreviewDto>(16);
+  private readonly lidarCache = new PreviewCache<LidarChunk>(48);
 
   constructor(
     private readonly db: Db,
@@ -160,6 +168,8 @@ export class ArchiveService {
           `INSERT INTO archive_files (object_key, session_ref, name, kind, camera, sensor, chunk_start, size_bytes, sha256, uploaded_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT (object_key) DO UPDATE SET size_bytes = excluded.size_bytes, uploaded_at = excluded.uploaded_at,
+                                                  kind = excluded.kind, camera = excluded.camera, sensor = excluded.sensor,
+                                                  chunk_start = excluded.chunk_start,
                                                   sha256 = coalesce(excluded.sha256, archive_files.sha256)`,
           [
             it.key,
@@ -280,6 +290,7 @@ export class ArchiveService {
     if (filter.robot) w.add('s.robot_id = ?', filter.robot);
     if (filter.product) w.add('p.code = ?', filter.product);
     if (!filter.include_sim) w.add('NOT s.sim');
+    if (!filter.include_deleted) w.add('s.deleted_at IS NULL');
     if (filter.q) {
       const like = `%${filter.q}%`;
       w.add('(s.session_id ILIKE ? OR s.robot_id ILIKE ? OR t.name ILIKE ? OR r.serial_number ILIKE ?)', like, like, like, like);
@@ -332,22 +343,37 @@ export class ArchiveService {
     };
   }
 
-  async robotArchive(robotId: string): Promise<RobotArchiveDto> {
-    const rows = await this.db.query<SessionRow>(`${SESSION_SELECT} WHERE s.robot_id = $1 ORDER BY coalesce(s.started_at, s.created_at) DESC`, [robotId]);
+  /** One robot's recordings; `scope` adds the viewer's ownership-period condition. */
+  async robotArchive(robotId: string, scope: (w: Where) => void, includeDeleted = false): Promise<RobotArchiveDto> {
+    const w = new Where().add('s.robot_id = ?', robotId);
+    if (!includeDeleted) w.add('s.deleted_at IS NULL');
+    scope(w);
+    const rows = await this.db.query<SessionRow>(`${SESSION_SELECT} ${w.toSql()} ORDER BY coalesce(s.started_at, s.created_at) DESC`, w.params);
     return { link: await this.link(robotId), sessions: rows.rows.map((r) => summarize(r, this.cfg)) };
   }
 
-  private async sessionRow(id: string): Promise<SessionRow> {
-    const row = (await this.db.query<SessionRow>(`${SESSION_SELECT} WHERE s.id = $1`, [id])).rows[0];
+  /** robot_id and recording time of a session (for access checks); null when unknown or deleted (unless allowed). */
+  async sessionOwner(id: string, allowDeleted = false): Promise<{ robotId: string; at: Date } | null> {
+    const r = (
+      await this.db.query<{ robot_id: string; at: Date }>(
+        `SELECT robot_id, coalesce(started_at, created_at) AS at FROM archive_sessions WHERE id = $1 ${allowDeleted ? '' : 'AND deleted_at IS NULL'}`,
+        [id],
+      )
+    ).rows[0];
+    return r ? { robotId: r.robot_id, at: r.at } : null;
+  }
+
+  private async sessionRow(id: string, allowDeleted = false): Promise<SessionRow> {
+    const row = (await this.db.query<SessionRow>(`${SESSION_SELECT} WHERE s.id = $1 ${allowDeleted ? '' : 'AND s.deleted_at IS NULL'}`, [id])).rows[0];
     if (!row) throw notFound('recording');
     return row;
   }
 
-  async detail(id: string): Promise<ArchiveSessionDetailDto> {
-    const row = await this.sessionRow(id);
+  async detail(id: string, access: ArchiveAccessDto, allowDeleted = false): Promise<ArchiveSessionDetailDto> {
+    const row = await this.sessionRow(id, allowDeleted);
     const session = summarize(row, this.cfg);
     const files = (
-      await this.db.query<{ object_key: string; name: string; kind: 'camera' | 'sensors' | 'meta'; camera: string | null; sensor: 'lidar' | 'imu' | null; chunk_start: Date | null; size_bytes: number; uploaded_at: Date }>(
+      await this.db.query<{ object_key: string; name: string; kind: 'camera' | 'sensors' | 'meta'; camera: string | null; sensor: 'lidar' | 'imu' | 'gps' | 'encoder' | null; chunk_start: Date | null; size_bytes: number; uploaded_at: Date }>(
         `SELECT object_key, name, kind, camera, sensor, chunk_start, size_bytes, uploaded_at
          FROM archive_files WHERE session_ref = $1 ORDER BY chunk_start NULLS FIRST, name`,
         [id],
@@ -378,21 +404,126 @@ export class ArchiveService {
       url: fileUrl(id, f.name),
       download_url: `${fileUrl(id, f.name)}?download=1`,
     }));
+    const stream = (list: typeof files, missing: string): ArchiveStreamDto => ({
+      available: list.length > 0,
+      files: list.length,
+      bytes: list.reduce((n, f) => n + Number(f.size_bytes), 0),
+      reason: list.length ? null : missing,
+    });
+    const still = session.status === 'active' ? ' yet' : '';
     return {
       session,
       manifest: row.manifest,
       cameras,
       files: fileDtos,
+      streams: {
+        video: stream(files.filter((f) => f.kind === 'camera'), `No camera video was uploaded for this recording${still}.`),
+        lidar: stream(files.filter((f) => f.sensor === 'lidar'), `No LiDAR data was uploaded for this recording${still}.`),
+        imu: stream(files.filter((f) => f.sensor === 'imu'), `No IMU data was uploaded for this recording${still}.`),
+        gps: stream(files.filter((f) => f.sensor === 'gps'), `No GPS log was uploaded for this recording${still}.`),
+        encoder: stream(files.filter((f) => f.sensor === 'encoder'), `No wheel-encoder log was uploaded for this recording${still}.`),
+        metadata: stream(
+          files.filter((f) => f.kind === 'meta'),
+          `The robot has not uploaded session.json${still}, so start / stop details come from the file names.`,
+        ),
+      },
+      access,
+      zip_url: `/api/v1/archive/download.zip?sessions=${id}`,
       mp4_available: (await this.mp4.ffmpeg()).available,
       interrupted_after_min: this.cfg.interruptedAfterMin,
+      deleted_at: iso(row.deleted_at),
+      delete_reason: row.delete_reason,
     };
   }
 
+  /** Every file of a session, for zip downloads (oldest chunk first within each group). */
+  async files(id: string): Promise<{ object_key: string; name: string; kind: 'camera' | 'sensors' | 'meta'; camera: string | null; sensor: string | null; size_bytes: number }[]> {
+    await this.sessionRow(id);
+    const rows = await this.db.query<{ object_key: string; name: string; kind: 'camera' | 'sensors' | 'meta'; camera: string | null; sensor: string | null; size_bytes: number }>(
+      'SELECT object_key, name, kind, camera, sensor, size_bytes FROM archive_files WHERE session_ref = $1 ORDER BY kind, camera NULLS FIRST, sensor NULLS FIRST, chunk_start NULLS FIRST, name',
+      [id],
+    );
+    return rows.rows.map((r) => ({ ...r, size_bytes: Number(r.size_bytes) }));
+  }
+
   /** One file of a session (only names that are indexed for it can be read). */
-  async file(id: string, name: string): Promise<{ key: string; name: string; size: number }> {
-    const r = (await this.db.query<{ object_key: string; size_bytes: number }>('SELECT object_key, size_bytes FROM archive_files WHERE session_ref = $1 AND name = $2', [id, name])).rows[0];
+  async file(id: string, name: string): Promise<{ key: string; name: string; size: number; kind: 'camera' | 'sensors' | 'meta'; sensor: string | null }> {
+    const r = (
+      await this.db.query<{ object_key: string; size_bytes: number; kind: 'camera' | 'sensors' | 'meta'; sensor: string | null }>(
+        'SELECT object_key, size_bytes, kind, sensor FROM archive_files WHERE session_ref = $1 AND name = $2',
+        [id, name],
+      )
+    ).rows[0];
     if (!r) throw notFound('file');
-    return { key: r.object_key, name, size: Number(r.size_bytes) };
+    return { key: r.object_key, name, size: Number(r.size_bytes), kind: r.kind, sensor: r.sensor };
+  }
+
+  // ── sensor previews (view without downloading the raw files) ─────────────
+
+  private async sensorFiles(id: string, sensor: 'imu' | 'lidar'): Promise<{ object_key: string; name: string; size_bytes: number; uploaded_at: Date }[]> {
+    await this.sessionRow(id);
+    return (
+      await this.db.query<{ object_key: string; name: string; size_bytes: number; uploaded_at: Date }>(
+        "SELECT object_key, name, size_bytes, uploaded_at FROM archive_files WHERE session_ref = $1 AND kind = 'sensors' AND sensor = $2 ORDER BY chunk_start NULLS LAST, name",
+        [id, sensor],
+      )
+    ).rows;
+  }
+
+  private async readObject(key: string): Promise<Buffer> {
+    return readAll((await this.storage.get(key)).body);
+  }
+
+  async imuPreview(id: string): Promise<ImuPreviewDto> {
+    const files = await this.sensorFiles(id, 'imu');
+    // Cache key changes whenever a chunk is added or re-uploaded.
+    const cacheKey = `${id}|${files.length}|${files.reduce((m, f) => Math.max(m, f.uploaded_at.getTime()), 0)}`;
+    const hit = this.imuCache.get(cacheKey);
+    if (hit) return hit;
+    const byName = new Map(files.map((f) => [f.name, f.object_key]));
+    const dto = await imuPreview(
+      files.map((f) => ({ name: f.name, size: Number(f.size_bytes) })),
+      (name) => this.readObject(byName.get(name)!),
+    );
+    // Do not cache a storage outage.
+    if (dto.problem !== 'storage_unavailable') this.imuCache.set(cacheKey, dto);
+    return dto;
+  }
+
+  async lidarPreview(id: string, chunk: string | undefined): Promise<LidarPreviewDto> {
+    const files = await this.sensorFiles(id, 'lidar');
+    const chunks = files.map((f) => f.name);
+    if (!files.length) return lidarUnavailable(chunks, null, 'missing', 'No LiDAR data was uploaded for this recording.');
+    const f = chunk ? files.find((x) => x.name === chunk) : files[0];
+    if (!f) throw notFound('LiDAR chunk');
+    if (Number(f.size_bytes) > 64 * 1024 * 1024) return lidarUnavailable(chunks, f.name, 'too_large', 'This LiDAR chunk is too large to preview. Download it to open it in Python.');
+    const cacheKey = `${f.object_key}|${f.uploaded_at.getTime()}`;
+    let decoded = this.lidarCache.get(cacheKey);
+    if (!decoded) {
+      try {
+        decoded = parseLidarChunk(await this.readObject(f.object_key));
+        this.lidarCache.set(cacheKey, decoded);
+      } catch (e) {
+        if (e instanceof SensorFormatError) {
+          return lidarUnavailable(chunks, f.name, 'unreadable', `This LiDAR chunk was uploaded but could not be decoded (${e.message}).`);
+        }
+        if (e instanceof ObjectNotFound) return lidarUnavailable(chunks, f.name, 'missing', 'This LiDAR chunk is listed but no longer in the archive storage.');
+        return lidarUnavailable(chunks, f.name, 'storage_unavailable', 'The LiDAR file could not be read from the archive storage. Try again later.');
+      }
+    }
+    return { status: 'ok', problem: null, message: null, chunk: f.name, chunks, ...decoded };
+  }
+
+  // ── delete / restore (hide; the objects stay in the bucket) ──────────────
+
+  async setDeleted(id: string, deleted: boolean, by: string, reason: string | null): Promise<void> {
+    const res = await this.db.query(
+      deleted
+        ? 'UPDATE archive_sessions SET deleted_at = now(), deleted_by = $2, delete_reason = $3 WHERE id = $1 AND deleted_at IS NULL'
+        : 'UPDATE archive_sessions SET deleted_at = NULL, deleted_by = NULL, delete_reason = NULL WHERE id = $1 AND deleted_at IS NOT NULL',
+      deleted ? [id, by, reason] : [id],
+    );
+    if (!res.rowCount) throw notFound(deleted ? 'recording (or it is already deleted)' : 'deleted recording');
   }
 
   async cameraTrack(id: string, camera: string): Promise<{ session: ArchiveSessionDto; segments: CameraSegment[] }> {

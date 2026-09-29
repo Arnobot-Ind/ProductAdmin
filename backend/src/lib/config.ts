@@ -54,6 +54,8 @@ export interface ApiConfig {
     ffprobePath: string;
     /** Built MP4s are deleted this long after they were built. */
     mp4CacheHours: number;
+    /** Incremental re-index of the bucket every N minutes (and at start-up); 0 = off. Picks up data written straight to S3. */
+    syncMinutes: number;
   };
 }
 
@@ -137,6 +139,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ffmpegPath: env.FFMPEG_PATH || 'ffmpeg',
       ffprobePath: env.FFPROBE_PATH || 'ffprobe',
       mp4CacheHours: positive(env.MP4_CACHE_HOURS, 24),
+      syncMinutes: env.ARCHIVE_SYNC_MINUTES === '0' ? 0 : positive(env.ARCHIVE_SYNC_MINUTES, 10),
     },
   };
 }

@@ -33,6 +33,8 @@ export interface SessionRow {
   ended_at: Date | null;
   simulated: boolean;
   complete: boolean;
+  deleted_at: Date | null;
+  delete_reason: string | null;
   groups: Array<Record<string, unknown>> | null;
   link_seen_at: Date | null;
   link_session: string | null;
@@ -41,7 +43,7 @@ export interface SessionRow {
 /** SELECT producing SessionRow; append a WHERE. */
 export const SESSION_SELECT = `
 SELECT s.id, s.robot_id, p.code AS product_code, p.name AS product_name, s.sim, s.session_id, t.name AS trip,
-       s.manifest, s.started_at, s.ended_at, s.simulated, s.complete,
+       s.manifest, s.started_at, s.ended_at, s.simulated, s.complete, s.deleted_at, s.delete_reason,
        l.last_seen_at AS link_seen_at, l.last_status->'session'->>'session_id' AS link_session,
        g.groups
 FROM archive_sessions s
@@ -99,6 +101,9 @@ export function summarize(row: SessionRow, cfg: ApiConfig['archive'], now = Date
   const cameras = new Set<string>();
   let hasLidar = false;
   let hasImu = false;
+  let hasGps = false;
+  const sensorBytes = { lidar: 0, imu: 0, gps: 0, encoder: 0 };
+  let hasEncoder = false;
   let files = 0;
   let firstChunk: number | null = null;
   let chunkEnd: number | null = null;
@@ -110,6 +115,9 @@ export function summarize(row: SessionRow, cfg: ApiConfig['archive'], now = Date
     if (g.camera) cameras.add(g.camera);
     if (g.sensor === 'lidar') hasLidar = true;
     if (g.sensor === 'imu') hasImu = true;
+    if (g.sensor && g.sensor in sensorBytes) sensorBytes[g.sensor as keyof typeof sensorBytes] += Number(g.bytes) || 0;
+    if (g.sensor === 'gps') hasGps = true;
+    if (g.sensor === 'encoder') hasEncoder = true;
     if (g.first !== null && g.last !== null) {
       const len = (g.kind === 'camera' ? segSec : chunkSec) * 1000;
       firstChunk = firstChunk === null ? g.first : Math.min(firstChunk, g.first);
@@ -148,8 +156,12 @@ export function summarize(row: SessionRow, cfg: ApiConfig['archive'], now = Date
     cameras: sortCameras(cameras),
     has_lidar: hasLidar,
     has_imu: hasImu,
+    has_gps: hasGps,
+    has_encoder: hasEncoder,
+    sensor_bytes: sensorBytes,
     file_count: files,
     bytes,
     last_upload_at: lastUpload === null ? null : iso(new Date(lastUpload)),
+    deleted_at: iso(row.deleted_at),
   };
 }

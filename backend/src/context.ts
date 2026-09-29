@@ -1,6 +1,7 @@
 import { createPool, CredentialCipher, type Db } from './db';
 import type { ApiConfig } from './lib/config';
 import { ArchiveService } from './services/archive/archive.service';
+import { AuditService } from './services/audit.service';
 import { AuthService } from './services/auth.service';
 import { DocumentsService } from './services/documents.service';
 import { FilesService } from './services/files.service';
@@ -22,6 +23,8 @@ export interface AppContext {
   cipher: CredentialCipher;
   auth: AuthService;
   perms: PermissionsService;
+  /** Append-only audit log (sign-ins, data access, downloads, assignments, permission changes). */
+  audit: AuditService;
   /** Documents / release packages. */
   storage: StorageService;
   files: FilesService;
@@ -40,6 +43,7 @@ export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUr
     cipher: CredentialCipher.fromEnv(),
     auth: new AuthService(db, cfg.sessionSecret, cfg.sessionTtlHours),
     perms: new PermissionsService(db),
+    audit: new AuditService(db),
     storage,
     files: new FilesService(db, storage),
     robots: new RobotsService(db),

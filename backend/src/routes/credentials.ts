@@ -97,7 +97,7 @@ export function credentialRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Decrypt and return one secret (permission credential.reveal; never cached)',
     tag,
     access: { can: 'credential.reveal', target: credRobot },
-    handler: async ({ params, reply }): Promise<CredentialRevealDto> => {
+    handler: async ({ params, reply, user, req }): Promise<CredentialRevealDto> => {
       const r = (
         await db.query<{ id: string; robot_id: string; kind: CredentialRevealDto['kind']; slot: number | null; username: string | null; ciphertext: Buffer; iv: Buffer; auth_tag: Buffer; key_version: number; revoked_at: Date | null }>(
           'SELECT id, robot_id, kind, slot, username, ciphertext, iv, auth_tag, key_version, revoked_at FROM robot_credentials WHERE id = $1',
@@ -110,6 +110,8 @@ export function credentialRoutes(f: FastifyInstance, app: AppContext): void {
         { ciphertext: r.ciphertext, iv: r.iv, authTag: r.auth_tag, keyVersion: r.key_version },
         { robotId: r.robot_id, kind: r.kind, slot: r.slot },
       );
+      // Device credentials are separate from user logins; every reveal is audited (never the secret itself).
+      await app.audit.record({ action: 'credential.revealed', actor: user, target: { type: 'credential', id: r.id }, robotId: r.robot_id, detail: { kind: r.kind, slot: r.slot }, req });
       reply.header('Cache-Control', 'no-store, max-age=0').header('Pragma', 'no-cache');
       return { id: r.id, kind: r.kind, username: r.username, secret };
     },

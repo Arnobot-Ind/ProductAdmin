@@ -11,9 +11,20 @@ import { includeDeleted, isoDate, nullableText, optionalBool, uuidSchema } from 
 
 const PART_SELECT = `
 SELECT h.id, pt.key AS part_type_key, pt.name AS part_type_name, h.slot, h.model, h.serial_number, h.fitted_at, h.removed_at,
-       h.removal_reason, coalesce(h.removed_maintenance_id, h.fitted_maintenance_id) AS maintenance_log_id, h.notes, h.created_at
-FROM hardware_fitted h JOIN part_types pt ON pt.id = h.part_type_id`;
-const toPart = (r: Record<string, unknown>): HardwarePartDto => ({ ...(r as unknown as HardwarePartDto), created_at: iso(r.created_at as Date)! });
+       h.removal_reason, coalesce(h.removed_maintenance_id, h.fitted_maintenance_id) AS maintenance_log_id, h.notes, h.product_url,
+       h.created_at, h.updated_at, uu.name AS updated_by_name
+FROM hardware_fitted h JOIN part_types pt ON pt.id = h.part_type_id LEFT JOIN users uu ON uu.id = h.updated_by`;
+const toPart = (r: Record<string, unknown>): HardwarePartDto => ({
+  ...(r as unknown as HardwarePartDto),
+  created_at: iso(r.created_at as Date)!,
+  updated_at: iso(r.updated_at as Date | null),
+});
+
+/** http(s) link to the part's product page or datasheet; empty → null. */
+const productUrl = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v),
+  z.string().max(1000).regex(/^https?:\/\/[^\s/@]+(\/\S*)?$/i, 'must be an http(s) link without user:password').nullable(),
+);
 
 const MAINT_SELECT = `
 SELECT m.id, m.robot_id, m.repaired_at, m.description, m.part_removed_serial, m.part_fitted_serial, m.repaired_by,
@@ -32,9 +43,20 @@ const fitBody = z.object({
   slot: z.coerce.number().int().min(1).max(64).nullable().optional(),
   model: nullableText(200).optional(),
   serial_number: nullableText(200).optional(),
+  product_url: productUrl.optional(),
   fitted_at: isoDate,
   notes: nullableText(2000).optional(),
 });
+/** Corrections of a fitted part. Part type and slot are permanent: a different part is a remove + fit. */
+const patchPartBody = z
+  .object({
+    model: nullableText(200).optional(),
+    serial_number: nullableText(200).optional(),
+    product_url: productUrl.optional(),
+    fitted_at: isoDate.optional(),
+    notes: nullableText(2000).optional(),
+  })
+  .strict();
 const removeBody = z.object({ removed_at: isoDate, reason: nullableText(500).optional() });
 const maintBody = z.object({
   repaired_at: isoDate,
@@ -65,7 +87,7 @@ const maintPatch = z
 async function fitPart(
   tx: PoolClient,
   robotId: string,
-  input: { part_type_key: string; slot?: number | null; model?: string | null; serial_number?: string | null; fitted_at: string; notes?: string | null },
+  input: { part_type_key: string; slot?: number | null; model?: string | null; serial_number?: string | null; product_url?: string | null; fitted_at: string; notes?: string | null },
   userId: string,
   maintenanceId: string | null,
 ): Promise<string> {
@@ -77,9 +99,9 @@ async function fitPart(
     if (n >= pt.max_per_robot) throw conflict(`robot already has ${n} current ${pt.name} part(s) (max ${pt.max_per_robot}); remove one first`);
   }
   const res = await tx.query<{ id: string }>(
-    `INSERT INTO hardware_fitted (robot_id, part_type_id, slot, model, serial_number, fitted_at, notes, fitted_maintenance_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [robotId, pt.id, input.slot ?? null, input.model ?? null, input.serial_number ?? null, input.fitted_at, input.notes ?? null, maintenanceId, userId],
+    `INSERT INTO hardware_fitted (robot_id, part_type_id, slot, model, serial_number, product_url, fitted_at, notes, fitted_maintenance_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    [robotId, pt.id, input.slot ?? null, input.model ?? null, input.serial_number ?? null, input.product_url ?? null, input.fitted_at, input.notes ?? null, maintenanceId, userId],
   );
   return res.rows[0].id;
 }
@@ -118,6 +140,39 @@ export function hardwareRoutes(f: FastifyInstance, app: AppContext): void {
         await robots.assertExists(params.robotId, {}, tx);
         const id = await fitPart(tx, params.robotId, body, user.id, null);
         return toPart((await tx.query(`${PART_SELECT} WHERE h.id = $1`, [id])).rows[0]);
+      }),
+  });
+  route(f, app, {
+    method: 'PATCH',
+    path: '/hardware/:id',
+    summary: 'Correct a fitted part: model, serial number, product URL, fitted date, notes (audited)',
+    tag: 'Hardware',
+    access: { can: 'hardware.write', target: robotVia('SELECT robot_id FROM hardware_fitted WHERE id = $1', 'hardware part') },
+    body: patchPartBody,
+    handler: ({ params, body, user, req }) =>
+      withTransaction(db, async (tx) => {
+        const before = (await tx.query(`${PART_SELECT} WHERE h.id = $1 FOR UPDATE OF h`, [params.id])).rows[0];
+        if (!before) throw notFound('hardware part');
+        if (body.fitted_at && before.removed_at && body.fitted_at > before.removed_at) throw badRequest('fitted date must be on or before the removal date');
+        const sets: string[] = [];
+        const values: unknown[] = [params.id];
+        const changes: Record<string, { from: unknown; to: unknown }> = {};
+        for (const key of ['model', 'serial_number', 'product_url', 'fitted_at', 'notes'] as const) {
+          if (body[key] === undefined || body[key] === before[key]) continue;
+          values.push(body[key]);
+          sets.push(`${key} = $${values.length}`);
+          changes[key] = { from: before[key], to: body[key] };
+        }
+        if (sets.length) {
+          values.push(user.id);
+          await tx.query(`UPDATE hardware_fitted SET ${sets.join(', ')}, updated_at = now(), updated_by = $${values.length} WHERE id = $1`, values);
+          const robotId = (await tx.query<{ robot_id: string }>('SELECT robot_id FROM hardware_fitted WHERE id = $1', [params.id])).rows[0].robot_id;
+          await app.audit.record(
+            { action: 'hardware.updated', actor: user, target: { type: 'hardware_part', id: params.id }, robotId, detail: { part: before.part_type_name, slot: before.slot, changes }, req },
+            tx,
+          );
+        }
+        return toPart((await tx.query(`${PART_SELECT} WHERE h.id = $1`, [params.id])).rows[0]);
       }),
   });
   route(f, app, {

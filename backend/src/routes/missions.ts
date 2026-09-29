@@ -1,18 +1,45 @@
-import type { MissionDetailDto, MissionFileDto, MissionListItemDto, Paginated } from '../shared';
+import type { MissionDetailDto, MissionFileDto, MissionListItemDto, MissionWaypointDto, Paginated } from '../shared';
 import { MISSION_STATES } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { notFound } from '../lib/errors';
-import { anyScope, robotParam, robotVia, route } from '../lib/route';
+import { anyScope, assertCan, robotParam, robotVia, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { isoDateTime, pageQuery, robotIdSchema } from '../lib/validation';
 
 const LIST_SELECT = `
-SELECT m.mission_id, m.robot_id, m.name, m.started_at, m.ended_at, m.duration_s, m.distance_m, m.result, m.end_reason,
+SELECT m.mission_id, m.robot_id, m.name, m.started_at, m.ended_at, m.duration_s, m.distance_m, m.distance_planned_m,
+       m.waypoints_total, m.waypoints_reached, m.result, m.end_reason,
        (SELECT count(*)::int FROM mission_files mf WHERE mf.mission_id = m.mission_id) AS file_count,
        (m.gcs_report IS NOT NULL) AS has_gcs_report
 FROM missions m JOIN robots r ON r.robot_id = m.robot_id`;
+/**
+ * Waypoints from the GCS report as stored (`waypoints` or `report_data.waypoints`, as the GCS writes them):
+ * { sequence, label, lat, lng|lon, reached, reached_at }. null when the report has none.
+ */
+function reportWaypoints(report: unknown): MissionWaypointDto[] | null {
+  const r = report as { waypoints?: unknown; report_data?: { waypoints?: unknown } } | null;
+  const list = Array.isArray(r?.waypoints) ? r!.waypoints : Array.isArray(r?.report_data?.waypoints) ? r!.report_data!.waypoints : null;
+  if (!list) return null;
+  const out: MissionWaypointDto[] = [];
+  (list as Record<string, unknown>[]).forEach((w, i) => {
+    const lat = Number(w.lat ?? w.latitude);
+    const lng = Number(w.lng ?? w.lon ?? w.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const at = typeof w.reached_at === 'string' && !Number.isNaN(Date.parse(w.reached_at)) ? new Date(w.reached_at).toISOString() : null;
+    out.push({
+      sequence: Number.isFinite(Number(w.sequence)) ? Number(w.sequence) : i + 1,
+      label: typeof w.label === 'string' && w.label ? w.label : null,
+      lat,
+      lng,
+      reached: w.reached === true || at !== null,
+      reached_at: at,
+    });
+  });
+  return out.sort((a, b) => a.sequence - b.sequence);
+}
+
 const toItem = (r: Record<string, unknown>): MissionListItemDto => ({
   ...(r as unknown as MissionListItemDto),
   started_at: iso(r.started_at as Date | null),
@@ -46,7 +73,8 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'robot.read', target: anyScope() },
     query: listQuery,
-    handler: ({ query, user }) => list(query, app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'm.robot_id')),
+    // Organizations never see missions flown while another customer owned the robot.
+    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)')),
   });
 
   route(f, app, {
@@ -56,9 +84,10 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'robot.read', target: robotParam() },
     query: listQuery,
-    handler: async ({ params, query }) => {
+    handler: async ({ params, query, user }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
-      return list({ ...query, robot: undefined }, new Where().add('m.robot_id = ?', params.robotId));
+      const w = new Where().add('m.robot_id = ?', params.robotId);
+      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.read'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)'));
     },
   });
 
@@ -68,7 +97,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Mission detail: planned + actual path, stats, files (spec §5 view 3)',
     tag,
     access: { can: 'robot.read', target: robotVia('SELECT robot_id FROM missions WHERE mission_id = $1', 'mission', 'missionId', false) },
-    handler: async ({ params }): Promise<MissionDetailDto> => {
+    handler: async ({ params, user }): Promise<MissionDetailDto> => {
       const m = (
         await db.query(
           `SELECT m.*, (SELECT count(*)::int FROM mission_files mf WHERE mf.mission_id = m.mission_id) AS file_count,
@@ -77,7 +106,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
           [params.missionId],
         )
       ).rows[0];
-      if (!m) throw notFound('mission');
+      if (!m || !(await app.perms.canSeeData(user, 'robot.read', m.robot_id, m.started_at ?? m.created_at))) throw notFound('mission');
       const files = await db.query(
         `SELECT mf.id, mf.kind, mf.s3_path, coalesce(mf.size_bytes, f.size_bytes) AS size_bytes,
                 coalesce(mf.content_type, f.content_type) AS content_type, mf.file_id, mf.created_at
@@ -112,6 +141,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
         waypoints_total: m.waypoints_total,
         waypoints_reached: m.waypoints_reached,
         files: fileDtos,
+        waypoints: reportWaypoints(m.gcs_report),
         gcs_report_received_at: iso(m.gcs_report_received_at),
         created_at: iso(m.created_at)!,
         updated_at: iso(m.updated_at)!,
@@ -128,8 +158,23 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
       can: 'robot.read',
       target: robotVia('SELECT m.robot_id FROM mission_files mf JOIN missions m ON m.mission_id = mf.mission_id WHERE mf.id = $1', 'mission file'),
     },
-    handler: async ({ params, reply }) => {
-      const r = (await db.query<{ file_id: string | null; s3_path: string }>('SELECT file_id, s3_path FROM mission_files WHERE id = $1', [params.id])).rows[0];
+    handler: async ({ params, req, reply, user }) => {
+      const r = (
+        await db.query<{ file_id: string | null; s3_path: string; kind: string; robot_id: string; at: Date }>(
+          `SELECT mf.file_id, mf.s3_path, mf.kind, m.robot_id, coalesce(m.started_at, m.created_at) AS at
+           FROM mission_files mf JOIN missions m ON m.mission_id = mf.mission_id WHERE mf.id = $1`,
+          [params.id],
+        )
+      ).rows[0];
+      if (!(await app.perms.canSeeData(user, 'robot.read', r.robot_id, r.at))) throw notFound('mission file');
+      // Photos and video play inline for anyone who may view the mission; every other file is a download.
+      const viewable = r.kind === 'image' || r.kind === 'video';
+      if (!viewable) {
+        // Raw sensor recordings (LiDAR, MCAP bags) are restricted data.
+        const permission = r.kind === 'lidar' || r.kind === 'mcap' ? 'data.download_restricted' : 'data.download';
+        await assertCan(app, req, user, permission, { type: 'robot', id: r.robot_id });
+        app.audit.note({ action: 'data.downloaded', actor: user, target: { type: 'mission_file', id: params.id }, robotId: r.robot_id, detail: { kind: r.kind, path: r.s3_path }, req });
+      }
       if (r.file_id) return app.files.send(r.file_id, reply);
       const url = await storage.presignExternal(r.s3_path);
       if (!url) throw notFound('file content (this S3 path is not reachable from the PMS storage configuration)');

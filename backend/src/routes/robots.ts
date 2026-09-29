@@ -17,6 +17,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { includeDeleted, isoDate, isoDateTime, nullableText, pageQuery, uuidSchema } from '../lib/validation';
+import { assignRobot } from '../services/ownership';
 import { ROBOT_SELECT, ROBOT_SORTS, toRobotListItem } from '../services/robots.service';
 
 const listQuery = z.object({
@@ -39,6 +40,24 @@ const patchBody = z
     notes: nullableText(2000).optional(),
   })
   .strict();
+const softwareBody = z.object({
+  sw_ver: nullableText(100),
+  fw_ver: nullableText(100),
+  enabled_features: z.array(z.string().trim().min(1).max(100)).max(100),
+  /** When the update happened (default now). */
+  updated_at: isoDateTime.optional(),
+  note: nullableText(1000).optional(),
+});
+async function softwareDto(robotId: string, q: Queryable): Promise<SoftwareDto> {
+  const rows = await q.query(
+    `SELECT s.id, s.sw_ver, s.fw_ver, s.enabled_features, s.reported_at, s.boot_id, s.source, u.name AS entered_by_name, s.note
+     FROM software_history s LEFT JOIN users u ON u.id = s.entered_by
+     WHERE s.robot_id = $1 ORDER BY s.reported_at DESC, s.created_at DESC`,
+    [robotId],
+  );
+  const history = rows.rows.map((r) => ({ ...r, reported_at: iso(r.reported_at)! }));
+  return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, history };
+}
 const ownershipBody = z.object({ company_id: uuidSchema, reason: nullableText(500).optional(), valid_from: isoDateTime.optional() });
 const ipField = z.preprocess(
   (v) => (typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v),
@@ -222,46 +241,36 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
   route(f, app, {
     method: 'GET',
     path: '/robots/:robotId/ownership',
-    summary: 'Ownership history (newest first)',
+    summary: 'Ownership history (newest first). Organization users see only their own organization’s periods',
     tag,
     access: { can: 'robot.read', target: robotParam() },
-    handler: async ({ params }) => {
+    handler: async ({ params, user }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
-      return ownershipRows(params.robotId, db);
+      const rows = await ownershipRows(params.robotId, db);
+      const scope = app.perms.robotScope(user, 'robot.read');
+      // Other organizations' names and periods are not theirs to see.
+      return scope.all ? rows : rows.filter((r) => r.company_id === user.companyId || scope.companyIds.includes(r.company_id));
     },
   });
   route(f, app, {
     method: 'POST',
     path: '/robots/:robotId/ownership',
-    summary: 'Transfer ownership: closes the current period and opens a new one (history kept)',
+    summary: 'Assign the robot to an organization: closes the current period, opens a new one (history kept), revokes the old organization’s robot grants',
     tag,
     access: { can: 'ownership.write', target: robotParam() },
     body: ownershipBody,
-    handler: ({ params, body, user }) =>
+    handler: ({ params, body, user, req }) =>
       withTransaction(db, async (tx) => {
-        const robotId = params.robotId;
-        await robots.assertExists(robotId, {}, tx);
-        await tx.query('SELECT 1 FROM robots WHERE robot_id = $1 FOR UPDATE', [robotId]);
-        const company = await tx.query('SELECT 1 FROM companies WHERE id = $1 AND deleted_at IS NULL', [body.company_id]);
-        if (!company.rowCount) throw notFound('company');
-        const current = (
-          await tx.query<{ id: string; company_id: string; valid_from: Date }>(
-            'SELECT id, company_id, valid_from FROM company_assignment_history WHERE robot_id = $1 AND valid_to IS NULL',
-            [robotId],
-          )
-        ).rows[0];
-        const from = body.valid_from ? new Date(body.valid_from) : new Date();
-        if (current?.company_id === body.company_id) throw conflict('robot is already owned by this company');
-        if (current && from <= current.valid_from) throw badRequest('valid_from must be after the start of the current ownership period');
-        if (current) await tx.query('UPDATE company_assignment_history SET valid_to = $2 WHERE id = $1', [current.id, from]);
-        await tx.query('INSERT INTO company_assignment_history (robot_id, company_id, valid_from, reason, created_by) VALUES ($1, $2, $3, $4, $5)', [
-          robotId,
-          body.company_id,
-          from,
-          body.reason ?? null,
-          user.id,
-        ]);
-        return ownershipRows(robotId, tx);
+        await robots.assertExists(params.robotId, {}, tx);
+        await assignRobot(tx, app, {
+          robotId: params.robotId,
+          companyId: body.company_id,
+          reason: body.reason ?? null,
+          validFrom: body.valid_from ? new Date(body.valid_from) : undefined,
+          actor: user,
+          req,
+        });
+        return ownershipRows(params.robotId, tx);
       }),
   });
 
@@ -274,13 +283,47 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.read', target: robotParam() },
     handler: async ({ params }): Promise<SoftwareDto> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
-      const rows = await db.query(
-        'SELECT id, sw_ver, fw_ver, enabled_features, reported_at, boot_id FROM software_history WHERE robot_id = $1 ORDER BY reported_at DESC, created_at DESC',
-        [params.robotId],
-      );
-      const history = rows.rows.map((r) => ({ ...r, reported_at: iso(r.reported_at)! }));
-      return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, history };
+      return softwareDto(params.robotId, db);
     },
+  });
+  route(f, app, {
+    method: 'POST',
+    path: '/robots/:robotId/software',
+    summary: 'Record a software / firmware update or change of enabled features from the panel (kept in the history as "manual")',
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    body: softwareBody,
+    status: 201,
+    handler: ({ params, body, user, req }) =>
+      withTransaction(db, async (tx) => {
+        await robots.assertExists(params.robotId, {}, tx);
+        const features = [...new Set(body.enabled_features.map((f) => f.trim()).filter(Boolean))].sort();
+        const current = (await tx.query<{ sw_ver: string | null; fw_ver: string | null; enabled_features: string[] | null }>(
+          'SELECT sw_ver, fw_ver, enabled_features FROM software_history WHERE robot_id = $1 ORDER BY reported_at DESC, created_at DESC LIMIT 1',
+          [params.robotId],
+        )).rows[0];
+        if (current && current.sw_ver === body.sw_ver && current.fw_ver === body.fw_ver && JSON.stringify(current.enabled_features ?? []) === JSON.stringify(features)) {
+          throw conflict('nothing changed: this is already the current software');
+        }
+        const reportedAt = body.updated_at ? new Date(body.updated_at) : new Date();
+        await tx.query(
+          `INSERT INTO software_history (robot_id, sw_ver, fw_ver, enabled_features, reported_at, source, entered_by, note)
+           VALUES ($1, $2, $3, $4, $5, 'manual', $6, $7)`,
+          [params.robotId, body.sw_ver, body.fw_ver, JSON.stringify(features), reportedAt, user.id, body.note ?? null],
+        );
+        await app.audit.record(
+          {
+            action: 'software.recorded',
+            actor: user,
+            target: { type: 'robot', id: params.robotId },
+            robotId: params.robotId,
+            detail: { from: current ?? null, to: { sw_ver: body.sw_ver, fw_ver: body.fw_ver, enabled_features: features }, note: body.note ?? null },
+            req,
+          },
+          tx,
+        );
+        return softwareDto(params.robotId, tx);
+      }),
   });
 
   // ── connectivity (row 5) ─────────────────────────────────────────────────

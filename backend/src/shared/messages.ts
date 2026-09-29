@@ -89,6 +89,8 @@ export const livePayload = z.looseObject({
     })
     .optional(),
   current_mission_id: z.string().nullable().optional(),
+  /** The robot's lifetime odometer (m): all driving, not only missions. */
+  odometer_m: finite.nonnegative().optional(),
 });
 
 const sampleTs = { ts: isoTimestamp };
@@ -270,6 +272,20 @@ export const gcsMissionReportSchema = z.looseObject({
   actual_path: geoLineString.optional(),
   waypoints_total: z.number().int().nonnegative().optional(),
   waypoints_reached: z.number().int().nonnegative().optional(),
+  /** Per-waypoint results, shown in the Mission Report PDF. */
+  waypoints: z
+    .array(
+      z.looseObject({
+        sequence: z.number().int().optional(),
+        label: z.string().max(200).optional(),
+        lat: finite.min(-90).max(90),
+        lng: finite.min(-180).max(180),
+        reached: z.boolean().optional(),
+        reached_at: isoTimestamp.nullable().optional(),
+      }),
+    )
+    .max(5000)
+    .optional(),
   files: z.array(missionFileRef).optional(),
 });
 export type GcsMissionReport = z.infer<typeof gcsMissionReportSchema>;

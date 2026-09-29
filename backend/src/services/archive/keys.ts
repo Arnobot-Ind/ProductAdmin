@@ -9,10 +9,13 @@
  *     video/<cam>/<YYYYMMDD_HHMMSS>.ts         camera segments (600 s real, 60 s simulated)
  *     sensors/lidar/<YYYYMMDD_HHMMSS>.npz      LiDAR scans
  *     sensors/imu/<YYYYMMDD_HHMMSS>.csv.gz     IMU samples
+ *     sensors/gps/<YYYYMMDD_HHMMSS>.csv.gz     GNSS fixes (RTK)
+ *     sensors/encoder/<YYYYMMDD_HHMMSS>.csv.gz wheel encoders (rpm, odometry)
  */
 
 export type FileKind = 'camera' | 'sensors' | 'meta';
-export type SensorKind = 'lidar' | 'imu';
+export type SensorKind = 'lidar' | 'imu' | 'gps' | 'encoder';
+export const SENSOR_KINDS: readonly SensorKind[] = ['lidar', 'imu', 'gps', 'encoder'];
 
 export const SESSION_FILE = 'session.json';
 export const COMPLETE_FILE = '_COMPLETE.json';
@@ -85,9 +88,9 @@ export function classify(name: string, localOffsetMin = 0): ClassifiedFile | nul
   } else if (parts.length === 3 && parts[0] === 'sensors' && parts[1] === 'lidar' && base.endsWith('.npz')) {
     kind = 'sensors';
     sensor = 'lidar';
-  } else if (parts.length === 3 && parts[0] === 'sensors' && parts[1] === 'imu' && /\.csv(\.gz)?$/.test(base)) {
+  } else if (parts.length === 3 && parts[0] === 'sensors' && (parts[1] === 'imu' || parts[1] === 'gps' || parts[1] === 'encoder') && /\.csv(\.gz)?$/.test(base)) {
     kind = 'sensors';
-    sensor = 'imu';
+    sensor = parts[1];
   }
   return { name, kind, camera, sensor, chunkStart: kind === 'meta' ? null : (parseChunkTime(stem, localOffsetMin) ?? null) };
 }
