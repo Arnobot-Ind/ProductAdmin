@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CredentialCipher } from './credential-crypto';
+import { CredentialCipher } from './credentialCrypto';
 import { formatRobotId } from './domain';
 import { generateIngestKey, hashIngestKey, looksLikeIngestKey } from './keys';
 

@@ -9,10 +9,10 @@ server can crash, restart or be replaced without losing data.
 | Service | What it holds | Where |
 |---|---|---|
 | **Backend server** (this folder) | Nothing permanent. Takes data in from robots, serves it to the admin panel | `npm run dev`, port 4000 |
-| **Database** (PostgreSQL 16+, e.g. AWS RDS) | All records: products, robots, missions, events, telemetry, and the **index** of recorded videos | Its own service (`DATABASE_URL`). Schema, migrations and seed live in `../storage` |
+| **Database** (PostgreSQL 16+, e.g. AWS RDS) | All records: products, robots, missions, events, telemetry, and the **index** of recorded videos | Its own service (`DATABASE_URL`). Schema, migrations and seed live in `../productAdminStorage` |
 | **Video storage** (S3 bucket `arnobot-saibya-data`) | Camera video + LiDAR/IMU chunks + `session.json` | S3 only (`ARCHIVE_S3_*`). The server never keeps a copy |
 | **Document storage** | Circuit diagrams, manuals, release packages | `STORAGE_DRIVER` (local folder or S3) |
-| **Admin panel** (`../frontend`) | Nothing. UI only, talks to this server through `/api/v1` | `npm run dev`, port 3000 |
+| **Admin panel** (`../productAdminDashboard`) | Nothing. UI only, talks to this server through `/api/v1` | `npm run dev`, port 3000 |
 
 Temporary files (a camera exported as one MP4) are written **only** to `ARCHIVE_TEMP_DIR` (`./tmp`,
 gitignored) and deleted after `MP4_CACHE_HOURS`. The folder can be emptied at any time.
@@ -31,7 +31,7 @@ src/
     system.ts             /system/status for the Settings page
   services/               business logic
     archive/              keys.ts (S3 layout) · storage.ts (S3) · archive.service.ts (index) · mp4.ts · summary.ts
-  db/                     database connection + queries only (schema/migrations/seed: ../storage)
+  db/                     database connection + queries only (schema/migrations/seed: ../productAdminStorage)
   shared/                 API types shared with the admin panel
 ```
 
@@ -89,10 +89,10 @@ Production server setup, update and rollback: [`deploy/README.md`](deploy/README
 ## Commands
 
 ```bash
-# database first: in ../storage run npm install, db:create, db:migrate, db:seed
+# database first: in ../productAdminStorage run npm install, db:create, db:migrate, db:seed
 npm install
 npm run dev            # http://localhost:4000  (API docs: /api/v1/docs)
 npm run archive:sim    # fake robot: uploads test-pattern recordings (needs S3 configured + ffmpeg;
-                       # keys from ../storage/.sim-keys.json)
+                       # keys from ../productAdminStorage/.sim-keys.json)
 npm run typecheck && npm test
 ```

@@ -56,8 +56,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
          ${rw.toSql()} ORDER BY r.robot_id`,
         rw.params,
       );
-      const by_status: Record<RobotStatus, number> = { online: 0, stale: 0, offline: 0 };
-      for (const r of robots.rows) by_status[r.status]++;
+      const byStatus: Record<RobotStatus, number> = { online: 0, stale: 0, offline: 0 };
+      for (const r of robots.rows) byStatus[r.status]++;
 
       const ew = scopedData('e.robot_id', 'e.ts', (w) => w.add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'));
       const unacked = (
@@ -92,7 +92,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
 
       return {
         robots_total: robots.rows.length,
-        by_status,
+        by_status: byStatus,
         unacked_critical_events: unacked.critical,
         unacked_events: unacked.total,
         robots_with_fault: robots.rows.filter((r) => r.faults?.length).map((r) => ({ robot_id: r.robot_id, devices: r.faults! })),

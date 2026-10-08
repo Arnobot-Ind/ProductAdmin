@@ -35,7 +35,7 @@ const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const OFFSET_MIN = parseUtcOffset(process.env.ROBOT_UTC_OFFSET || '+05:30');
 
 // Demo robot keys written by the storage seed (storage/: npm run db:seed).
-const keysPath = resolve(process.env.SIM_KEYS_FILE || resolve(__dirname, '..', '..', '..', 'storage', '.sim-keys.json'));
+const keysPath = resolve(process.env.SIM_KEYS_FILE || resolve(__dirname, '..', '..', '..', 'productAdminStorage', '.sim-keys.json'));
 if (!existsSync(keysPath)) {
   console.error(`✗ ${keysPath} not found: run npm run db:seed in storage/ first (or set SIM_KEYS_FILE)`);
   process.exit(1);
