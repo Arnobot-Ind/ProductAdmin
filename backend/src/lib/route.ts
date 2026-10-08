@@ -157,8 +157,11 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
           file,
           app,
         });
-        // A handler that called reply.send() itself (e.g. a stream still flowing) returns the reply.
-        if (reply.sent || result === reply) return reply;
+        // A handler that called reply.send() itself (e.g. a file stream) returns the reply, but the reply is
+        // thenable: the await above waits for the response and yields undefined, and after a client hang-up
+        // mid-stream reply.sent stays false. Sending a 204 then hit ERR_HTTP_HEADERS_SENT and crashed the
+        // server, so judge by the connection instead.
+        if (reply.sent || reply.raw.headersSent || req.raw.socket?.destroyed) return reply;
         if (result === undefined) return reply.code(def.status ?? 204).send();
         return reply.code(def.status ?? 200).send(result);
       } finally {
