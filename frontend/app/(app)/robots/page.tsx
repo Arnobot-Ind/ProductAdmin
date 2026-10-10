@@ -293,9 +293,9 @@ function Activity({ r, now }: { r: RobotListItemDto; now: number }) {
         href={`/robots/${r.robot_id}/missions/${encodeURIComponent(r.current_mission_id)}`}
         onClick={(e) => e.stopPropagation()}
         className="inline-block max-w-44 truncate align-bottom text-accent-text hover:underline"
-        title={`On mission ${r.current_mission_id}`}
+        title={`On mission ${r.current_mission_name ? `${r.current_mission_name} (${r.current_mission_id})` : r.current_mission_id}`}
       >
-        On mission <span className="font-mono">{r.current_mission_id}</span>
+        On mission {r.current_mission_name ?? <span className="font-mono">{r.current_mission_id}</span>}
       </Link>
     );
   }

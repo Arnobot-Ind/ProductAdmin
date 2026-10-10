@@ -9,6 +9,7 @@ import { Field, Select } from '@/components/ui/field';
 import { EmptyState, ErrorState, LoadingBlock, Pagination, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration } from '@/lib/format';
 import { useLivePoll } from '@/lib/realtime';
 import { MissionResultBadge } from './status';
@@ -24,7 +25,7 @@ export interface MissionFilters {
   page: number;
 }
 
-/** One robot's missions. Spec §5 view 2: Mission ID · Start · End · Duration · Distance · Result · End reason. */
+/** One robot's missions. Spec §5 view 2: Mission (GCS name; id on hover) · Start · End · Duration · Distance · Result · End reason. */
 export function MissionsTable({ filters, onFilters, robotId }: { filters: MissionFilters; onFilters: (p: Partial<MissionFilters>) => void; robotId: string }) {
   const router = useRouter();
   const poll = useLivePoll();
@@ -69,11 +70,11 @@ export function MissionsTable({ filters, onFilters, robotId }: { filters: Missio
             columns={[
               {
                 key: 'id',
-                header: 'Mission ID',
+                header: 'Mission',
                 rowHeader: true,
                 cell: (m) => (
-                  <Link href={missionHref(m)} className="font-mono font-semibold text-accent-text hover:underline" onClick={(e) => e.stopPropagation()}>
-                    {m.mission_id}
+                  <Link href={missionHref(m)} className={cn('font-semibold text-accent-text hover:underline', !m.name && 'font-mono')} title={m.mission_id} onClick={(e) => e.stopPropagation()}>
+                    {m.name ?? m.mission_id}
                   </Link>
                 ),
               },

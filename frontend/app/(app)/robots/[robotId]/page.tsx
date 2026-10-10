@@ -16,6 +16,7 @@ import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
+import { cn } from '@/lib/cn';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 import { ConnectivityTab } from './_tabs/connectivity';
@@ -122,8 +123,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               <dt className="text-muted">Current mission</dt>
               <dd>
                 {robot.current_mission_id ? (
-                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className="font-mono text-accent-text hover:underline">
-                    {robot.current_mission_id}
+                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
+                    {robot.current_mission_name ?? robot.current_mission_id}
                   </Link>
                 ) : (
                   'None'

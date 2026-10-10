@@ -2,13 +2,14 @@
 
 import type { MissionDetailDto, MissionListItemDto, Paginated, RobotDetailDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarDays, CalendarRange, FileDown } from 'lucide-react';
+import { CalendarDays, CalendarRange, FileDown, Moon } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/field';
+import { Input, Select } from '@/components/ui/field';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { missionReportPdf, summaryPdf, type ReportRobot } from '@/lib/reports';
+import { downloadPatrolLog, istToday, PATROL_WINDOWS, patrolRange, type PatrolWindowId } from '@/lib/robot-reports';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const today = () => {
@@ -96,7 +97,49 @@ export function MissionReportsBar({ robotId }: { robotId: string }) {
           Monthly summary
         </Button>
       </div>
+      <PatrolLogControl robotId={robotId} />
     </section>
+  );
+}
+
+/** Night surveillance / patrol log PDF (same report as the client portal's). Custom windows live in the portal. */
+function PatrolLogControl({ robotId }: { robotId: string }) {
+  const toast = useToast();
+  const [date, setDate] = useState(istToday());
+  const [windowId, setWindowId] = useState<Exclude<PatrolWindowId, 'custom'>>('night');
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await downloadPatrolLog(robotId, date, patrolRange(windowId, '', ''));
+      toast.success(r.summary.online_s === 0 ? 'Log downloaded. The robot sent no data in this period.' : 'Night surveillance log downloaded');
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex items-end gap-2">
+      <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+        <span className="inline-flex items-center gap-1">
+          <Moon className="size-3.5" aria-hidden /> Patrol log
+        </span>
+        <span className="flex gap-2">
+          <Input type="date" value={date} max={istToday()} onChange={(e) => setDate(e.target.value)} className="h-9 w-40" aria-label="Patrol log date" />
+          <Select value={windowId} onChange={(e) => setWindowId(e.target.value as typeof windowId)} className="h-9 w-56" aria-label="Patrol log period">
+            {PATROL_WINDOWS.filter((w) => w.id !== 'custom').map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </Select>
+        </span>
+      </label>
+      <Button icon={<FileDown className="size-4" aria-hidden />} onClick={() => void run()} loading={busy} disabled={!date}>
+        Night surveillance log
+      </Button>
+    </div>
   );
 }
 
