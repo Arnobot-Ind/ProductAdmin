@@ -340,26 +340,33 @@ function PatrolLog({ robot, date }: { robot: RobotDetailDto; date: string }) {
         </Button>
       }
     >
-      <form className="mb-5 flex flex-wrap items-end gap-3" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Period" hint="Night = this evening to next morning">
-          <Select value={windowId} onChange={(e) => setWindowId(e.target.value as PatrolWindowId)}>
-            {PATROL_WINDOWS.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        {windowId === 'custom' && (
-          <>
-            <Field label="From (IST)">
-              <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} required />
-            </Field>
-            <Field label="To (IST)" hint="Earlier than From = next day">
-              <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} required />
-            </Field>
-          </>
-        )}
+      {/* One row of equal-height fields; the explanations sit under the row so they never push a field down. */}
+      <form className="mb-5" onSubmit={(e) => e.preventDefault()}>
+        <div className="flex flex-wrap items-start gap-3">
+          <Field label="Period" className="w-full sm:w-72">
+            <Select value={windowId} onChange={(e) => setWindowId(e.target.value as PatrolWindowId)}>
+              {PATROL_WINDOWS.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {windowId === 'custom' && (
+            <>
+              <Field label="From (IST)" className="w-[calc(50%-0.375rem)] sm:w-36">
+                <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} required />
+              </Field>
+              <Field label="To (IST)" className="w-[calc(50%-0.375rem)] sm:w-36">
+                <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} required />
+              </Field>
+            </>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          Starts on the selected day. A night period runs from this evening to the next morning
+          {windowId === 'custom' ? '; a To time earlier than From ends on the next day.' : '.'}
+        </p>
       </form>
       {q.isLoading ? (
         <LoadingBlock rows={6} label="Loading log" />
