@@ -6,7 +6,7 @@ import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
-import { platform, route } from '../lib/route';
+import { anyScope, route } from '../lib/route';
 import { iso } from '../lib/sql';
 import { assertUuid, includeDeleted, robotIdSchema, uuidSchema } from '../lib/validation';
 import type { AuthUser } from '../services/auth.service';
@@ -82,7 +82,15 @@ async function assertNotLastSuperAdmin(tx: PoolClient, userId: string | null, gr
 export function userRoutes(f: FastifyInstance, app: AppContext): void {
   const { db } = app;
   const tag = 'Users';
-  const manage = { can: 'user.manage', target: platform() };
+  // Arnobot admins (user.manage, platform) manage everyone; customer Managers (user.invite, 0020) manage their own organization.
+  const manage = { can: ['user.manage', 'user.invite'], target: anyScope() };
+
+  /** null = may manage every organization; otherwise the only organization the actor may manage. */
+  const managedOrg = async (actor: AuthUser): Promise<string | null> =>
+    (await app.perms.can(actor, 'user.manage', { type: 'platform' })) ? null : actor.companyId;
+  const assertInOrg = (org: string | null, target: { company_id: string; company_name: string }) => {
+    if (org && target.company_id !== org) throw notFound('user');
+  };
 
   const userById = async (id: string, q: Queryable) => {
     assertUuid(id);
@@ -92,7 +100,8 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
   };
 
   /** Arnobot-wide users (any platform grant) are managed by super-admins only. */
-  const assertMayManage = (actor: AuthUser, target: UserDto) => {
+  const assertMayManage = async (actor: AuthUser, target: UserDto) => {
+    assertInOrg(await managedOrg(actor), target);
     if (target.grants.some((g) => g.scope_type === 'platform') && !isSuperAdmin(actor)) {
       throw forbidden('only a super-admin can change users with platform-wide roles');
     }
@@ -161,8 +170,11 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
         inv.hash,
         inv.expiresAt,
       ]);
+      // Customer users sign in to the client portal app, Arnobot staff to the admin panel.
+      const kind = (await tx.query<{ kind: string }>('SELECT c.kind FROM users u JOIN companies c ON c.id = u.company_id WHERE u.id = $1', [userId])).rows[0]?.kind;
+      const origin = kind === 'customer' ? app.cfg.clientOrigins[0] : app.cfg.adminOrigins[0];
       // Token in the URL fragment: never sent to a server, so it cannot land in access logs or Referer headers.
-      return { invite_url: `${app.cfg.adminOrigins[0]}/invite#${inv.token}`, invite_expires_at: inv.expiresAt.toISOString(), temporary_password: null };
+      return { invite_url: `${origin}/invite#${inv.token}`, invite_expires_at: inv.expiresAt.toISOString(), temporary_password: null };
     }
     const pw = method === 'temporary_password' ? temporaryPassword() : (password ?? '');
     const problem = passwordProblem(pw);
@@ -180,7 +192,10 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Roles and their permissions',
     tag,
     access: manage,
-    handler: async (): Promise<RoleDto[]> => (await accessModel(db)).roles,
+    handler: async ({ user }): Promise<RoleDto[]> => {
+      const roles = (await accessModel(db)).roles;
+      return (await managedOrg(user)) ? roles.filter((r) => r.audience !== 'staff') : roles;
+    },
   });
 
   route(f, app, {
@@ -199,7 +214,9 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: manage,
     query: z.object({ ...includeDeleted, company_id: uuidSchema.optional() }),
-    handler: async ({ query }): Promise<UserDto[]> => {
+    handler: async ({ query, user }): Promise<UserDto[]> => {
+      const org = await managedOrg(user);
+      if (org) query = { ...query, company_id: org };
       const where = [query.include_deleted ? 'true' : 'u.deleted_at IS NULL', query.company_id ? 'u.company_id = $1' : 'true'];
       return (await db.query(`${USER_SELECT} WHERE ${where.join(' AND ')} ORDER BY c.kind, c.name, u.name`, query.company_id ? [query.company_id] : [])).rows.map(toUser);
     },
@@ -225,6 +242,11 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
     handler: ({ body, user, req }) =>
       withTransaction(db, async (tx): Promise<UserCredentialsDto> => {
         if (body.credentials === 'password' && !body.password) throw badRequest('password is required for credentials = password');
+        const org = await managedOrg(user);
+        if (org) {
+          if (body.company_id && body.company_id !== org) throw forbidden('you can only add users to your own organization');
+          body = { ...body, company_id: org };
+        }
         const exists = await tx.query('SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL', [body.email]);
         if (exists.rowCount) throw conflict('a user with this email already exists');
         const company = (
@@ -271,7 +293,7 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
       withTransaction(db, async (tx): Promise<UserCredentialsDto> => {
         const target = await userById(params.id, tx);
         if (target.deleted_at) throw conflict('user is deleted');
-        assertMayManage(user, target);
+        await assertMayManage(user, target);
         if (target.id === user.id) throw conflict('use My account to change your own password');
         const creds = await issueCredentials(tx, target.id, body.method, undefined);
         await tx.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [target.id]);
@@ -293,7 +315,7 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
     handler: ({ params, body, user, req }) =>
       withTransaction(db, async (tx) => {
         const target = await userById(params.id, tx);
-        assertMayManage(user, target);
+        await assertMayManage(user, target);
         if (body.is_active === false) {
           if (params.id === user.id) throw conflict('you cannot disable your own account');
           await assertNotLastSuperAdmin(tx, params.id, null);
@@ -332,7 +354,7 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
       handler: ({ params, user, req }) =>
         withTransaction(db, async (tx) => {
           const target = await userById(params.id, tx);
-          assertMayManage(user, target);
+          await assertMayManage(user, target);
           if (deleted) {
             if (params.id === user.id) throw conflict('you cannot delete your own account');
             await assertNotLastSuperAdmin(tx, params.id, null);
@@ -361,7 +383,7 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
       withTransaction(db, async (tx) => {
         const target = await userById(params.id, tx);
         if (target.deleted_at) throw conflict('user is deleted');
-        assertMayManage(user, target);
+        await assertMayManage(user, target);
         await addGrant(tx, target, body, user, req);
         return userById(params.id, tx);
       }),
@@ -385,8 +407,9 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
         if (!g) throw conflict('grant not found or already revoked');
         if (g.scope_type === 'platform' && !isSuperAdmin(user)) throw forbidden('only a super-admin can revoke platform-wide roles');
         if (g.key === 'super_admin' && g.scope_type === 'platform') await assertNotLastSuperAdmin(tx, null, params.id);
-        await tx.query('UPDATE role_grants SET revoked_at = now(), revoked_by = $2 WHERE id = $1', [params.id, user.id]);
         const target = await userById(g.user_id, tx);
+        assertInOrg(await managedOrg(user), target);
+        await tx.query('UPDATE role_grants SET revoked_at = now(), revoked_by = $2 WHERE id = $1', [params.id, user.id]);
         await app.audit.record(
           {
             action: 'grant.revoked',

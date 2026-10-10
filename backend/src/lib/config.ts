@@ -12,6 +12,8 @@ export interface ApiConfig {
   host: string;
   databaseUrl: string;
   adminOrigins: string[];
+  /** The separate client portal app (customer organizations); also allowed to call the API. Invites of customer users link here. */
+  clientOrigins: string[];
   sessionSecret: string;
   sessionTtlHours: number;
   cookieSecure: boolean;
@@ -96,6 +98,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     host: env.API_HOST || '0.0.0.0',
     databaseUrl: required('DATABASE_URL'),
     adminOrigins: (env.ADMIN_ORIGIN || 'http://localhost:3000').split(',').map((s) => s.trim()).filter(Boolean),
+    clientOrigins: (env.CLIENT_ORIGIN || 'http://localhost:3001').split(',').map((s) => s.trim()).filter(Boolean),
     sessionSecret,
     sessionTtlHours: Number(env.SESSION_TTL_HOURS || 12),
     cookieSecure: env.COOKIE_SECURE === 'true',

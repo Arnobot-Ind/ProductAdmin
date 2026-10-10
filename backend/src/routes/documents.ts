@@ -22,7 +22,7 @@ const createFields = z
 const versionFields = z.object({ note: optionalText(1000) });
 
 /**
- * Download permission: a robot's own document needs robot.read on that robot; product / revision
+ * Download permission: a robot's own document needs robot.details on that robot; product / revision
  * documentation is readable by anyone who may read robots in any scope.
  */
 const docVersionReader: TargetResolver = Object.assign(
@@ -46,7 +46,7 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/documents',
     summary: 'Effective documents of a robot: its own ∪ its hardware revision ∪ its product',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: z.object({ include_deleted: optionalBool }),
     handler: async ({ params, query }): Promise<DocumentDto[]> => {
       await app.robots.assertExists(params.robotId, { allowDeleted: true });
@@ -160,7 +160,7 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/document-versions/:id/download',
     summary: 'Download one document version',
     tag,
-    access: { can: 'robot.read', target: docVersionReader },
+    access: { can: 'robot.details', target: docVersionReader },
     handler: async ({ params, reply }) => {
       const v = (await db.query<{ file_id: string }>('SELECT file_id FROM document_versions WHERE id = $1', [params.id])).rows[0];
       if (!v) throw badRequest('unknown version');

@@ -16,6 +16,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.read', target: anyScope() },
     handler: async ({ user }): Promise<DashboardDto> => {
       const scope = app.perms.robotScope(user, 'robot.read');
+      // Missions, events, messages and warranty are Arnobot-internal (robot.details): customers get none of them.
+      const detailScope = app.perms.robotScope(user, 'robot.details');
       const scoped = (col: string, extra?: (w: Where) => void) => {
         const w = new Where();
         app.perms.applyRobotScope(w, scope, col);
@@ -25,7 +27,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
       // Records (missions, events, messages): never those made while another customer owned the robot.
       const scopedData = (col: string, time: string, extra?: (w: Where) => void) => {
         const w = new Where();
-        app.perms.applyDataScope(w, scope, col, time);
+        app.perms.applyDataScope(w, detailScope, col, time);
         extra?.(w);
         return w;
       };
@@ -100,7 +102,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
         recent_missions: recentMissions.rows.map((r) => ({ ...r, started_at: iso(r.started_at), ended_at: iso(r.ended_at) })),
         recent_events: recentEvents.rows.map(toEvent),
         messages_last_24h: msgs,
-        warranty_expiring: robots.rows.filter((r) => r.warranty_end).map((r) => ({ robot_id: r.robot_id, warranty_end: r.warranty_end! })),
+        warranty_expiring: robots.rows.filter((r) => r.warranty_end && app.perms.holdsAnywhere(user, 'robot.details')).map((r) => ({ robot_id: r.robot_id, warranty_end: r.warranty_end! })),
         fleet: robots.rows.map((r) => ({
           robot_id: r.robot_id,
           product_name: r.product_name,

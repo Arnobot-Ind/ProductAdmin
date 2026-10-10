@@ -21,7 +21,7 @@ export function buildOpenApi(prefix: string): unknown {
     const params = [...r.path.matchAll(/:([A-Za-z_]+)/g)].map((m) => ({ name: m[1], in: 'path', required: true, schema: { type: 'string' } }));
     const q = jsonSchema(r.query) as { properties?: Record<string, unknown>; required?: string[] } | undefined;
     for (const [name, schema] of Object.entries(q?.properties ?? {})) params.push({ name, in: 'query', required: q?.required?.includes(name) ?? false, schema: schema as { type: string } });
-    const access = r.access === 'public' ? 'public' : r.access === 'signed_in' ? 'any signed-in user' : `${r.access.can} on ${r.access.target.describe}`;
+    const access = r.access === 'public' ? 'public' : r.access === 'signed_in' ? 'any signed-in user' : `${[r.access.can].flat().join(' or ')} on ${r.access.target.describe}`;
     paths[path] ??= {};
     paths[path][r.method.toLowerCase()] = {
       tags: [r.tag],

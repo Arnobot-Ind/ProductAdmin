@@ -19,7 +19,8 @@ import { assertRobotId, assertUuid, parseWith } from './validation';
 
 export type TargetResolver = ((req: FastifyRequest, db: Queryable, body: unknown) => Target | Promise<Target>) & { describe: string };
 
-export type Access = 'public' | 'signed_in' | { can: string; target: TargetResolver };
+/** `can` may list several permissions: holding any one of them on the target is enough. */
+export type Access = 'public' | 'signed_in' | { can: string | string[]; target: TargetResolver };
 
 export interface HandlerCtx<B, Q> {
   req: FastifyRequest;
@@ -134,17 +135,20 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
         const body = def.body ? parseWith(def.body, rawBody ?? {}, 'request body') : (undefined as B);
         if (user && typeof def.access === 'object') {
           const target = await def.access.target(req, app.db, body);
-          if (!(await app.perms.can(user, def.access.can, target))) {
+          const needed = typeof def.access.can === 'string' ? [def.access.can] : def.access.can;
+          let allowed = false;
+          for (const action of needed) if (!allowed) allowed = await app.perms.can(user, action, target);
+          if (!allowed) {
             app.audit.note({
               action: 'access.denied',
               outcome: 'denied',
               actor: user,
               target: target.type === 'robot' || target.type === 'company' ? { type: target.type, id: target.id } : null,
               robotId: target.type === 'robot' ? target.id : null,
-              detail: { permission: def.access.can, method: def.method, path: def.path },
+              detail: { permission: needed.join(' | '), method: def.method, path: def.path },
               req,
             });
-            throw forbidden(`requires ${def.access.can}`);
+            throw forbidden(`requires ${needed.join(' or ')}`);
           }
         }
         const result = await def.handler({

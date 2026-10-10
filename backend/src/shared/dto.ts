@@ -221,6 +221,8 @@ export interface RobotListItemDto extends MissionSummaryDto {
   battery_pct: number | null;
   health: DeviceHealthDto;
   current_mission_id: string | null;
+  /** Name the GCS gave the current mission; null until a mission message or report names it. */
+  current_mission_name: string | null;
   /** Lifetime odometer (m) reported by the robot. total_distance_m is mission driving only. */
   odometer_m: number | null;
   sw_ver: string | null;
@@ -780,6 +782,191 @@ export interface ArchiveSessionListDto extends Paginated<ArchiveSessionDto> {
 export interface ArchiveReindexDto {
   robots: { robot_id: string; sessions: number; skipped: number; files: number; rejected: number }[];
   ignored_prefixes: string[];
+}
+
+// ── day-wise reports (patrol report, distance by day) ──────────────────────
+/** One instant span [from, to) as ISO strings. */
+export interface TimeSpanDto {
+  from: string;
+  to: string;
+}
+/** A point of the cleaned patrol track. est = position estimated (no reliable GNSS fix at that moment). */
+export interface ReportPathPointDto {
+  t: string;
+  lat: number;
+  lon: number;
+  est: boolean;
+}
+export interface ReportHourDto {
+  from: string;
+  to: string;
+  /** Person-detection events in the hour. */
+  events: number;
+  online_min: number;
+  moving_s: number;
+  distance_m: number;
+}
+/**
+ * Everything the patrol / night-surveillance report shows for one robot and one IST window, computed by the
+ * server from what the robot sends on its own (1 Hz GPS + wheel speed, 30 s live status with the odometer).
+ * Person detections are NOT part of it: the robot does not send them to the portal.
+ */
+export interface DayReportDto {
+  robot_id: string;
+  robot_name: string;
+  product_name: string;
+  owner_company: string | null;
+  /** IST calendar day the window starts on (YYYY-MM-DD) and the window itself. */
+  date: string;
+  from: string;
+  to: string;
+  night: boolean;
+  /** Part of the window was left out because another customer owned the robot then. */
+  clipped: boolean;
+  /** Where: the name(s) of the missions run in the window (site label for now), null without missions. */
+  site: string | null;
+  /** Person detection, as the robot reports it (type 'detection' messages + live.detection_enabled). */
+  detection: ReportDetectionDto;
+  summary: {
+    /** Headline distance: odometer when the robot reported one in the window, otherwise wheel speed × time. */
+    distance_m: number;
+    distance_source: 'odometer' | 'wheel_speed' | 'none';
+    online_s: number;
+    moving_s: number;
+    peak_mps: number | null;
+    avg_moving_mps: number | null;
+    /** Share of positioned samples with a reliable GNSS fix; null without positions. */
+    gps_reliable_pct: number | null;
+    median_sats: number | null;
+    battery_start_pct: number | null;
+    battery_end_pct: number | null;
+    battery_min_pct: number | null;
+  };
+  hours: ReportHourDto[];
+  /** One entry per minute of the window: 0 no data, 1 online (parked), 2 patrolling (> 0.2 m/s). */
+  activity: number[];
+  path: ReportPathPointDto[];
+  /** Positions left out of the map (no fix, or physically impossible jumps). */
+  path_hidden: number;
+  longest_online: TimeSpanDto | null;
+  offline_gaps: TimeSpanDto[];
+  longest_legs: TimeSpanDto[];
+  /** Missions started in the window (name, times, result, distance). */
+  missions: { mission_id: string; name: string | null; started_at: string | null; ended_at: string | null; result: MissionState; distance_m: number | null }[];
+}
+/** One person-detection event the robot logged (YOLO on board), with its snapshot when uploaded. */
+export interface DetectionDto {
+  id: string;
+  detected_at: string;
+  camera: string;
+  /** Direction the camera faces (Front / Rear / Left / Right), when the robot says. */
+  facing: string | null;
+  human_count: number;
+  confidence: number;
+  lat: number | null;
+  lon: number | null;
+  mission_name: string | null;
+  /** Same-origin API URL of the snapshot JPEG (auth + permission checked), null when none was uploaded. */
+  image_url: string | null;
+}
+export interface ReportDetectionDto {
+  /** The robot has ever sent detections or a detection on/off state; false = this robot does not report them. */
+  available: boolean;
+  /** When detection was switched on in the window (from live.detection_enabled); empty = unknown or off. */
+  enabled_spans: TimeSpanDto[];
+  events: number;
+  persons: number;
+  by_camera: { camera: string; facing: string | null; events: number; persons: number; peak_confidence: number; first_seen: string; last_seen: string }[];
+  /** Every event in the window, oldest first (at most 5000). */
+  log: DetectionDto[];
+  /** Up to 15 events with a snapshot, spread evenly over the window, for the evidence grid. */
+  evidence: DetectionDto[];
+}
+/** GET /robots/:robotId/reports/calendar?month=YYYY-MM: one entry per IST day of the month (the reports calendar). */
+export interface ReportCalendarDayDto {
+  date: string;
+  missions: number;
+  completed: number;
+  aborted: number;
+  failed: number;
+  /** Minutes the robot was online that day (a patrol log exists when > 0). */
+  online_min: number;
+  driven_m: number;
+}
+/** Distance by IST day (the customer "odometry" view and its CSV). */
+export interface DailyDistanceDto {
+  date: string;
+  /** Odometer difference over the day; null when the robot reported no odometer that day. */
+  odometer_m: number | null;
+  /** Wheel speed × time over moving samples (gaps over 10 s skipped). */
+  wheel_m: number;
+  moving_s: number;
+  online_s: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  odometer_end_m: number | null;
+}
+
+/** Mission counts and totals over a period (client portal). */
+export interface MissionStatsDto {
+  total: number;
+  completed: number;
+  aborted: number;
+  failed: number;
+  in_progress: number;
+  /** Sum of mission distance (m) and duration (s). */
+  distance_m: number;
+  duration_s: number;
+}
+/** A mission as the client portal shows it: name, times, result. No paths, files or GCS report. */
+export interface ClientMissionDto {
+  mission_id: string;
+  name: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_s: number | null;
+  distance_m: number | null;
+  result: MissionState;
+  end_reason: string | null;
+}
+/** GET /robots/:robotId/reports/missions/:missionId: what the Mission Report PDF needs (no paths, files or raw GCS report). */
+export interface ClientMissionReportDto extends ClientMissionDto {
+  robot_id: string;
+  distance_planned_m: number | null;
+  waypoints_total: number | null;
+  waypoints_reached: number | null;
+  waypoints: MissionWaypointDto[] | null;
+}
+/** GET /robots/:robotId/reports/missions: stats over the filter + one page of missions (newest first). */
+export interface ClientMissionsDto {
+  robot_id: string;
+  from: string | null;
+  to: string | null;
+  stats: MissionStatsDto;
+  items: ClientMissionDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+/** GET /reports/fleet: the client dashboard for every robot the user may see, over IST days [from, to]. */
+export interface FleetReportDto {
+  from: string;
+  to: string;
+  totals: MissionStatsDto & { robots: number; online: number; driven_m: number; moving_s: number };
+  robots: {
+    robot_id: string;
+    product_name: string;
+    status: RobotStatus;
+    last_seen_at: string | null;
+    battery_pct: number | null;
+    current_mission_name: string | null;
+    missions: MissionStatsDto;
+    /** Driven distance (odometer, else wheel speed) and time moving over the period. */
+    driven_m: number;
+    moving_s: number;
+  }[];
+  /** One row per IST day of the period, all robots together. */
+  daily: { date: string; missions: number; completed: number; aborted: number; failed: number; distance_m: number; driven_m: number }[];
 }
 
 // ── system status (Settings page) ──────────────────────────────────────────

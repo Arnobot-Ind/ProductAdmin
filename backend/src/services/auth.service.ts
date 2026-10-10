@@ -146,12 +146,16 @@ export class AuthService {
       created_at: Date;
       perms: string[] | null;
     }>(
+      // permissions.audience (0020): 'staff' permissions never reach customer users, 'customer' ones never reach Arnobot users.
       `SELECT g.id, r.key AS role_key, r.name AS role_name, g.scope_type, g.scope_id, g.created_at,
               array_agg(p.key) FILTER (WHERE p.key IS NOT NULL) AS perms
        FROM role_grants g
+       JOIN users u ON u.id = g.user_id
+       JOIN companies c ON c.id = u.company_id
        JOIN roles r ON r.id = g.role_id
        LEFT JOIN role_permissions rp ON rp.role_id = r.id
        LEFT JOIN permissions p ON p.id = rp.permission_id
+         AND (p.audience = 'any' OR p.audience = CASE WHEN c.kind = 'customer' THEN 'customer' ELSE 'staff' END)
        WHERE g.user_id = $1 AND g.revoked_at IS NULL
        GROUP BY g.id, r.key, r.name`,
       [userId],

@@ -23,6 +23,7 @@ import { missionRoutes } from './routes/missions';
 import { organizationRoutes } from './routes/organizations';
 import { auditRoutes } from './routes/audit';
 import { releaseRoutes } from './routes/releases';
+import { reportRoutes } from './routes/reports';
 import { robotRoutes } from './routes/robots';
 import { telemetryRoutes } from './routes/telemetry';
 import { userRoutes } from './routes/users';
@@ -94,7 +95,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
         const origin = req.headers.origin;
         const host = req.headers.host;
         const sameHost = origin && host && (origin === `http://${host}` || origin === `https://${host}`);
-        if (origin && !sameHost && !ctx.cfg.adminOrigins.includes(origin)) {
+        if (origin && !sameHost && ![...ctx.cfg.adminOrigins, ...ctx.cfg.clientOrigins].includes(origin)) {
           return reply.code(403).send({ error: { code: 'forbidden', message: 'cross-origin request refused' } });
         }
         if (req.headers['x-requested-with'] !== 'pms-admin') {
@@ -108,6 +109,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       robotRoutes(api, ctx);
       hardwareRoutes(api, ctx);
       telemetryRoutes(api, ctx);
+      reportRoutes(api, ctx);
       credentialRoutes(api, ctx);
       ingestAdminRoutes(api, ctx);
       missionRoutes(api, ctx);

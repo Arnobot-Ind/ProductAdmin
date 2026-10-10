@@ -18,7 +18,7 @@ FROM missions m JOIN robots r ON r.robot_id = m.robot_id`;
  * Waypoints from the GCS report as stored (`waypoints` or `report_data.waypoints`, as the GCS writes them):
  * { sequence, label, lat, lng|lon, reached, reached_at }. null when the report has none.
  */
-function reportWaypoints(report: unknown): MissionWaypointDto[] | null {
+export function reportWaypoints(report: unknown): MissionWaypointDto[] | null {
   const r = report as { waypoints?: unknown; report_data?: { waypoints?: unknown } } | null;
   const list = Array.isArray(r?.waypoints) ? r!.waypoints : Array.isArray(r?.report_data?.waypoints) ? r!.report_data!.waypoints : null;
   if (!list) return null;
@@ -71,10 +71,10 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/missions',
     summary: 'Missions across all robots the user may read',
     tag,
-    access: { can: 'robot.read', target: anyScope() },
+    access: { can: 'robot.details', target: anyScope() },
     query: listQuery,
     // Organizations never see missions flown while another customer owned the robot.
-    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)')),
+    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)')),
   });
 
   route(f, app, {
@@ -82,12 +82,12 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/missions',
     summary: 'Missions of one robot (spec §5 view 2)',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: listQuery,
     handler: async ({ params, query, user }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
       const w = new Where().add('m.robot_id = ?', params.robotId);
-      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.read'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)'));
+      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.details'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)'));
     },
   });
 
@@ -96,7 +96,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/missions/:missionId',
     summary: 'Mission detail: planned + actual path, stats, files (spec §5 view 3)',
     tag,
-    access: { can: 'robot.read', target: robotVia('SELECT robot_id FROM missions WHERE mission_id = $1', 'mission', 'missionId', false) },
+    access: { can: 'robot.details', target: robotVia('SELECT robot_id FROM missions WHERE mission_id = $1', 'mission', 'missionId', false) },
     handler: async ({ params, user }): Promise<MissionDetailDto> => {
       const m = (
         await db.query(
@@ -106,7 +106,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
           [params.missionId],
         )
       ).rows[0];
-      if (!m || !(await app.perms.canSeeData(user, 'robot.read', m.robot_id, m.started_at ?? m.created_at))) throw notFound('mission');
+      if (!m || !(await app.perms.canSeeData(user, 'robot.details', m.robot_id, m.started_at ?? m.created_at))) throw notFound('mission');
       const files = await db.query(
         `SELECT mf.id, mf.kind, mf.s3_path, coalesce(mf.size_bytes, f.size_bytes) AS size_bytes,
                 coalesce(mf.content_type, f.content_type) AS content_type, mf.file_id, mf.created_at
@@ -155,7 +155,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Download a mission file (redirect to a 5-minute presigned link)',
     tag,
     access: {
-      can: 'robot.read',
+      can: 'robot.details',
       target: robotVia('SELECT m.robot_id FROM mission_files mf JOIN missions m ON m.mission_id = mf.mission_id WHERE mf.id = $1', 'mission file'),
     },
     handler: async ({ params, req, reply, user }) => {
@@ -166,7 +166,7 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
           [params.id],
         )
       ).rows[0];
-      if (!(await app.perms.canSeeData(user, 'robot.read', r.robot_id, r.at))) throw notFound('mission file');
+      if (!(await app.perms.canSeeData(user, 'robot.details', r.robot_id, r.at))) throw notFound('mission file');
       // Photos and video play inline for anyone who may view the mission; every other file is a download.
       const viewable = r.kind === 'image' || r.kind === 'video';
       if (!viewable) {
