@@ -11,7 +11,7 @@
  *
  * Everything goes through the robot.read report routes, so customers and Arnobot staff use the same endpoints.
  */
-import type { ClientMissionDto, ClientMissionReportDto, ClientMissionsDto, DayReportDto, MissionDetailDto, MissionListItemDto, RobotDetailDto } from '@arnobot/message-schema';
+import type { ClientMissionDto, ClientMissionReportDto, ClientMissionsDto, DayReportDto, RobotDetailDto } from '@arnobot/message-schema';
 import { api } from './api';
 import { downloadPatrolReport } from './patrol-report';
 import { missionReportPdf, summaryPdf, type ReportRobot } from './reports';
@@ -50,47 +50,23 @@ export async function missionsBetween(robotId: string, from: string, to: string)
     if (out.length >= res.total || !res.items.length) return out;
   }
 }
-/** The list shape summaryPdf takes; the report routes carry no plan, waypoint totals or files. */
-const asListItem = (robotId: string, m: ClientMissionDto): MissionListItemDto => ({
-  ...m,
-  robot_id: robotId,
-  distance_planned_m: null,
-  waypoints_total: null,
-  waypoints_reached: null,
-  file_count: 0,
-  has_gcs_report: false,
-});
-
 /** 1. Mission report PDF of one mission. */
 export async function downloadMissionReport(robot: RobotDetailDto, missionId: string): Promise<void> {
   const m = await api.get<ClientMissionReportDto>(`/robots/${robot.robot_id}/reports/missions/${encodeURIComponent(missionId)}`);
-  const detail: MissionDetailDto = {
-    ...m,
-    file_count: 0,
-    has_gcs_report: m.waypoints !== null,
-    planned_path: null,
-    actual_path: null,
-    files: [],
-    gcs_report_received_at: null,
-    created_at: m.started_at ?? new Date().toISOString(),
-    updated_at: m.ended_at ?? m.started_at ?? new Date().toISOString(),
-  };
-  await missionReportPdf(detail, reportRobot(robot));
+  await missionReportPdf(m, reportRobot(robot));
 }
 
 /** 2. Day summary PDF: every mission of one IST day. Returns how many missions it lists. */
 export async function downloadDaySummary(robot: RobotDetailDto, date: string): Promise<number> {
-  const missions = (await missionsBetween(robot.robot_id, date, date)).map((m) => asListItem(robot.robot_id, m));
-  const label = new Date(`${date}T12:00:00+05:30`).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: IST });
-  await summaryPdf({ kind: 'daily', label, missions, robot: reportRobot(robot), odometerM: robot.odometer_m });
+  const missions = await missionsBetween(robot.robot_id, date, date);
+  await summaryPdf({ kind: 'daily', period: date, missions, robot: reportRobot(robot) });
   return missions.length;
 }
 
 /** 3. Monthly summary PDF: every mission of one IST month (YYYY-MM). Returns how many missions it lists. */
 export async function downloadMonthSummary(robot: RobotDetailDto, month: string): Promise<number> {
-  const missions = (await missionsBetween(robot.robot_id, `${month}-01`, monthEnd(month))).map((m) => asListItem(robot.robot_id, m));
-  const label = new Date(`${month}-15T12:00:00+05:30`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: IST });
-  await summaryPdf({ kind: 'monthly', label, missions, robot: reportRobot(robot), odometerM: robot.odometer_m });
+  const missions = await missionsBetween(robot.robot_id, `${month}-01`, monthEnd(month));
+  await summaryPdf({ kind: 'monthly', period: month, missions, robot: reportRobot(robot) });
   return missions.length;
 }
 

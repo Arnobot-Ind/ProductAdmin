@@ -928,14 +928,16 @@ export interface ClientMissionDto {
   distance_m: number | null;
   result: MissionState;
   end_reason: string | null;
+  distance_planned_m: number | null;
+  waypoints_total: number | null;
+  waypoints_reached: number | null;
 }
 /** GET /robots/:robotId/reports/missions/:missionId: what the Mission Report PDF needs (no paths, files or raw GCS report). */
 export interface ClientMissionReportDto extends ClientMissionDto {
   robot_id: string;
-  distance_planned_m: number | null;
-  waypoints_total: number | null;
-  waypoints_reached: number | null;
   waypoints: MissionWaypointDto[] | null;
+  /** The driven path as [lat, lon] points (thinned to at most 4000), as the GCS report map draws it; null when none was sent. */
+  path: [number, number][] | null;
 }
 /** GET /robots/:robotId/reports/missions: stats over the filter + one page of missions (newest first). */
 export interface ClientMissionsDto {

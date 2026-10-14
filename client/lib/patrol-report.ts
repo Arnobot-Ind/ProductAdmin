@@ -11,24 +11,30 @@
  */
 import type { DayReportDto, ReportPathPointDto } from '@arnobot/message-schema';
 
-type Doc = import('jspdf').jsPDF;
+import {
+  ACCENT,
+  AMBER,
+  bandTop,
+  type Ctx,
+  ensureRoom,
+  footers,
+  GREEN,
+  LABEL,
+  MX,
+  NAVY,
+  newCtx,
+  note,
+  safeFile,
+  sectionBar,
+  setFill,
+  setText,
+  statGrid,
+  subSection,
+  table,
+  titleBlock,
+} from './pdf-chrome';
+
 type Rgb = readonly [number, number, number];
-
-// ── theme (same values as the GCS reports) ──────────────────────────────────
-const NAVY: Rgb = [27, 42, 73];
-const ACCENT: Rgb = [43, 108, 176];
-const BOX_BG: Rgb = [238, 241, 245];
-const LABEL: Rgb = [107, 114, 128];
-const VALUE: Rgb = [31, 41, 55];
-const GREEN: Rgb = [22, 138, 84];
-const AMBER: Rgb = [217, 119, 6];
-const ZEBRA: Rgb = [243, 245, 248];
-const FOOT_LINE: Rgb = [210, 214, 220];
-const MX = 40;
-
-const setFill = (d: Doc, c: Rgb) => d.setFillColor(c[0], c[1], c[2]);
-const setText = (d: Doc, c: Rgb) => d.setTextColor(c[0], c[1], c[2]);
-const setDraw = (d: Doc, c: Rgb) => d.setDrawColor(c[0], c[1], c[2]);
 
 // ── IST formatting ──────────────────────────────────────────────────────────
 const IST = 'Asia/Kolkata';
@@ -41,230 +47,7 @@ const fmtMin = (s: number) => {
 };
 const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
 const kmh = (mps: number | null) => (mps === null ? '—' : (mps * 3.6).toFixed(1));
-const safeFile = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '_').trim();
 
-// ── page furniture ──────────────────────────────────────────────────────────
-interface Logo {
-  url: string;
-  w: number;
-  h: number;
-}
-interface Ctx {
-  doc: Doc;
-  pageW: number;
-  pageH: number;
-  usable: number;
-  logo: Logo | null;
-  y: number;
-}
-
-let logoCache: Promise<Logo | null> | null = null;
-/** The ARNOBOT logo trimmed to its content, 150 pt wide; null when it cannot load (the PDF is made without it). */
-function loadLogo(): Promise<Logo | null> {
-  logoCache ??= new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const scale = Math.min(1, 1000 / img.naturalWidth);
-        const sw = Math.round(img.naturalWidth * scale);
-        const sh = Math.round(img.naturalHeight * scale);
-        const cv = document.createElement('canvas');
-        cv.width = sw;
-        cv.height = sh;
-        const cx = cv.getContext('2d')!;
-        cx.drawImage(img, 0, 0, sw, sh);
-        const { data } = cx.getImageData(0, 0, sw, sh);
-        let [minX, minY, maxX, maxY] = [sw, sh, 0, 0];
-        for (let py = 0; py < sh; py++) {
-          for (let px = 0; px < sw; px++) {
-            const i = (py * sw + px) * 4;
-            const white = data[i] > 245 && data[i + 1] > 245 && data[i + 2] > 245;
-            if (data[i + 3] > 16 && !white) {
-              minX = Math.min(minX, px);
-              maxX = Math.max(maxX, px);
-              minY = Math.min(minY, py);
-              maxY = Math.max(maxY, py);
-            }
-          }
-        }
-        if (maxX <= minX || maxY <= minY) [minX, minY, maxX, maxY] = [0, 0, sw - 1, sh - 1];
-        const cw = maxX - minX + 1;
-        const ch = maxY - minY + 1;
-        const out = document.createElement('canvas');
-        out.width = cw;
-        out.height = ch;
-        out.getContext('2d')!.drawImage(cv, minX, minY, cw, ch, 0, 0, cw, ch);
-        resolve({ url: out.toDataURL('image/png'), w: 150, h: 150 * (ch / cw) });
-      } catch {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = '/brand/arnobot-logo-black.png';
-  });
-  return logoCache;
-}
-
-function bandTop(ctx: Ctx) {
-  const { doc, pageW, logo } = ctx;
-  if (logo) doc.addImage(logo.url, 'PNG', MX, 26, logo.w, logo.h);
-  else {
-    doc.setFont('helvetica', 'bold').setFontSize(18);
-    setText(doc, NAVY);
-    doc.text('ARNOBOT', MX, 56);
-  }
-  setDraw(doc, NAVY);
-  doc.setLineWidth(1.4);
-  doc.line(MX, 80, pageW - MX, 80);
-  doc.setLineWidth(0.2);
-  ctx.y = 104;
-}
-const ensureRoom = (ctx: Ctx, needed: number) => {
-  if (ctx.y + needed > ctx.pageH - 56) {
-    ctx.doc.addPage();
-    bandTop(ctx);
-  }
-};
-
-function titleBlock(ctx: Ctx, title: string, subtitle: string, subId: string) {
-  const { doc } = ctx;
-  setText(doc, NAVY);
-  doc.setFont('helvetica', 'bold').setFontSize(22);
-  doc.text(title, MX, ctx.y);
-  ctx.y += 18;
-  setText(doc, ACCENT);
-  doc.setFont('helvetica', 'normal').setFontSize(12);
-  const lines: string[] = doc.splitTextToSize(subtitle, ctx.usable);
-  lines.forEach((l, i) => doc.text(l, MX, ctx.y + i * 14));
-  ctx.y += lines.length * 14;
-  setText(doc, LABEL);
-  doc.setFontSize(9);
-  doc.text(subId, MX, ctx.y);
-  ctx.y += 18;
-}
-
-function sectionBar(ctx: Ctx, text: string) {
-  const { doc } = ctx;
-  setFill(doc, NAVY);
-  doc.rect(MX, ctx.y, ctx.usable, 24, 'F');
-  doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(255, 255, 255);
-  doc.text(text, MX + 12, ctx.y + 16);
-  ctx.y += 24;
-}
-
-function statGrid(ctx: Ctx, items: { label: string; value: string }[]) {
-  const { doc } = ctx;
-  const cols = 4;
-  const gap = 10;
-  const boxW = (ctx.usable - gap * (cols - 1)) / cols;
-  const boxH = 50;
-  items.forEach((it, i) => {
-    const x = MX + (i % cols) * (boxW + gap);
-    const yy = ctx.y + Math.floor(i / cols) * (boxH + gap);
-    setFill(doc, BOX_BG);
-    doc.roundedRect(x, yy, boxW, boxH, 4, 4, 'F');
-    doc.setFont('helvetica', 'bold').setFontSize(7);
-    setText(doc, LABEL);
-    doc.text(it.label.toUpperCase(), x + 9, yy + 16);
-    doc.setFontSize(11);
-    setText(doc, VALUE);
-    (doc.splitTextToSize(it.value, boxW - 16) as string[]).slice(0, 2).forEach((ln, li) => doc.text(ln, x + 9, yy + 31 + li * 12));
-  });
-  ctx.y += Math.ceil(items.length / cols) * (boxH + gap) + 4;
-}
-
-function subSection(ctx: Ctx, text: string, color: Rgb, meta: string) {
-  const { doc } = ctx;
-  ensureRoom(ctx, 80);
-  setFill(doc, BOX_BG);
-  doc.rect(MX, ctx.y, ctx.usable, 22, 'F');
-  setFill(doc, color);
-  doc.rect(MX, ctx.y, 4, 22, 'F');
-  setText(doc, NAVY);
-  doc.setFont('helvetica', 'bold').setFontSize(11);
-  doc.text(text, MX + 12, ctx.y + 15);
-  setText(doc, LABEL);
-  doc.setFont('helvetica', 'normal').setFontSize(8.5);
-  doc.text(meta, MX + ctx.usable - 8, ctx.y + 15, { align: 'right' });
-  ctx.y += 30;
-}
-
-function note(ctx: Ctx, text: string, color: Rgb = VALUE) {
-  const { doc } = ctx;
-  doc.setFont('helvetica', 'normal').setFontSize(9);
-  setText(doc, color);
-  const lines: string[] = doc.splitTextToSize(text, ctx.usable);
-  ensureRoom(ctx, lines.length * 12 + 4);
-  lines.forEach((ln, i) => doc.text(ln, MX, ctx.y + 10 + i * 12));
-  ctx.y += lines.length * 12 + 4;
-}
-
-interface Col<T> {
-  label: string;
-  w: number;
-  value: (row: T) => string;
-}
-/** Zebra table with a navy header that repeats (with the logo band) on page breaks; long cells wrap. */
-function table<T>(ctx: Ctx, cols: Col<T>[], rows: T[], emptyText: string) {
-  const { doc } = ctx;
-  const headH = 22;
-  const drawHead = () => {
-    setFill(doc, NAVY);
-    doc.rect(MX, ctx.y, ctx.usable, headH, 'F');
-    doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(255, 255, 255);
-    let x = MX + 8;
-    for (const c of cols) {
-      doc.text(c.label, x, ctx.y + 15);
-      x += c.w;
-    }
-    ctx.y += headH;
-  };
-  drawHead();
-  if (!rows.length) {
-    setText(doc, LABEL);
-    doc.setFont('helvetica', 'italic').setFontSize(9);
-    doc.text(emptyText, MX + 8, ctx.y + 14);
-    ctx.y += 20;
-    return;
-  }
-  rows.forEach((row, idx) => {
-    doc.setFont('helvetica', 'normal').setFontSize(9);
-    const cells = cols.map((c) => doc.splitTextToSize(c.value(row), c.w - 8) as string[]);
-    const rowH = Math.max(20, Math.max(...cells.map((c) => c.length)) * 11 + 9);
-    if (ctx.y + rowH > ctx.pageH - 56) {
-      doc.addPage();
-      bandTop(ctx);
-      drawHead();
-    }
-    if (idx % 2 === 1) {
-      setFill(doc, ZEBRA);
-      doc.rect(MX, ctx.y, ctx.usable, rowH, 'F');
-    }
-    setText(doc, VALUE);
-    let x = MX + 8;
-    cells.forEach((lines, ci) => {
-      lines.forEach((ln, li) => doc.text(ln, x, ctx.y + 13 + li * 11));
-      x += cols[ci].w;
-    });
-    ctx.y += rowH;
-  });
-}
-
-function footers(ctx: Ctx) {
-  const { doc, pageW, pageH } = ctx;
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    setDraw(doc, FOOT_LINE);
-    doc.setLineWidth(0.5);
-    doc.line(MX, pageH - 42, pageW - MX, pageH - 42);
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(120, 120, 120);
-    doc.text('Arnobot Private Limited  |  Private & Confidential', MX, pageH - 30);
-    doc.text(`Page ${p} / ${pages}`, pageW - MX, pageH - 30, { align: 'right' });
-    doc.setFont('helvetica', 'italic').setFontSize(7.5).setTextColor(150, 150, 150);
-    doc.text('This report is system-generated and may contain discrepancies with actual field data.', pageW / 2, pageH - 18, { align: 'center' });
-  }
-}
 
 // ── patrol route on satellite imagery (port of GCS features/logs/routeMap.ts) ─
 const TILE = 256;
@@ -500,9 +283,8 @@ function activityBar(ctx: Ctx, r: DayReportDto, dayLabel: string) {
 
 // ── the report ──────────────────────────────────────────────────────────────
 export async function downloadPatrolReport(r: DayReportDto): Promise<void> {
-  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), loadLogo()]);
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const ctx: Ctx = { doc, pageW: doc.internal.pageSize.getWidth(), pageH: doc.internal.pageSize.getHeight(), usable: doc.internal.pageSize.getWidth() - MX * 2, logo, y: 0 };
+  const ctx = await newCtx();
+  const { doc } = ctx;
   const s = r.summary;
   const title = r.night ? 'Night Surveillance Report' : 'Patrol Report';
   const dayLabel = new Date(`${r.date}T12:00:00+05:30`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });

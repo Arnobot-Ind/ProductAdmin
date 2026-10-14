@@ -1,8 +1,8 @@
 'use client';
 
-import type { ClientMissionDto, ClientMissionsDto, DayReportDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
+import type { ClientMissionDto, ClientMissionReportDto, ClientMissionsDto, DayReportDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { CalendarRange, ChevronLeft, ChevronRight, FileDown, Moon } from 'lucide-react';
+import { CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, Clock, Download, FileDown, MapPin, Moon, Route, Spline, XCircle } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
@@ -56,17 +56,19 @@ function useDownload() {
 export function RobotReportsTab({ robot }: { robot: RobotDetailDto }) {
   const today = istDay();
   const [month, setMonth] = useState(today.slice(0, 7));
-  const [selected, setSelected] = useState<string | null>(today);
+  const [selected, setSelected] = useState<string | null>(null);
   const cal = useQuery({
     queryKey: ['robot', robot.robot_id, 'report-calendar', month],
     queryFn: () => api.get<ReportCalendarDayDto[]>(`/robots/${robot.robot_id}/reports/calendar`, { month }),
     placeholderData: keepPreviousData,
   });
-  // Moving to another month selects its latest day with data (today when it is the current month).
+  // Opening the tab or moving to another month selects today when it has data, else the month's latest day with
+  // data (so a robot that last worked days ago does not open on an empty day).
   useEffect(() => {
     if (!cal.data || (selected && selected.startsWith(month))) return;
-    const withData = cal.data.filter((d) => d.missions > 0 || d.online_min > 0);
-    setSelected(month === today.slice(0, 7) ? today : (withData[withData.length - 1]?.date ?? `${month}-01`));
+    const withData = cal.data.filter((d) => d.date.startsWith(month) && (d.missions > 0 || d.online_min > 0));
+    const fallback = month === today.slice(0, 7) ? today : `${month}-01`;
+    setSelected(withData.some((d) => d.date === today) ? today : (withData[withData.length - 1]?.date ?? fallback));
   }, [cal.data, month, selected, today]);
 
   const shift = (delta: number) => {
@@ -240,6 +242,8 @@ function DayPanel({ robot, date, day }: { robot: RobotDetailDto; date: string; d
     queryFn: () => api.get<ClientMissionsDto>(`/robots/${robot.robot_id}/reports/missions`, { from: date, to: date, limit: 200 }),
   });
   const items = [...(missions.data?.items ?? [])].reverse(); // oldest first within the day
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = items.find((m) => m.mission_id === selectedId) ?? null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -280,35 +284,124 @@ function DayPanel({ robot, date, day }: { robot: RobotDetailDto; date: string; d
         ) : items.length === 0 ? (
           <p className="p-4 text-sm text-muted">No missions on this day.</p>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto p-2">
             {items.map((m) => (
-              <MissionRow key={m.mission_id} robot={robot} m={m} />
+              <MissionRow key={m.mission_id} m={m} active={m.mission_id === selectedId} onSelect={() => setSelectedId(m.mission_id === selectedId ? null : m.mission_id)} />
             ))}
           </ul>
         )}
       </Card>
+
+      {selected ? (
+        <MissionDetail key={selected.mission_id} robot={robot} missionId={selected.mission_id} />
+      ) : items.length > 0 ? (
+        <p className="-mt-2 text-sm text-muted">Select a mission to view it on the map.</p>
+      ) : null}
 
       <PatrolLog robot={robot} date={date} />
     </div>
   );
 }
 
-function MissionRow({ robot, m }: { robot: RobotDetailDto; m: ClientMissionDto }) {
-  const { busy, run } = useDownload();
+/** One mission of the day, as the GCS Mission Reports list: status icon, name, status; time · distance · duration · waypoints. */
+function MissionRow({ m, active, onSelect }: { m: ClientMissionDto; active: boolean; onSelect: () => void }) {
+  const ok = m.result === 'completed';
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{m.name ?? m.mission_id}</p>
-        <p className="text-xs text-muted tabular-nums">
-          {istHm(m.started_at)} – {istHm(m.ended_at)} IST · {fmtDuration(m.duration_s)} · {fmtDistance(m.distance_m)}
-          {m.end_reason ? ` · ${m.end_reason}` : ''}
-        </p>
-      </div>
-      <MissionResultBadge result={m.result} />
-      <Button size="sm" icon={<FileDown className="size-4" aria-hidden />} loading={busy} onClick={() => void run(() => downloadMissionReport(robot, m.mission_id))}>
-        Mission report
-      </Button>
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={active}
+        className={cn(
+          'w-full rounded-md border border-l-[3px] px-3 py-2 text-left transition-colors',
+          active ? 'border-accent bg-accent/10' : cn('border-border bg-surface-2 hover:border-accent/50', ok ? 'border-l-ok' : 'border-l-fault'),
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          {ok ? <CheckCircle2 className="size-3.5 shrink-0 text-ok" aria-hidden /> : <XCircle className="size-3.5 shrink-0 text-fault" aria-hidden />}
+          <span className="truncate text-sm font-semibold">{m.name || 'Mission'}</span>
+          <span className={cn('ml-auto text-[11px] uppercase', ok ? 'text-ok' : 'text-fault')}>{m.result === 'in_progress' ? 'in progress' : m.result}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-muted tabular-nums">
+          <span>{istHm(m.started_at)} IST</span>
+          <span>· {fmtDistance(m.distance_m)}</span>
+          <span>· {fmtDuration(m.duration_s)}</span>
+          {m.waypoints_total !== null && (
+            <span>
+              · {m.waypoints_reached ?? 0}/{m.waypoints_total} wp
+            </span>
+          )}
+        </div>
+      </button>
     </li>
+  );
+}
+
+/** The selected mission on the map with its figures and the PDF download, as the GCS Mission Reports detail. */
+function MissionDetail({ robot, missionId }: { robot: RobotDetailDto; missionId: string }) {
+  const { busy, run } = useDownload();
+  const [showTrack, setShowTrack] = useState(true);
+  const q = useQuery({
+    queryKey: ['robot', robot.robot_id, 'mission-report', missionId],
+    queryFn: () => api.get<ClientMissionReportDto>(`/robots/${robot.robot_id}/reports/missions/${encodeURIComponent(missionId)}`),
+  });
+  if (q.isLoading) return <LoadingBlock rows={4} label="Loading mission" />;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
+  const m = q.data!;
+  const ok = m.result === 'completed';
+  const waypoints = m.waypoints ?? [];
+  const path = m.path ?? [];
+  return (
+    <section aria-label={`Mission ${m.name ?? ''}`} className="overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
+        <span className="text-sm font-semibold">{m.name || 'Mission'}</span>
+        <span className={cn('rounded-full px-2 py-0.5 text-[11px] uppercase', ok ? 'bg-ok/15 text-ok' : 'bg-fault/15 text-fault')}>
+          {m.result === 'in_progress' ? 'in progress' : m.result}
+        </span>
+        <Stat icon={<Route className="size-3" />} label="Covered" value={`${fmtDistance(m.distance_m)} / ${fmtDistance(m.distance_planned_m)}`} />
+        <Stat icon={<Clock className="size-3" />} label="Time" value={fmtDuration(m.duration_s)} />
+        <Stat icon={<MapPin className="size-3" />} label="Waypoints" value={m.waypoints_total === null ? '—' : `${m.waypoints_reached ?? 0}/${m.waypoints_total}`} />
+        {path.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setShowTrack((v) => !v)}
+            aria-pressed={showTrack}
+            title={showTrack ? 'Hide the actual driven path' : 'Show the actual driven path'}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold',
+              showTrack ? 'border-[#FF9F0A] bg-[#FF9F0A]/15 text-[#b86e00] dark:text-[#FF9F0A]' : 'border-border text-muted',
+            )}
+          >
+            <Spline className="size-3" aria-hidden /> Actual path · {path.length} pts
+          </button>
+        )}
+        <Button size="sm" className="ml-auto" icon={<Download className="size-4" aria-hidden />} loading={busy} onClick={() => void run(() => downloadMissionReport(robot, m.mission_id))}>
+          Download
+        </Button>
+      </div>
+      <div className="px-4 py-1.5 text-xs text-muted tabular-nums">
+        {istHm(m.started_at)} – {istHm(m.ended_at)} IST{m.end_reason ? ` · ${m.end_reason}` : ''}
+      </div>
+      {waypoints.length || path.length > 1 ? (
+        <div style={{ height: 460 }}>
+          <ReportMap waypoints={waypoints} missionPath={path} showMissionPath={showTrack} height="100%" />
+        </div>
+      ) : (
+        <p className="px-4 pb-4 text-sm text-muted">This mission has no waypoints or recorded path to draw.</p>
+      )}
+    </section>
+  );
+}
+
+function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-muted" aria-hidden>
+        {icon}
+      </span>
+      <span className="text-[11px] tracking-wide text-muted uppercase">{label}</span>
+      <span className="font-mono text-[11px] font-semibold">{value}</span>
+    </span>
   );
 }
 

@@ -6,10 +6,12 @@
  * the Map · Google · Esri toggle, the driven path in orange (split at gaps, estimated stretches dashed white as in the
  * PDF), green start / red end dots and a legend. Dark theme uses the same street tiles under the .gcs-tiles-dark filter.
  *
- * Two modes: `points` (a day report's cleaned track) or `position` (the robot's current location).
+ * Three modes: `points` (a day report's cleaned track), `position` (the robot's current location), or one mission as the
+ * GCS Mission Reports map draws it: `waypoints` (dashed planned route, solid green between reached waypoints, numbered
+ * markers green = reached / grey = not reached) plus `missionPath` (the actual driven path in orange).
  * Leaflet touches `window`: load this with next/dynamic and ssr: false.
  */
-import type { ReportPathPointDto } from '@arnobot/message-schema';
+import type { MissionWaypointDto, ReportPathPointDto } from '@arnobot/message-schema';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Map as MapIcon, Satellite } from 'lucide-react';
@@ -31,12 +33,21 @@ const TRACK_COLOR = '#FF9F0A';
 const START_COLOR = '#30D158';
 const END_COLOR = '#FF453A';
 const LIVE_COLOR = '#00b4ff';
+const PLANNED_COLOR = '#A7BCE3';
+const REACHED_COLOR = '#30D158';
+const PENDING_COLOR = '#8E8E93';
 
 const istHm = (ms: number) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
 
 function dotIcon(color: string, size = 14) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="${size}" height="${size}"><circle cx="8" cy="8" r="6" fill="${color}" stroke="white" stroke-width="2"/></svg>`;
   return L.divIcon({ html: svg, iconSize: [size, size], iconAnchor: [size / 2, size / 2], className: '' });
+}
+
+/** Numbered waypoint marker (GCS wpIcon): green when reached, grey when not. */
+function wpIcon(seq: number, reached: boolean) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26"><circle cx="12" cy="12" r="12" fill="${reached ? REACHED_COLOR : PENDING_COLOR}" stroke="white" stroke-width="2"/><text x="12" y="17" text-anchor="middle" font-size="10" font-weight="bold" fill="black" font-family="monospace">${seq}</text></svg>`;
+  return L.divIcon({ html: svg, iconSize: [26, 26], iconAnchor: [13, 13], className: '' });
 }
 
 /** Pan / zoom to fit everything drawn whenever it changes. */
@@ -75,9 +86,14 @@ export interface ReportMapProps {
   position?: { lat: number; lon: number; label: string } | null;
   breakGapMs?: number;
   height?: string;
+  /** One mission's waypoints (planned route + reached state). */
+  waypoints?: MissionWaypointDto[];
+  /** One mission's driven path, [lat, lon]. */
+  missionPath?: [number, number][];
+  showMissionPath?: boolean;
 }
 
-export function ReportMap({ points = [], position = null, breakGapMs = 30_000, height = '100%' }: ReportMapProps) {
+export function ReportMap({ points = [], position = null, breakGapMs = 30_000, height = '100%', waypoints = [], missionPath = [], showMissionPath = true }: ReportMapProps) {
   const { theme } = useTheme();
   const [mapType, setMapType] = useState<'street' | 'satellite' | 'esri'>('street');
   const isSatellite = mapType !== 'street';
@@ -89,10 +105,13 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
 
   const track = useMemo(() => points.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)), [points]);
   const segs = useMemo(() => segments(track, breakGapMs), [track, breakGapMs]);
-  const fitPts = useMemo<[number, number][]>(
-    () => (track.length ? track.map((p) => [p.lat, p.lon] as [number, number]) : position ? [[position.lat, position.lon]] : []),
-    [track, position],
-  );
+  const planned = useMemo(() => waypoints.map((w) => [w.lat, w.lng] as [number, number]), [waypoints]);
+  const reachedPts = useMemo(() => waypoints.filter((w) => w.reached).map((w) => [w.lat, w.lng] as [number, number]), [waypoints]);
+  const driven = showMissionPath ? missionPath : [];
+  const fitPts = useMemo<[number, number][]>(() => {
+    const all: [number, number][] = [...track.map((p) => [p.lat, p.lon] as [number, number]), ...planned, ...driven];
+    return all.length ? all : position ? [[position.lat, position.lon]] : [];
+  }, [track, planned, driven, position]);
   const center: [number, number] = fitPts.length ? fitPts[0] : [22, 78];
   const first = track[0];
   const last = track[track.length - 1];
@@ -119,6 +138,34 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
             <Polyline key={i} positions={s.pts} pathOptions={{ color: TRACK_COLOR, weight: 3, opacity: 0.95 }} />
           ),
         )}
+        {/* One mission, as the GCS: planned (dashed), reached (solid green), actual path (orange) on top. */}
+        {planned.length > 1 && <Polyline positions={planned} pathOptions={{ color: PLANNED_COLOR, weight: 2, dashArray: '6 6', opacity: 0.7 }} />}
+        {reachedPts.length > 1 && <Polyline positions={reachedPts} pathOptions={{ color: REACHED_COLOR, weight: 3, opacity: 0.9 }} />}
+        {driven.length > 1 && <Polyline positions={driven} pathOptions={{ color: TRACK_COLOR, weight: 3, opacity: 0.95 }} />}
+        {driven.length > 1 && (
+          <Marker position={driven[0]} icon={dotIcon(START_COLOR)}>
+            <Tooltip>
+              <span style={{ fontSize: 11 }}>Start</span>
+            </Tooltip>
+          </Marker>
+        )}
+        {driven.length > 1 && (
+          <Marker position={driven[driven.length - 1]} icon={dotIcon(END_COLOR)}>
+            <Tooltip>
+              <span style={{ fontSize: 11 }}>End</span>
+            </Tooltip>
+          </Marker>
+        )}
+        {waypoints.map((w) => (
+          <Marker key={w.sequence} position={[w.lat, w.lng]} icon={wpIcon(w.sequence + 1, w.reached)}>
+            <Tooltip>
+              <span style={{ fontSize: 11 }}>
+                {w.label || `Waypoint ${w.sequence + 1}`} · {w.lat.toFixed(5)}, {w.lng.toFixed(5)}
+                {w.reached ? ' · reached' : ' · not reached'}
+              </span>
+            </Tooltip>
+          </Marker>
+        ))}
         {first && (
           <Marker position={[first.lat, first.lon]} icon={dotIcon(START_COLOR)}>
             <Tooltip>
@@ -209,7 +256,7 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
         </div>
       )}
 
-      {(track.length > 1 || position) && (
+      {(track.length > 1 || position || planned.length > 0 || driven.length > 1) && (
         <div
           style={{
             position: 'absolute',
@@ -228,7 +275,9 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
             color: theme === 'light' ? '#1f2937' : '#e5e7eb',
           }}
         >
-          {track.length > 1 && <LegendRow color={TRACK_COLOR} label="Actual path" />}
+          {planned.length > 0 && <LegendRow color={PLANNED_COLOR} dashed label="Planned" />}
+          {reachedPts.length > 1 && <LegendRow color={REACHED_COLOR} label="Reached" />}
+          {(track.length > 1 || driven.length > 1) && <LegendRow color={TRACK_COLOR} label="Actual path" />}
           {hasEst && <LegendRow color={theme === 'light' ? '#6b7280' : '#ffffff'} dashed label="Estimated (no reliable GPS)" />}
           {track.length > 1 && <LegendDot color={START_COLOR} label="Start" />}
           {track.length > 1 && <LegendDot color={END_COLOR} label="Last position" />}

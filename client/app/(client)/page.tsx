@@ -30,7 +30,7 @@ type PeriodId = (typeof PERIODS)[number]['id'];
 export default function PortalDashboardPage() {
   useDocumentTitle('Dashboard');
   const me = useMe();
-  const [period, setPeriod] = useState<PeriodId>('7d');
+  const [period, setPeriod] = useState<PeriodId>('30d');
   const range = PERIODS.find((p) => p.id === period)!.range();
   const q = useQuery({
     queryKey: ['portal', 'fleet', range.from, range.to],

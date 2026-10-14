@@ -1,26 +1,35 @@
 'use client';
 
 /**
- * Mission report PDFs, built in the browser (jsPDF), in the GCS's layout: ARNOBOT logo and a navy rule on every
- * page, navy title / blue subtitle, stat boxes, striped tables that repeat their header, and a footer with the
- * company line, "Page X / N" and a system-generated note. A4 portrait. Each report also names the robot and product.
+ * Mission report PDFs, laid out exactly as the GCS's (gcs_frontend features/reports/reports.ts: downloadReport and
+ * buildSummaryDoc) with the shared chrome in ./pdf-chrome. The only addition is the robot line under the title,
+ * because a customer can own several robots.
  *
- *   missionReportPdf    one mission run
- *   summaryPdf          daily / monthly mission summary of one robot
+ *   missionReportPdf    one mission run          "Mission Report - <name> (ARNOBOT).pdf"
+ *   summaryPdf          daily / monthly summary   "Daily Mission Summary - <date> (ARNOBOT).pdf"
  */
-import type { MissionDetailDto, MissionListItemDto } from '@arnobot/message-schema';
-
-type Doc = import('jspdf').jsPDF;
-type Rgb = [number, number, number];
-
-const NAVY: Rgb = [20, 38, 84];
-const BLUE: Rgb = [56, 85, 157];
-const GREEN: Rgb = [21, 128, 61];
-const RED: Rgb = [185, 28, 28];
-const AMBER: Rgb = [180, 83, 9];
-const MUTED: Rgb = [100, 106, 120];
-const MARGIN = 14;
-const TOP = 30; // content starts below the logo + rule
+import type { ClientMissionDto, ClientMissionReportDto, MissionWaypointDto } from '@arnobot/message-schema';
+import {
+  bandTop,
+  type Col,
+  footers,
+  GREEN,
+  AMBER,
+  newCtx,
+  pdfClock,
+  pdfDate,
+  pdfDist,
+  pdfDuration,
+  pdfTime,
+  RED,
+  type Rgb,
+  safeFile,
+  sectionBar,
+  statGrid,
+  statusBadge,
+  table,
+  titleBlock,
+} from './pdf-chrome';
 
 export interface ReportRobot {
   robot_id: string;
@@ -29,218 +38,115 @@ export interface ReportRobot {
   owner_company?: string | null;
 }
 
-// ── formatting ──────────────────────────────────────────────────────────────
-// Always IST, whatever time zone the viewer's computer is in (robots and customers are in India).
-const IST = 'Asia/Kolkata';
-const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST }) : '-');
-const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: IST }) : '-');
-const dateTime = (iso: string | null) => (iso ? `${date(iso)} ${time(iso)}` : '-');
-function duration(s: number | null | undefined): string {
-  if (s === null || s === undefined) return '-';
-  const t = Math.round(s);
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  return h ? `${h}h ${m}m` : m ? `${m}m ${t % 60}s` : `${t}s`;
-}
-const distance = (m: number | null | undefined) => (m === null || m === undefined ? '-' : m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
-const statusLabel = (r: string) => (r === 'in_progress' ? 'IN PROGRESS' : r.toUpperCase());
-const statusColour = (r: string): Rgb => (r === 'completed' ? GREEN : r === 'in_progress' ? AMBER : RED);
-const safeName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
-
-// ── page furniture ──────────────────────────────────────────────────────────
-let logoCache: Promise<{ data: string; ratio: number } | null> | null = null;
-/** The ARNOBOT logo as a data URL; null when it cannot load (the PDF is then made without it). */
-function loadLogo(): Promise<{ data: string; ratio: number } | null> {
-  logoCache ??= new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        c.getContext('2d')!.drawImage(img, 0, 0);
-        resolve({ data: c.toDataURL('image/png'), ratio: img.naturalWidth / img.naturalHeight });
-      } catch {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = '/brand/arnobot-logo-black.png';
-  });
-  return logoCache;
-}
-
-async function newDoc(): Promise<{ doc: Doc; autoTable: typeof import('jspdf-autotable').autoTable; logo: Awaited<ReturnType<typeof loadLogo>> }> {
-  const [{ jsPDF }, { autoTable }, logo] = await Promise.all([import('jspdf'), import('jspdf-autotable'), loadLogo()]);
-  return { doc: new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' }), autoTable, logo };
-}
-
-/** Logo + navy rule at the top and the footer on EVERY page, once the content is laid out. */
-function decorate(doc: Doc, logo: Awaited<ReturnType<typeof loadLogo>>) {
-  const pages = doc.getNumberOfPages();
-  const w = doc.internal.pageSize.getWidth();
-  const h = doc.internal.pageSize.getHeight();
-  for (let i = 1; i <= pages; i++) {
-    doc.setPage(i);
-    if (logo) doc.addImage(logo.data, 'PNG', MARGIN, 9, 9 * logo.ratio > 60 ? 60 : 9 * logo.ratio, 9 * logo.ratio > 60 ? 60 / logo.ratio : 9);
-    else {
-      doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(...NAVY);
-      doc.text('ARNOBOT', MARGIN, 16);
-    }
-    doc.setDrawColor(...NAVY).setLineWidth(0.8).line(MARGIN, 22, w - MARGIN, 22);
-
-    doc.setDrawColor(210, 214, 222).setLineWidth(0.2).line(MARGIN, h - 16, w - MARGIN, h - 16);
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...MUTED);
-    doc.text('Arnobot Private Limited | Private & Confidential', MARGIN, h - 11);
-    doc.text(`Page ${i} / ${pages}`, w - MARGIN, h - 11, { align: 'right' });
-    doc.setFontSize(7);
-    doc.text('This report is system-generated from robot and GCS data and may not match actual field data.', MARGIN, h - 7);
-  }
-}
-
-/** Title (navy), subtitle (blue) and small grey lines; returns the y below them. */
-function heading(doc: Doc, title: string, subtitle: string, lines: string[]): number {
-  doc.setFont('helvetica', 'bold').setFontSize(20).setTextColor(...NAVY);
-  doc.text(title, MARGIN, TOP + 6);
-  doc.setFont('helvetica', 'normal').setFontSize(13).setTextColor(...BLUE);
-  doc.text(subtitle, MARGIN, TOP + 13);
-  doc.setFontSize(9).setTextColor(...MUTED);
-  lines.forEach((l, i) => doc.text(l, MARGIN, TOP + 20 + i * 5));
-  return TOP + 20 + lines.length * 5 + 2;
-}
-
-function badge(doc: Doc, y: number, text: string, colour: Rgb): number {
-  const w = doc.internal.pageSize.getWidth();
-  doc.setFont('helvetica', 'bold').setFontSize(11);
-  const tw = doc.getTextWidth(text) + 14;
-  doc.setFillColor(...colour).roundedRect((w - tw) / 2, y, tw, 9, 2, 2, 'F');
-  doc.setTextColor(255, 255, 255).text(text, w / 2, y + 6.2, { align: 'center' });
-  return y + 15;
-}
-
-/** Stat boxes, four per row. */
-function statBoxes(doc: Doc, y: number, items: [string, string][]): number {
-  const w = doc.internal.pageSize.getWidth() - MARGIN * 2;
-  const gap = 4;
-  const bw = (w - gap * 3) / 4;
-  const bh = 17;
-  items.forEach(([label, value], i) => {
-    const x = MARGIN + (i % 4) * (bw + gap);
-    const yy = y + Math.floor(i / 4) * (bh + gap);
-    doc.setFillColor(243, 245, 250).setDrawColor(220, 225, 235).roundedRect(x, yy, bw, bh, 2, 2, 'FD');
-    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED);
-    doc.text(label.toUpperCase(), x + 3, yy + 5.5);
-    doc.setFont('helvetica', 'bold').setFontSize(11.5).setTextColor(...NAVY);
-    doc.text(value, x + 3, yy + 13, { maxWidth: bw - 6 });
-  });
-  return y + Math.ceil(items.length / 4) * (bh + gap) + 3;
-}
-
-function section(doc: Doc, y: number, text: string): number {
-  doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...NAVY);
-  doc.text(text, MARGIN, y);
-  return y + 3;
-}
-
-const tableStyle = {
-  theme: 'striped' as const,
-  showHead: 'everyPage' as const,
-  margin: { top: TOP, left: MARGIN, right: MARGIN, bottom: 22 },
-  headStyles: { fillColor: NAVY, textColor: [255, 255, 255] as Rgb, fontStyle: 'bold' as const, fontSize: 8.5 },
-  bodyStyles: { fontSize: 8.5, textColor: [30, 34, 44] as Rgb },
-  alternateRowStyles: { fillColor: [243, 245, 250] as Rgb },
-};
-
-const robotLine = (r: ReportRobot) => `Robot ${r.robot_id} · ${r.product_name} · SN ${r.serial_number}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
+const robotLine = (r: ReportRobot) => `Robot ${r.robot_id.toUpperCase()} · ${r.product_name} · SN ${r.serial_number}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
+const statusText = (r: string) => (r === 'in_progress' ? 'in progress' : r);
+const statusColor = (r: string): Rgb => (r === 'completed' ? GREEN : r === 'in_progress' ? AMBER : RED);
 
 // ── 1. Mission Report ───────────────────────────────────────────────────────
-export async function missionReportPdf(m: MissionDetailDto, robot: ReportRobot): Promise<void> {
-  const { doc, autoTable, logo } = await newDoc();
-  const name = m.name ?? m.mission_id;
-  let y = heading(doc, 'Mission Report', name, [`Mission ID: ${m.mission_id}`, robotLine(robot)]);
-  y = badge(doc, y, statusLabel(m.result), statusColour(m.result));
-  y = statBoxes(doc, y, [
-    ['Date', date(m.started_at)],
-    ['Started', time(m.started_at)],
-    ['Ended', time(m.ended_at)],
-    ['Duration', duration(m.duration_s)],
-    ['Distance covered', distance(m.distance_m)],
-    ['Distance planned', distance(m.distance_planned_m)],
-    ['Waypoints reached', m.waypoints_total !== null ? `${m.waypoints_reached ?? 0} / ${m.waypoints_total}` : '-'],
-    ['End reason', m.end_reason ?? '-'],
+export async function missionReportPdf(report: ClientMissionReportDto, robot: ReportRobot): Promise<void> {
+  const ctx = await newCtx();
+  const name = report.name || 'Mission';
+  const waypoints = report.waypoints ?? [];
+  bandTop(ctx);
+  titleBlock(ctx, 'Mission Report', name, `Report ID: ${report.mission_id}  ·  ${robotLine(robot)}`);
+  statusBadge(ctx, report.result);
+  statGrid(ctx, [
+    { label: 'Date', value: pdfDate(report.started_at) },
+    { label: 'Started', value: pdfTime(report.started_at) },
+    { label: 'Ended', value: pdfTime(report.ended_at) },
+    { label: 'Duration', value: pdfDuration(report.duration_s) },
+    { label: 'Distance covered', value: pdfDist(report.distance_m) },
+    { label: 'Distance planned', value: pdfDist(report.distance_planned_m) },
+    { label: 'Waypoints reached', value: `${report.waypoints_reached ?? 0} / ${report.waypoints_total ?? waypoints.length}` },
   ]);
-  const wps = m.waypoints ?? [];
-  y = section(doc, y + 4, `Waypoints (${wps.length})`);
-  if (wps.length) {
-    autoTable(doc, {
-      ...tableStyle,
-      startY: y + 2,
-      head: [['#', 'Label', 'Lat', 'Lng', 'Reached', 'Reached at']],
-      body: wps.map((w) => [String(w.sequence), w.label ?? '-', w.lat.toFixed(6), w.lng.toFixed(6), w.reached ? 'Yes' : 'No', dateTime(w.reached_at)]),
-      didParseCell: (d) => {
-        if (d.section === 'body' && d.column.index === 4) {
-          d.cell.styles.textColor = d.cell.raw === 'Yes' ? GREEN : RED;
-          d.cell.styles.fontStyle = 'bold';
-        }
-      },
-    });
-  } else {
-    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...MUTED);
-    doc.text('The GCS report for this mission did not include per-waypoint results.', MARGIN, y + 6);
-  }
-  decorate(doc, logo);
-  doc.save(`Mission Report - ${safeName(name)} (ARNOBOT).pdf`);
+  ctx.y += 6;
+  sectionBar(ctx, `Waypoints (${waypoints.length})`);
+  table<MissionWaypointDto>(
+    ctx,
+    [
+      { label: '#', w: 30, value: (w) => String(w.sequence) },
+      { label: 'Label', w: 95, value: (w) => w.label || '—' },
+      { label: 'Lat', w: 85, value: (w) => (Number.isFinite(w.lat) ? w.lat.toFixed(6) : '—') },
+      { label: 'Lng', w: 85, value: (w) => (Number.isFinite(w.lng) ? w.lng.toFixed(6) : '—') },
+      { label: 'Reached', w: 70, value: (w) => (w.reached ? 'Yes' : 'No'), color: (w) => (w.reached ? GREEN : RED) },
+      { label: 'Reached at', w: 150, value: (w) => (w.reached ? pdfClock(w.reached_at) : '—') },
+    ],
+    waypoints,
+    'No waypoints recorded for this mission.',
+  );
+  footers(ctx);
+  ctx.doc.save(safeFile(`Mission Report - ${name} (ARNOBOT).pdf`));
 }
 
 // ── 2 / 3. Daily and Monthly Mission Summary ────────────────────────────────
-export async function summaryPdf(opts: { kind: 'daily' | 'monthly'; label: string; missions: MissionListItemDto[]; robot: ReportRobot; odometerM?: number | null }): Promise<void> {
-  const { doc, autoTable, logo } = await newDoc();
-  // Oldest first; a mission without a start time goes last.
-  const ms = [...opts.missions].sort((a, b) => (a.started_at ?? '9999').localeCompare(b.started_at ?? '9999'));
-  const count = (r: string) => ms.filter((m) => m.result === r).length;
-  const sum = (f: (m: MissionListItemDto) => number | null) => ms.reduce((n, m) => n + (f(m) ?? 0), 0);
-  const completed = count('completed');
-  const wpTotal = sum((m) => m.waypoints_total);
-  const title = opts.kind === 'daily' ? 'Daily Mission Summary' : 'Monthly Mission Summary';
-  const lines = [robotLine(opts.robot)];
-  if (opts.odometerM !== undefined && opts.odometerM !== null) lines.push(`Robot odometer (lifetime, all driving): ${distance(opts.odometerM)}`);
-  let y = heading(doc, title, opts.label, lines);
-  y = statBoxes(doc, y + 2, [
-    ['Total missions', String(ms.length)],
-    ['Completed', String(completed)],
-    ['Aborted', String(count('aborted') + count('failed'))],
-    ['Total duration', duration(sum((m) => m.duration_s))],
-    ['Distance covered', distance(sum((m) => m.distance_m))],
-    ['Distance planned', distance(sum((m) => m.distance_planned_m))],
-    ['Waypoints reached', wpTotal ? `${sum((m) => m.waypoints_reached)} / ${wpTotal}` : '-'],
-    ['Success rate', ms.length ? `${Math.round((completed / ms.length) * 100)} %` : '-'],
+interface SummaryAgg {
+  total: number;
+  completed: number;
+  aborted: number;
+  distanceCovered: number;
+  distancePlanned: number;
+  duration: number;
+  wpReached: number;
+  wpTotal: number;
+}
+function aggregate(missions: ClientMissionDto[]): SummaryAgg {
+  return missions.reduce<SummaryAgg>(
+    (a, m) => {
+      a.total += 1;
+      if (m.result === 'completed') a.completed += 1;
+      else a.aborted += 1;
+      a.distanceCovered += m.distance_m || 0;
+      a.distancePlanned += m.distance_planned_m || 0;
+      a.duration += m.duration_s || 0;
+      a.wpReached += m.waypoints_reached || 0;
+      a.wpTotal += m.waypoints_total || 0;
+      return a;
+    },
+    { total: 0, completed: 0, aborted: 0, distanceCovered: 0, distancePlanned: 0, duration: 0, wpReached: 0, wpTotal: 0 },
+  );
+}
+
+/**
+ * Daily summary: `period` = IST day "2026-05-30". Monthly: `period` = "2026-05" (subtitle "May 2026").
+ * Missions in the order the API lists them (newest first), as the GCS.
+ */
+export async function summaryPdf(opts: { kind: 'daily' | 'monthly'; period: string; missions: ClientMissionDto[]; robot: ReportRobot }): Promise<void> {
+  const { kind, period, missions, robot } = opts;
+  const agg = aggregate(missions);
+  const title = kind === 'daily' ? 'Daily Mission Summary' : 'Monthly Mission Summary';
+  const subtitle = kind === 'daily' ? period : new Date(`${period}-15T12:00:00+05:30`).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const firstCol: Col<ClientMissionDto> =
+    kind === 'daily' ? { label: 'Started', w: 85, value: (m) => pdfClock(m.started_at) } : { label: 'Date', w: 85, value: (m) => pdfDate(m.started_at) };
+
+  const ctx = await newCtx();
+  bandTop(ctx);
+  titleBlock(ctx, title, subtitle, robotLine(robot));
+  statGrid(ctx, [
+    { label: 'Total missions', value: String(agg.total) },
+    { label: 'Completed', value: String(agg.completed) },
+    { label: 'Aborted', value: String(agg.aborted) },
+    { label: 'Total duration', value: pdfDuration(agg.duration) },
+    { label: 'Distance covered', value: pdfDist(agg.distanceCovered) },
+    { label: 'Distance planned', value: pdfDist(agg.distancePlanned) },
+    { label: 'Waypoints reached', value: `${agg.wpReached} / ${agg.wpTotal}` },
+    { label: 'Success rate', value: agg.total ? `${Math.round((agg.completed / agg.total) * 100)}%` : '—' },
   ]);
-  y = section(doc, y + 4, `Missions (${ms.length})`);
-  if (ms.length) {
-    autoTable(doc, {
-      ...tableStyle,
-      startY: y + 2,
-      head: [[opts.kind === 'daily' ? 'Started' : 'Date', 'Mission', 'Status', 'Covered', 'Duration', 'WP']],
-      body: ms.map((m) => [
-        opts.kind === 'daily' ? time(m.started_at) : date(m.started_at),
-        m.name ?? m.mission_id,
-        statusLabel(m.result),
-        distance(m.distance_m),
-        duration(m.duration_s),
-        m.waypoints_total !== null ? `${m.waypoints_reached ?? 0}/${m.waypoints_total}` : '-',
-      ]),
-      columnStyles: { 1: { cellWidth: 62 } },
-      didParseCell: (d) => {
-        if (d.section === 'body' && d.column.index === 2) {
-          d.cell.styles.textColor = d.cell.raw === 'COMPLETED' ? GREEN : d.cell.raw === 'IN PROGRESS' ? AMBER : RED;
-          d.cell.styles.fontStyle = 'bold';
-        }
-      },
-    });
-  } else {
-    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...MUTED);
-    doc.text(`No missions in ${opts.label}.`, MARGIN, y + 6);
-  }
-  decorate(doc, logo);
-  doc.save(`${title} - ${safeName(opts.label)} (ARNOBOT).pdf`);
+  ctx.y += 6;
+  sectionBar(ctx, `Missions (${missions.length})`);
+  table<ClientMissionDto>(
+    ctx,
+    [
+      firstCol,
+      // GCS: Mission 175 / WP 30; WP is wider here because field routes have 100+ waypoints ("83/144").
+      { label: 'Mission', w: 160, value: (m) => m.name || 'Mission' },
+      { label: 'Status', w: 80, value: (m) => statusText(m.result), color: (m) => statusColor(m.result) },
+      { label: 'Covered', w: 70, value: (m) => pdfDist(m.distance_m) },
+      { label: 'Duration', w: 75, value: (m) => pdfDuration(m.duration_s) },
+      { label: 'WP', w: 45, value: (m) => (m.waypoints_total === null ? '—' : `${m.waypoints_reached ?? 0}/${m.waypoints_total}`) },
+    ],
+    missions,
+    'No missions in this period.',
+  );
+  footers(ctx);
+  ctx.doc.save(safeFile(`${title} - ${subtitle} (ARNOBOT).pdf`));
 }
