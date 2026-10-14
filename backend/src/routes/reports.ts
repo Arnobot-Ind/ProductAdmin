@@ -42,6 +42,20 @@ const toStats = (r: Record<string, unknown> | undefined): MissionStatsDto => ({
   distance_m: Math.round(Number(r?.distance_m ?? 0)),
   duration_s: Math.round(Number(r?.duration_s ?? 0)),
 });
+const MAX_MISSION_PATH_POINTS = 4000;
+/** GeoJSON LineString ([lon, lat]) -> [lat, lon] points for the report map, evenly thinned; null when absent. */
+function pathPoints(path: unknown): [number, number][] | null {
+  const coords = (path as { coordinates?: unknown } | null)?.coordinates;
+  if (!Array.isArray(coords)) return null;
+  const pts = coords
+    .filter((c): c is number[] => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]))
+    .map((c) => [c[1], c[0]] as [number, number]);
+  if (pts.length < 2) return null;
+  if (pts.length <= MAX_MISSION_PATH_POINTS) return pts;
+  const step = (pts.length - 1) / (MAX_MISSION_PATH_POINTS - 1);
+  return Array.from({ length: MAX_MISSION_PATH_POINTS }, (_, i) => pts[Math.round(i * step)]);
+}
+
 /** Optional IST day range -> [start, end) instants. */
 function dayRange(from?: string, to?: string): { start: Date | null; end: Date | null } {
   const start = from ? istInstant(from, '00:00') : null;
@@ -219,7 +233,8 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
       const stats = toStats((await db.query(`SELECT ${STATS_SELECT} FROM missions m ${sw.toSql()}`, sw.params)).rows[0]);
       const page = await paginate(
         db,
-        'SELECT m.mission_id, m.name, m.started_at, m.ended_at, m.duration_s, m.distance_m, m.result, m.end_reason, m.created_at FROM missions m',
+        `SELECT m.mission_id, m.name, m.started_at, m.ended_at, m.duration_s, m.distance_m, m.result, m.end_reason,
+                m.distance_planned_m, m.waypoints_total, m.waypoints_reached, m.created_at FROM missions m`,
         missionWhere(user, params.robotId, start, end, query.result),
         `${MISSION_TIME} DESC`,
         query.page,
@@ -233,6 +248,9 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
           distance_m: r.distance_m as number | null,
           result: r.result as ClientMissionDto['result'],
           end_reason: r.end_reason as string | null,
+          distance_planned_m: r.distance_planned_m as number | null,
+          waypoints_total: r.waypoints_total as number | null,
+          waypoints_reached: r.waypoints_reached as number | null,
         }),
       );
       return { robot_id: params.robotId, from: query.from ?? null, to: query.to ?? null, stats, items: page.items as ClientMissionDto[], total: page.total, page: page.page, limit: page.limit };
@@ -250,7 +268,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
       const m = (
         await db.query(
           `SELECT m.mission_id, m.robot_id, m.name, m.started_at, m.ended_at, m.duration_s, m.distance_m, m.distance_planned_m,
-                  m.result, m.end_reason, m.waypoints_total, m.waypoints_reached, m.gcs_report
+                  m.result, m.end_reason, m.waypoints_total, m.waypoints_reached, m.gcs_report, m.actual_path
            FROM missions m ${w.toSql()}`,
           w.params,
         )
@@ -270,6 +288,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
         waypoints_total: m.waypoints_total,
         waypoints_reached: m.waypoints_reached,
         waypoints: reportWaypoints(m.gcs_report),
+        path: pathPoints(m.actual_path),
       };
     },
   });
