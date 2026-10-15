@@ -58,7 +58,20 @@ export interface ApiConfig {
     mp4CacheHours: number;
     /** Incremental re-index of the bucket every N minutes (and at start-up); 0 = off. Picks up data written straight to S3. */
     syncMinutes: number;
+    /** Bucket folder → registered robot, for recordings uploaded under another name (ARCHIVE_ROBOT_ALIASES=ductrobot01=ductcleaning01). */
+    robotAliases: Map<string, string>;
+    /** DVR footage copied straight into the bucket (…/Video/<cam>/<YYYY-MM-DD>/<HH-MM-SS>.ts), indexed as one recording
+     *  per robot and day (ARCHIVE_DVR_SOURCES=saibya02=adani-trails/). */
+    dvrSources: { robotId: string; prefix: string }[];
   };
+}
+
+/** "a=b,c=d" → [["a","b"],["c","d"]]; blanks and malformed entries are skipped. */
+function pairs(value: string | undefined): [string, string][] {
+  return (value ?? '')
+    .split(',')
+    .map((p) => p.split('=').map((s) => s.trim()))
+    .filter((p): p is [string, string] => p.length === 2 && !!p[0] && !!p[1]);
 }
 
 /** "+05:30" → 330 */
@@ -143,6 +156,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ffprobePath: env.FFPROBE_PATH || 'ffprobe',
       mp4CacheHours: positive(env.MP4_CACHE_HOURS, 24),
       syncMinutes: env.ARCHIVE_SYNC_MINUTES === '0' ? 0 : positive(env.ARCHIVE_SYNC_MINUTES, 10),
+      robotAliases: new Map(pairs(env.ARCHIVE_ROBOT_ALIASES)),
+      dvrSources: pairs(env.ARCHIVE_DVR_SOURCES).map(([robotId, prefix]) => ({ robotId, prefix: prefix.endsWith('/') ? prefix : `${prefix}/` })),
     },
   };
 }

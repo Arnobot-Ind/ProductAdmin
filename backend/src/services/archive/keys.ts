@@ -113,3 +113,28 @@ export function sortCameras(cams: Iterable<string>): string[] {
 
 /** Camera names are path segments: only safe characters. */
 export const isCameraName = (c: string) => /^[A-Za-z0-9_-]{1,50}$/.test(c);
+
+export interface DvrKey {
+  camera: string;
+  /** YYYYMMDD of the date folder (robot local time) */
+  day: string;
+  /** Session file name the player expects: video/<cam>/<YYYYMMDD_HHMMSS>.ts */
+  name: string;
+  chunkStart: number;
+}
+
+/**
+ * DVR footage copied straight into the bucket: "<anything>/Video/cam2/2026-10-04/22-33-26.ts" (robot local time).
+ * Only the main streams (cam1, cam2, …); the "_sub" low-resolution copies and stills are not recordings.
+ */
+export function parseDvrKey(key: string, localOffsetMin = 0): DvrKey | null {
+  const m = /(?:^|\/)Video\/(cam\d{1,2})\/(\d{4})-(\d{2})-(\d{2})\/(\d{2})-(\d{2})-(\d{2})\.ts$/.exec(key);
+  if (!m) return null;
+  const [, camera, y, mo, d, h, mi, s] = m;
+  // Footage from before the robot's clock was set (1970) has no usable time.
+  if (Number(y) < 2020) return null;
+  const day = `${y}${mo}${d}`;
+  const chunkStart = parseChunkTime(`${day}_${h}${mi}${s}`, localOffsetMin);
+  if (chunkStart === undefined) return null;
+  return { camera, day, name: `video/${camera}/${day}_${h}${mi}${s}.ts`, chunkStart };
+}
