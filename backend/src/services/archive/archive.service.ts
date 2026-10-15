@@ -60,8 +60,8 @@ export interface SessionListFilter {
   product?: string;
   q?: string;
   status?: ArchiveSessionStatus;
-  include_sim?: boolean;
-  include_deleted?: boolean;
+  includeSim?: boolean;
+  includeDeleted?: boolean;
   page: number;
   limit: number;
 }
@@ -289,8 +289,8 @@ export class ArchiveService {
     scope(w);
     if (filter.robot) w.add('s.robot_id = ?', filter.robot);
     if (filter.product) w.add('p.code = ?', filter.product);
-    if (!filter.include_sim) w.add('NOT s.sim');
-    if (!filter.include_deleted) w.add('s.deleted_at IS NULL');
+    if (!filter.includeSim) w.add('NOT s.sim');
+    if (!filter.includeDeleted) w.add('s.deleted_at IS NULL');
     if (filter.q) {
       const like = `%${filter.q}%`;
       w.add('(s.session_id ILIKE ? OR s.robot_id ILIKE ? OR t.name ILIKE ? OR r.serial_number ILIKE ?)', like, like, like, like);

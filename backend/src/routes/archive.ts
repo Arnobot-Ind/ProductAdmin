@@ -116,7 +116,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.details', target: anyScope() },
     query: listQuery,
     handler: async ({ query: q, user }): Promise<ArchiveSessionListDto> => {
-      const list = await archive.listSessions({ ...q, include_sim: q.include_sim ?? false, include_deleted: (q.include_deleted ?? false) && perms.holdsAnywhere(user, 'data.delete') }, (w) =>
+      const list = await archive.listSessions({ ...q, includeSim: q.include_sim ?? false, includeDeleted: (q.include_deleted ?? false) && perms.holdsAnywhere(user, 'data.delete') }, (w) =>
         perms.applyDataScope(w, perms.robotScope(user, 'robot.details'), 's.robot_id', SESSION_TIME),
       );
       return { ...list, items: list.items.map((s) => maskSensors(user, s)) };

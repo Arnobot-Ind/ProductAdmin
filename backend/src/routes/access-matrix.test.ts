@@ -19,7 +19,7 @@ import { detectionRoutes } from './detections';
 import { documentRoutes } from './documents';
 import { eventRoutes } from './events';
 import { hardwareRoutes } from './hardware';
-import { ingestAdminRoutes } from './ingest-admin';
+import { ingestAdminRoutes } from './ingestAdmin';
 import { missionRoutes } from './missions';
 import { organizationRoutes } from './organizations';
 import { releaseRoutes } from './releases';
