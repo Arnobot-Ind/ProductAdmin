@@ -2,6 +2,7 @@
 
 import type { MeDto } from '@arnobot/message-schema';
 import { useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { BrandMark } from '@/components/common/brand';
@@ -51,6 +52,12 @@ function LoginForm() {
         <div className="rounded-lg border border-border bg-surface p-6 shadow-xl">
           <h1 className="text-xl font-bold">Sign in</h1>
           <p className="mt-1 mb-5 text-sm text-muted">Sign in to see your robots, missions and reports. Invited? Open the link in your invitation email to set your password.</p>
+          {params.get('signed_out') === '1' && (
+            <p role="status" className="mb-4 flex items-center gap-2 rounded-md border border-ok/30 bg-ok-bg px-3 py-2 text-sm text-ok">
+              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+              You've been signed out.
+            </p>
+          )}
           <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
             <Field label="Email" required>
               <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />

@@ -1,8 +1,8 @@
 'use client';
 
 import type { MeDto } from '@arnobot/message-schema';
-import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { api } from './api';
 
 const MeContext = createContext<MeDto | null>(null);
@@ -57,4 +57,26 @@ export function useIsCustomer(): boolean {
 export function useFeature(): (key: string) => boolean {
   const me = useContext(MeContext);
   return (key: string) => !!me?.client?.features.includes(key);
+}
+
+/**
+ * Sign out: ends the session on the server, forgets every cached query and lands on the sign-in page with a
+ * "you've been signed out" note. Safe to click twice (the second click is ignored while the first runs); if the
+ * server cannot be reached the local data is still cleared, so nothing of the account stays on screen.
+ */
+export function useSignOut(): { signOut: () => void; signingOut: boolean } {
+  const qc = useQueryClient();
+  const [signingOut, setSigningOut] = useState(false);
+  const signOut = useCallback(() => {
+    if (signingOut) return;
+    setSigningOut(true);
+    void api
+      .post('/auth/logout')
+      .catch(() => undefined)
+      .finally(() => {
+        qc.clear();
+        window.location.assign('/login?signed_out=1');
+      });
+  }, [qc, signingOut]);
+  return { signOut, signingOut };
 }

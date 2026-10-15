@@ -1,14 +1,12 @@
 'use client';
 
 import { CLIENT_FEATURES } from '@arnobot/message-schema';
-import { useQueryClient } from '@tanstack/react-query';
 import { Bell, Bot, ChevronDown, LayoutDashboard, LogOut, Menu, Moon, Package, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BrandMark } from '@/components/common/brand';
-import { api } from '@/lib/api';
-import { useCanAnywhere, useFeature, useMe } from '@/lib/auth';
+import { useCanAnywhere, useFeature, useMe, useSignOut } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 
@@ -31,7 +29,6 @@ export function PortalShell({ children }: { children: ReactNode }) {
   const canAnywhere = useCanAnywhere();
   const has = useFeature();
   const pathname = usePathname();
-  const qc = useQueryClient();
   const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [pathname]);
@@ -47,14 +44,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
   const accountActive = pathname.startsWith('/account');
   const role = me.grants[0]?.role_name ?? null;
 
-  const logout = async () => {
-    try {
-      await api.post('/auth/logout');
-    } finally {
-      qc.clear();
-      window.location.assign('/login');
-    }
-  };
+  const { signOut, signingOut } = useSignOut();
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg">
@@ -105,7 +95,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
               {theme === 'dark' ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
             </button>
             <span className="hidden lg:block">
-              <UserMenu name={me.name} email={me.email} role={role} accountActive={accountActive} onLogout={() => void logout()} />
+              <UserMenu name={me.name} email={me.email} role={role} accountActive={accountActive} onLogout={signOut} signingOut={signingOut} />
             </span>
             <button
               type="button"
@@ -152,11 +142,12 @@ export function PortalShell({ children }: { children: ReactNode }) {
               </nav>
               <button
                 type="button"
-                onClick={() => void logout()}
-                className="mt-1 inline-flex items-center gap-3 rounded-md border-t border-border px-3 py-2.5 text-left text-sm text-fault hover:bg-fault-bg"
+                onClick={signOut}
+                disabled={signingOut}
+                className="mt-1 inline-flex items-center gap-3 rounded-md border-t border-border px-3 py-2.5 text-left text-sm text-fault hover:bg-fault-bg disabled:opacity-60"
               >
                 <LogOut className="size-4" aria-hidden />
-                Sign out
+                {signingOut ? 'Signing out…' : 'Sign out'}
               </button>
             </div>
           </div>
@@ -182,7 +173,7 @@ function Avatar({ name, email, size = 'md' }: { name: string; email: string; siz
 }
 
 /** Avatar button with a dropdown: who is signed in, Account, Sign out. Closes on outside click, Escape or navigation. */
-function UserMenu({ name, email, role, accountActive, onLogout }: { name: string; email: string; role: string | null; accountActive: boolean; onLogout: () => void }) {
+function UserMenu({ name, email, role, accountActive, onLogout, signingOut }: { name: string; email: string; role: string | null; accountActive: boolean; onLogout: () => void; signingOut: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -236,9 +227,9 @@ function UserMenu({ name, email, role, accountActive, onLogout }: { name: string
               <UserRound className="size-4" aria-hidden />
               Account
             </Link>
-            <button type="button" role="menuitem" onClick={onLogout} className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-fault hover:bg-fault-bg">
+            <button type="button" role="menuitem" onClick={onLogout} disabled={signingOut} className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-fault hover:bg-fault-bg disabled:opacity-60">
               <LogOut className="size-4" aria-hidden />
-              Sign out
+              {signingOut ? 'Signing out…' : 'Sign out'}
             </button>
           </div>
         </div>
