@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { RobotStatusBadge } from '@/components/common/status';
 import { ClientEvents } from '@/components/client/client-events';
+import { DetectionsTab } from '@/components/client/detections';
 import { SoftwareTable, useClientSoftware } from '@/components/client/client-software';
 import { RobotMissionsOverview, RobotMissionsTab } from '@/components/client/robot-missions';
 import { RobotReportsTab } from '@/components/client/robot-report';
@@ -30,6 +31,7 @@ const TABS = [
   { id: 'overview', label: 'Overview', feature: null },
   { id: 'missions', label: 'Missions', feature: CLIENT_FEATURES.missionsView },
   { id: 'reports', label: 'Reports', feature: CLIENT_FEATURES.reportsView },
+  { id: 'detections', label: 'Detections', feature: CLIENT_FEATURES.detectionsView },
   { id: 'telemetry', label: 'Battery & health', feature: CLIENT_FEATURES.telemetryView },
   { id: 'events', label: 'Events', feature: CLIENT_FEATURES.eventsView },
 ] as const;
@@ -39,7 +41,7 @@ const pct = (v: number | null | undefined) => (v === null || v === undefined ? '
 
 /**
  * Client view of one robot: Overview (live, location, mission stats, software), Missions, Reports (calendar: mission
- * report, day / monthly summary, night surveillance log), Battery & health, Events — each as the user's features allow.
+ * report, day / monthly summary, night surveillance log), Detections (camera snapshots), Battery & health, Events — each as the user's features allow.
  * No video, no CSV.
  */
 export default function PortalRobotPage() {
@@ -116,6 +118,7 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
           )}
           {tab === 'missions' && <RobotMissionsTab robotId={robot.robot_id} />}
           {tab === 'reports' && <RobotReportsTab robot={robot} />}
+          {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="client" />}
           {tab === 'telemetry' && <RobotTelemetryTab robotId={robot.robot_id} showTrack={location} />}
           {tab === 'events' && <ClientEvents robotId={robot.robot_id} />}
         </TabPanel>

@@ -41,7 +41,8 @@ function handleUnauthenticated(): void {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, init: { query?: Query; raw?: boolean } = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  // The portal's own session cookie (pms_client_session), so an admin-panel sign-in never replaces it.
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-Pms-App': 'client' };
   // CSRF defence: the API requires this header on every non-GET request.
   if (method !== 'GET') headers['X-Requested-With'] = 'pms-admin';
   let payload: BodyInit | undefined;

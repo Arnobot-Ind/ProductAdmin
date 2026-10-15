@@ -27,11 +27,11 @@ const monthEnd = (month: string) => {
 
 /** Patrol log windows; `to` at or before `from` runs into the next morning. */
 export const PATROL_WINDOWS = [
-  { id: 'night', label: 'Night (18:00 – 06:00 next day)', from: '18:00', to: '06:00' },
-  { id: 'late', label: 'Night patrol (22:00 – 24:00)', from: '22:00', to: '24:00' },
-  { id: 'day', label: 'Whole day (00:00 – 24:00)', from: '00:00', to: '24:00' },
-  { id: 'daytime', label: 'Daytime (06:00 – 18:00)', from: '06:00', to: '18:00' },
-  { id: 'custom', label: 'Custom…', from: '', to: '' },
+  { id: 'night', label: 'Night (00:00 – 08:00)', from: '00:00', to: '08:00' },
+  { id: 'daytime', label: 'Day (08:00 – 16:00)', from: '08:00', to: '16:00' },
+  { id: 'evening', label: 'Evening (16:00 – 24:00)', from: '16:00', to: '24:00' },
+  { id: 'day', label: 'Full day (00:00 – 24:00)', from: '00:00', to: '24:00' },
+  { id: 'custom', label: 'Custom time…', from: '', to: '' },
 ] as const;
 export type PatrolWindowId = (typeof PATROL_WINDOWS)[number]['id'];
 export const patrolRange = (id: PatrolWindowId, from: string, to: string) => {

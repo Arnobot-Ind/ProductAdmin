@@ -7,6 +7,8 @@ import type {
   ClientCredentialKind,
   ClientStatus,
   CredentialKind,
+  DetectionKind,
+  DetectionStatus,
   DocumentType,
   EventSeverity,
   EventType,
@@ -65,6 +67,8 @@ export interface MeClientDto {
   organization_features: string[];
   /** Data older than this many days is hidden; null = all history. */
   data_history_days: number | null;
+  /** No data recorded before this IST day (YYYY-MM-DD) is shown; null = no start date. */
+  data_from: string | null;
 }
 export interface UserDto {
   id: string;
@@ -172,6 +176,8 @@ export interface ClientProfileDto {
   contract_start: string | null;
   contract_end: string | null;
   data_history_days: number | null;
+  /** Customers see no data recorded before this IST day (YYYY-MM-DD); null = no start date. */
+  data_from: string | null;
   /** null = no profile saved yet (the defaults are shown). */
   updated_at: string | null;
 }
@@ -1144,3 +1150,50 @@ export type RealtimeChange =
   | { kind: 'software'; robot_id: string }
   | { kind: 'telemetry'; robot_id: string }
   | { kind: 'archive'; robot_id: string; session_id: string };
+
+// ── camera detections (0022) ────────────────────────────────────────────────
+/** A detector's bounding box, in pixels of the snapshot image. */
+export interface DetectionBoxDto {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  conf: number | null;
+}
+/** One camera detection with its snapshot. */
+export interface DetectionItemDto {
+  id: string;
+  robot_id: string;
+  detected_at: string;
+  /** The robot's clock was not synced on that run: the time is approximate. */
+  time_estimated: boolean;
+  kind: DetectionKind;
+  /** 'tiger', 'smoke', 'tree'…; null for people. */
+  label: string | null;
+  /** Everything seen in the frame, label → count (when the detector reported several). */
+  labels: Record<string, number> | null;
+  camera: string;
+  /** People / objects in the frame. */
+  count: number;
+  confidence: number | null;
+  boxes: DetectionBoxDto[];
+  lat: number | null;
+  lon: number | null;
+  mission_id: string | null;
+  mission_name: string | null;
+  /** Same-origin API URL of the snapshot JPEG (auth + permission checked); null when none was saved. */
+  image_url: string | null;
+  /** Arnobot staff only (absent in the client app): 'rejected' = marked a false positive. */
+  status?: DetectionStatus;
+  /** Arnobot staff only: where the record came from (GCS dump / offline run). */
+  source?: string;
+}
+/** GET /robots/:robotId/detections (admin) · /robots/:robotId/client/detections (client app). */
+export interface DetectionListDto extends Paginated<DetectionItemDto> {
+  /** Detections per kind in the period, before the kind / camera filter (for the filter chips). */
+  counts: { kind: DetectionKind; count: number }[];
+  /** Cameras that have detections in the period. */
+  cameras: string[];
+  /** First and last detection of the robot the user may see (any period): where the data is. */
+  available: { first: string; last: string } | null;
+}

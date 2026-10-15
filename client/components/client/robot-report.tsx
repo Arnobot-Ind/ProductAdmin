@@ -422,7 +422,7 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
 function PatrolLog({ robot, date }: { robot: RobotDetailDto; date: string }) {
   const canDownload = useCanDownloadReports();
   const { busy, run } = useDownload();
-  const [windowId, setWindowId] = useState<PatrolWindowId>('night');
+  const [windowId, setWindowId] = useState<PatrolWindowId>('day');
   const [from, setFrom] = useState('22:00');
   const [to, setTo] = useState('06:00');
   const range = patrolRange(windowId, from, to);
@@ -473,7 +473,7 @@ function PatrolLog({ robot, date }: { robot: RobotDetailDto; date: string }) {
           )}
         </div>
         <p className="mt-2 text-xs text-muted">
-          Starts on the selected day. A night period runs from this evening to the next morning
+          Times are on the selected day
           {windowId === 'custom' ? '; a To time earlier than From ends on the next day.' : '.'}
         </p>
       </form>
@@ -532,56 +532,37 @@ function ReportBody({ r }: { r: DayReportDto }) {
 
       {r.missions.length > 0 && <ReportMissions missions={r.missions} />}
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section aria-label="Hour by hour">
-          <h3 className="mb-2 text-sm font-semibold">Hour by hour</h3>
-          <DataTable
-            caption="Hour by hour"
-            dense
-            rows={r.hours}
-            rowKey={(h) => h.from}
-            columns={[
-              { key: 'h', header: 'Hour (IST)', rowHeader: true, cell: (h) => `${istHm(h.from)} – ${endHm(h.to)}` },
-              { key: 'on', header: 'Online', align: 'right', cell: (h) => `${h.online_min} min` },
-              { key: 'd', header: 'Distance', align: 'right', cell: (h) => fmtDistance(h.distance_m) },
-              { key: 'm', header: 'Moving', align: 'right', cell: (h) => `${Math.round(h.moving_s / 60)} min` },
-            ]}
-          />
-        </section>
-        <section aria-label="Coverage notes">
-          <h3 className="mb-2 text-sm font-semibold">Coverage</h3>
-          <dl className="grid gap-2 text-sm">
-            <Note label="Continuous coverage">
-              {r.longest_online ? `${istHm(r.longest_online.from)} – ${istHm(r.longest_online.to)} IST (${fmtDuration((Date.parse(r.longest_online.to) - Date.parse(r.longest_online.from)) / 1000)} unbroken)` : '—'}
-            </Note>
-            <Note label="Offline gaps">
-              {r.offline_gaps.length
-                ? r.offline_gaps
-                    .slice(0, 8)
-                    .map((g) => `${istHm(g.from)}–${endHm(g.to)}`)
-                    .join(', ') + (r.offline_gaps.length > 8 ? ` (+${r.offline_gaps.length - 8} more)` : '')
-                : 'None — the robot reported throughout'}
-            </Note>
-            {r.longest_legs.length > 0 && (
-              <Note label="Longest patrol legs">
-                {r.longest_legs.map((l) => `${istHm(l.from)}–${istHm(l.to)} (${Math.round((Date.parse(l.to) - Date.parse(l.from)) / 60000)} min)`).join(', ')}
-              </Note>
-            )}
-            <Note label="Distance measured by">{s.distance_source === 'odometer' ? 'Wheel odometer' : s.distance_source === 'wheel_speed' ? 'Wheel speed' : '—'}</Note>
-            {r.clipped && <Note label="Data shown">Part of this period is before your organization took over the robot and is not included.</Note>}
-          </dl>
-        </section>
-      </div>
+      <CoverageSummary r={r} />
     </div>
   );
 }
 
-function Note({ label, children }: { label: string; children: ReactNode }) {
+/** One line of coverage: longest unbroken stretch, time offline, longest patrol leg, how distance was measured. */
+function CoverageSummary({ r }: { r: DayReportDto }) {
+  const span = (t: { from: string; to: string }) => (Date.parse(t.to) - Date.parse(t.from)) / 1000;
+  const offline = r.offline_gaps.reduce((n, g) => n + span(g), 0);
+  const leg = r.longest_legs.reduce<DayReportDto['longest_legs'][number] | null>((best, l) => (!best || span(l) > span(best) ? l : best), null);
+  const items: [string, string, string | null][] = [
+    ['Longest unbroken', r.longest_online ? fmtDuration(span(r.longest_online)) : '—', r.longest_online ? `${istHm(r.longest_online.from)}–${endHm(r.longest_online.to)}` : null],
+    ['Offline', offline ? fmtDuration(offline) : 'None', offline ? `${r.offline_gaps.length} gap${r.offline_gaps.length === 1 ? '' : 's'}` : 'reported throughout'],
+    ['Longest patrol leg', leg ? fmtDuration(span(leg)) : '—', leg ? `${istHm(leg.from)}–${istHm(leg.to)}` : null],
+    ['Distance from', r.summary.distance_source === 'odometer' ? 'Odometer' : r.summary.distance_source === 'wheel_speed' ? 'Wheel speed' : '—', null],
+  ];
   return (
-    <div className="grid grid-cols-[10rem_1fr] gap-2 border-b border-border pb-2 last:border-0">
-      <dt className="text-muted">{label}</dt>
-      <dd>{children}</dd>
-    </div>
+    <section aria-label="Coverage" className="flex flex-col gap-2">
+      <dl className="grid grid-cols-2 divide-border rounded-lg border border-border text-sm sm:grid-cols-4 sm:divide-x">
+        {items.map(([label, value, sub]) => (
+          <div key={label} className="px-3 py-2">
+            <dt className="text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</dt>
+            <dd className="mt-0.5 font-semibold tabular-nums">
+              {value}
+              {sub && <span className="ml-1.5 text-xs font-normal text-muted">{sub}</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {r.clipped && <p className="text-xs text-muted">Part of this period is before your organization took over the robot and is not included.</p>}
+    </section>
   );
 }
 
@@ -589,7 +570,7 @@ function Note({ label, children }: { label: string; children: ReactNode }) {
 function ActivityBar({ r }: { r: DayReportDto }) {
   const mins = r.activity.length;
   const startMs = Date.parse(r.from);
-  const step = mins > 300 ? 60 : mins > 90 ? 15 : 5;
+  const step = mins > 720 ? 180 : mins > 300 ? 60 : mins > 90 ? 15 : 5;
   const colors = ['#d7dadf', '#1b2a49', '#228b54'];
   const ticks = Array.from({ length: Math.floor(mins / step) + 1 }, (_, i) => i * step);
   return (

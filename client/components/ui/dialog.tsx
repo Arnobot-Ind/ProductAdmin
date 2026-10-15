@@ -27,7 +27,7 @@ export function Dialog({
   description?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -85,6 +85,7 @@ export function Dialog({
           size === 'sm' && 'max-w-md',
           size === 'md' && 'max-w-xl',
           size === 'lg' && 'max-w-3xl',
+          size === 'xl' && 'max-w-5xl',
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
