@@ -27,6 +27,7 @@ export const SQL_AREAS: SqlArea[] = [
   { area: 'Telemetry', what: 'GPS, encoder, battery and health time series', tables: ['telemetry_gps', 'telemetry_encoder', 'telemetry_battery', 'telemetry_health'] },
   { area: 'Documents', what: 'Document records and versions (the files themselves are in document storage)', tables: ['files', 'documents', 'document_versions', 'releases'] },
   { area: 'Video index', what: 'Recording sessions, trips and one row per stored file (the video itself is in the S3 bucket)', tables: ['archive_sessions', 'archive_trips', 'archive_files', 'archive_robot_link'] },
+  { area: 'Client admin', what: 'Client profiles (status, contract, data history), client-app features per organization and user, Arnobot software installs and licences, client credentials (AES-256-GCM encrypted)', tables: ['client_profiles', 'client_features', 'company_features', 'user_features', 'software_products', 'software_installs', 'client_credentials'] },
   { area: 'Audit', what: 'Append-only audit log: sign-ins, data access and downloads, robot assignments, permission changes', tables: ['audit_log'] },
   { area: 'Schema', what: 'Applied migrations', tables: ['schema_migrations'] },
 ];

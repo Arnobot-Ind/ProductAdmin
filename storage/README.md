@@ -36,6 +36,11 @@ permissions, invitations, soft-delete of recordings and the append-only `audit_l
 `SEED_DEMO_ROBOTS=true` the seed also creates the demo customer **Adani** and assigns `saibya02` to it
 (no users: invite them from the panel).
 Migration `0016` reduces the roles to Admin, Manager and Viewer and makes LiDAR / IMU Admin-only (`data.sensors`).
+Migration `0020` adds the customer view (`permissions.audience`: staff-only `robot.details`, customer-only `user.invite`).
+Migration `0021` adds client admin: client profiles (status, contract, account manager, data history limit), the
+client-app features (`client_features`) an organization (`company_features`) and each of its users (`user_features`)
+has, Arnobot software installs and licences, and encrypted client credentials. Existing customer organizations and
+their users get the default features. No video or CSV features exist for clients, by design.
 
 ## Commands
 
