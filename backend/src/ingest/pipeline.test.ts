@@ -61,6 +61,8 @@ describe('IngestPipeline decisions (before touching the DB)', () => {
     const s = stubDb();
     const p = new IngestPipeline(s.db, log);
     expect((await p.process(msg({ ts: new Date(Date.now() + 3_600_000).toISOString() }), client, 'https')).error).toBe('clock_ahead');
+    // the clock catching up makes it valid: the robot keeps it queued
+    expect((await p.process(msg({ ts: new Date(Date.now() + 3_600_000).toISOString() }), client, 'https')).retryable).toBe(true);
     expect((await p.process(msg({ ts: '1970-01-01T00:00:10.000Z' }), client, 'https')).error).toBe('clock_unsynced');
   });
 

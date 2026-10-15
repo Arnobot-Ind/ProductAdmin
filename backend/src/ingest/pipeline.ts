@@ -31,6 +31,13 @@ export interface IngestResult {
   details?: unknown;
 }
 
+/**
+ * Setup problems (robot not registered or deleted, wrong key or product) and a clock running ahead are not the
+ * data's fault: the robot keeps such messages queued and resends them once the setup is fixed or the time has
+ * caught up, instead of discarding them. A 1970 timestamp (clock never set) can never become valid: permanent.
+ */
+const RETRYABLE_CODES = new Set(['robot_not_allowed', 'unknown_robot', 'robot_deleted', 'product_mismatch', 'clock_ahead']);
+
 class Rejection extends Error {
   constructor(
     readonly code: string,
@@ -38,6 +45,10 @@ class Rejection extends Error {
     readonly details?: unknown,
   ) {
     super(message);
+  }
+
+  get retryable(): boolean {
+    return RETRYABLE_CODES.has(this.code);
   }
 }
 
@@ -90,7 +101,7 @@ export class IngestPipeline {
       const status = await withTransaction(this.db, (tx) => this.store(tx, msg, raw, client, transport));
       return { msg_id: msg.msg_id, status };
     } catch (err) {
-      if (err instanceof Rejection) return this.reject(raw, client, msg.msg_id, err.code, err.message, err.details);
+      if (err instanceof Rejection) return this.reject(raw, client, msg.msg_id, err.code, err.message, err.details, err.retryable);
       if (err instanceof MissionConflictError) return this.reject(raw, client, msg.msg_id, err.code, err.message);
       if (isPgError(err) && ['23514', '23503', '22P02', '22003', '22007', '22008'].includes(err.code)) {
         // data that passed the schema but violates a DB constraint: permanent, not retryable
