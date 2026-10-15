@@ -5,8 +5,8 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'Arnobot PMS · Product Admin', template: '%s · Arnobot PMS' },
-  description: 'Arnobot PMS Product Admin: robot registry, live state, telemetry, missions, events, documents and credentials.',
+  title: { default: 'Arnobot Client Admin', template: '%s · Arnobot Client Admin' },
+  description: 'Arnobot Client Admin: your robots, missions, reports and detections.',
   robots: { index: false, follow: false },
 };
 

@@ -56,7 +56,8 @@ function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (!points.length) return;
-    if (points.length === 1) map.setView(points[0], 17);
+    // One point (the robot now): wide enough to show the roads and the site around it.
+    if (points.length === 1) map.setView(points[0], 15);
     else map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 18 });
   }, [points, map]);
   return null;

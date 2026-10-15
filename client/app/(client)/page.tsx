@@ -213,8 +213,8 @@ function ColumnChart({
       </div>
       <div className="ml-9 flex text-[11px] text-muted" aria-hidden>
         {daily.map((d, i) => (
-          <span key={d.date} className="flex-1 truncate pt-1 text-center">
-            {i % every === 0 ? dayLabel(d.date, { day: 'numeric', month: 'short' }) : ''}
+          <span key={d.date} className="relative h-5 flex-1">
+            {i % every === 0 && <span className="absolute top-1 left-1/2 -translate-x-1/2 whitespace-nowrap">{dayLabel(d.date, { day: 'numeric', month: 'short' })}</span>}
           </span>
         ))}
       </div>

@@ -19,7 +19,7 @@ function LoginForm() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    document.title = 'Sign in · Arnobot PMS';
+    document.title = 'Sign in · Arnobot Client Admin';
   }, []);
 
   // Only allow same-site relative redirects (no open redirect).
@@ -50,7 +50,7 @@ function LoginForm() {
         </div>
         <div className="rounded-lg border border-border bg-surface p-6 shadow-xl">
           <h1 className="text-xl font-bold">Sign in</h1>
-          <p className="mt-1 mb-5 text-sm text-muted">Arnobot staff and customer organizations. Invited? Open the link from your invitation to set your password.</p>
+          <p className="mt-1 mb-5 text-sm text-muted">Sign in to see your robots, missions and reports. Invited? Open the link in your invitation email to set your password.</p>
           <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
             <Field label="Email" required>
               <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />

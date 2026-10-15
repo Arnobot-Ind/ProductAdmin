@@ -44,6 +44,8 @@ export function fmtRelative(iso: string | null | undefined, now: number = Date.n
   if (Number.isNaN(t)) return DASH;
   const s = Math.round((t - now) / 1000);
   const a = Math.abs(s);
+  // A robot clock slightly ahead of ours would read "in 3 seconds".
+  if (s > -10 && s < 120) return 'just now';
   if (a < 45) return rtf.format(s, 'second');
   if (a < 2700) return rtf.format(Math.round(s / 60), 'minute');
   if (a < 64800) return rtf.format(Math.round(s / 3600), 'hour');

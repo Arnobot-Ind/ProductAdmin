@@ -44,6 +44,6 @@ export function useUrlState(): [URLSearchParams, (patch: Record<string, string |
 
 export function useDocumentTitle(title: string): void {
   useEffect(() => {
-    document.title = `${title} · Arnobot PMS`;
+    document.title = `${title} · Arnobot Client Admin`;
   }, [title]);
 }

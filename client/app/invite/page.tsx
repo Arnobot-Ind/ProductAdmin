@@ -30,7 +30,7 @@ export default function InvitePage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    document.title = 'Set your password · Arnobot PMS';
+    document.title = 'Set your password · Arnobot Client Admin';
     // Read once (effects may run twice in development), then remove the token from the address bar and history.
     tokenRef.current ??= window.location.hash.replace(/^#/, '').trim();
     const t = tokenRef.current;
@@ -69,7 +69,7 @@ export default function InvitePage() {
           <BrandMark />
         </div>
         <div className="rounded-lg border border-border bg-surface p-6 shadow-xl">
-          <h1 className="text-xl font-bold">Welcome to Arnobot PMS</h1>
+          <h1 className="text-xl font-bold">Welcome to Arnobot Client Admin</h1>
           {loadError ? (
             <div className="mt-4 flex flex-col gap-3">
               <InlineAlert tone="fault" title="This invitation can't be used">
