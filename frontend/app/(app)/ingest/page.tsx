@@ -78,7 +78,7 @@ function MessagesTab() {
         <Field label="Type">
           <Select value={type} onChange={(e) => { setType(e.target.value); setPage(1); }}>
             <option value="">All types</option>
-            {['hello', 'live', 'telemetry', 'event', 'mission'].map((t) => (
+            {['hello', 'live', 'telemetry', 'event', 'mission', 'detection'].map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

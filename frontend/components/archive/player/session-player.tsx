@@ -45,19 +45,13 @@ export function SessionPlayer({ start, end, cameras, initialTime }: { start: num
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
-  // 1-9 one camera, G grid, V focus, F fullscreen
+  // F full screen (cameras and layouts are picked with the buttons; Space / ←/→ live in the timeline)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement;
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= cameras.length) {
-        setSelected(cameras[n - 1].name);
-        setLayout((l) => (l === 'grid' ? 'single' : l));
-      } else if (e.key === 'g' || e.key === '0') setLayout('grid');
-      else if (e.key === 'v') setLayout('focus');
-      else if (e.key === 'f') toggleFullscreen();
+      if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -92,9 +86,9 @@ export function SessionPlayer({ start, end, cameras, initialTime }: { start: num
           {multi && (
             <>
               <div className="flex rounded border border-white/15" role="group" aria-label="Layout">
-                <Seg active={layout === 'grid'} onClick={() => setLayout('grid')} title="All cameras (G)" icon={<Grid2x2 className="size-3.5" aria-hidden />} label="Grid" />
-                <Seg active={layout === 'focus'} onClick={() => setLayout('focus')} title="One large, the rest beside it (V)" icon={<Columns2 className="size-3.5" aria-hidden />} label="Focus" />
-                <Seg active={layout === 'single'} onClick={() => setLayout('single')} title="One camera (1–9)" icon={<Square className="size-3.5" aria-hidden />} label="Single" />
+                <Seg active={layout === 'grid'} onClick={() => setLayout('grid')} title="All cameras" icon={<Grid2x2 className="size-3.5" aria-hidden />} label="Grid" />
+                <Seg active={layout === 'focus'} onClick={() => setLayout('focus')} title="One large, the rest beside it" icon={<Columns2 className="size-3.5" aria-hidden />} label="Focus" />
+                <Seg active={layout === 'single'} onClick={() => setLayout('single')} title="One camera" icon={<Square className="size-3.5" aria-hidden />} label="Single" />
               </div>
               {effective !== 'grid' && (
                 <div className="hidden items-center gap-1 sm:flex">
