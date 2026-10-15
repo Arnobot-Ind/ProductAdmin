@@ -14,7 +14,10 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
   const tag = 'Auth';
 
   const startSession = async (req: FastifyRequest, reply: FastifyReply, token: string, expiresAt: Date): Promise<MeDto> => {
-    reply.setCookie(sessionCookieName(req.headers), token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: expiresAt });
+    const name = sessionCookieName(req.headers);
+    // A host-only cookie from before COOKIE_DOMAIN was set would shadow the new one: drop it.
+    if (app.cfg.cookieDomain) reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+    reply.setCookie(name, token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: expiresAt, domain: app.cfg.cookieDomain });
     const user = await app.auth.userFromToken(token);
     if (!user) throw unauthenticated();
     return app.auth.toMe(user);
@@ -58,7 +61,9 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
     handler: async ({ user, req, reply }) => {
       await app.auth.logout(user.sessionId);
       app.audit.note({ action: 'auth.logout', actor: user, companyId: user.companyId, req });
-      reply.clearCookie(sessionCookieName(req.headers), { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+      const name = sessionCookieName(req.headers);
+      reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+      if (app.cfg.cookieDomain) reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure, domain: app.cfg.cookieDomain });
     },
   });
 

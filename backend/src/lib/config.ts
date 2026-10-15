@@ -17,6 +17,8 @@ export interface ApiConfig {
   sessionSecret: string;
   sessionTtlHours: number;
   cookieSecure: boolean;
+  /** Session cookie domain, e.g. ".arnobot.in" so api.arnobot.in (live updates) gets the panel's cookie; unset = host only. */
+  cookieDomain: string | undefined;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   maxUploadBytes: number;
   /** Robot / GCS ingestion (POST /api/v1/ingest, optional MQTT). */
@@ -115,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     sessionSecret,
     sessionTtlHours: Number(env.SESSION_TTL_HOURS || 12),
     cookieSecure: env.COOKIE_SECURE === 'true',
+    cookieDomain: env.COOKIE_DOMAIN?.trim() || undefined,
     logLevel: ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info',
     maxUploadBytes: Number(env.MAX_UPLOAD_MB || 1024) * 1024 * 1024,
     ingest: {
