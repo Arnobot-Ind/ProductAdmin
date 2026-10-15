@@ -26,7 +26,7 @@ export function buildOpenApi(prefix: string): unknown {
     paths[path][r.method.toLowerCase()] = {
       tags: [r.tag],
       summary: r.summary,
-      description: `**Permission:** ${access}`,
+      description: `**Permission:** ${access}${r.feature ? ` · **Client-app feature (customer users):** ${[r.feature].flat().join(' + ')}` : ''}`,
       security: r.access === 'public' ? [] : [{ session: [] }],
       parameters: params,
       ...(r.body

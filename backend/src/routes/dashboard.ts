@@ -1,4 +1,4 @@
-import type { DashboardDto, RobotStatus } from '../shared';
+import { CLIENT_FEATURES, type DashboardDto, type RobotStatus } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context';
 import { anyScope, route } from '../lib/route';
@@ -92,6 +92,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
       const imw = scopedData('i.robot_id', 'i.received_at', (w) => w.add("i.received_at > now() - interval '24 hours'"));
       const msgs = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ingested_messages i ${imw.toSql()}`, imw.params)).rows[0].n;
 
+      // Customer users see robot positions only with the location feature (0021).
+      const hideLocation = !!user.client && !user.client.features.has(CLIENT_FEATURES.robotsLocation);
       return {
         robots_total: robots.rows.length,
         by_status,
@@ -107,8 +109,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
           robot_id: r.robot_id,
           product_name: r.product_name,
           status: r.status,
-          lat: r.lat,
-          lon: r.lon,
+          lat: hideLocation ? null : r.lat,
+          lon: hideLocation ? null : r.lon,
           battery_pct: r.battery_pct,
           last_seen_at: iso(r.last_seen_at),
           faults: r.faults ?? [],

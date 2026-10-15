@@ -1,5 +1,5 @@
 import type { ClientMissionDto, ClientMissionReportDto, ReportCalendarDayDto, ClientMissionsDto, DailyDistanceDto, DayReportDto, FleetReportDto, MissionStatsDto, RobotStatus } from '../shared';
-import { MISSION_STATES } from '../shared';
+import { CLIENT_FEATURES, MISSION_STATES } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
@@ -155,6 +155,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Patrol report figures for one IST window (default the whole day); `to` before `from` runs past midnight',
     tag,
     access: { can: 'robot.read', target: robotParam() },
+    feature: CLIENT_FEATURES.reportsView,
     query: z.object({ date: isoDate, from: hm.optional(), to: hm.optional() }),
     handler: async ({ params, query, user }): Promise<DayReportDto> => {
       const robot = await robots.detail(params.robotId);
@@ -196,6 +197,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     summary: `Distance driven, time moving and time online per IST day (at most ${MAX_DAYS} days)`,
     tag,
     access: { can: 'robot.read', target: robotParam() },
+    feature: CLIENT_FEATURES.reportsView,
     query: z.object({ from: isoDate, to: isoDate }),
     handler: async ({ params, query, user }): Promise<DailyDistanceDto[]> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
@@ -224,6 +226,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Mission counts and one page of missions (name, times, distance, result) for the client portal',
     tag,
     access: { can: 'robot.read', target: robotParam() },
+    feature: CLIENT_FEATURES.missionsView,
     query: z.object({ from: isoDate.optional(), to: isoDate.optional(), result: z.enum(MISSION_STATES).optional(), ...pageQuery }),
     handler: async ({ params, query, user }): Promise<ClientMissionsDto> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
@@ -263,6 +266,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'One mission for its Mission Report PDF: times, result, distances and waypoint results',
     tag,
     access: { can: 'robot.read', target: robotParam() },
+    feature: CLIENT_FEATURES.missionsView,
     handler: async ({ params, user }): Promise<ClientMissionReportDto> => {
       const w = missionWhere(user, params.robotId, null, null).add('m.mission_id = ?', params.missionId);
       const m = (
@@ -299,6 +303,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Reports calendar of one robot: missions and online time per IST day of a month',
     tag,
     access: { can: 'robot.read', target: robotParam() },
+    feature: CLIENT_FEATURES.reportsView,
     query: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') }),
     handler: async ({ params, query, user }): Promise<ReportCalendarDayDto[]> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });

@@ -3,7 +3,7 @@
  * company_assignment_history period) and has users; customer users only ever see their organization's robots.
  */
 import { withTransaction, type Queryable } from '../db';
-import type { CompanyDto, OrganizationDetailDto, OrganizationDto, OrganizationRobotDto } from '../shared';
+import type { ClientStatus, CompanyDto, OrganizationDetailDto, OrganizationDto, OrganizationRobotDto } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
@@ -11,6 +11,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, route } from '../lib/route';
 import { iso } from '../lib/sql';
 import { assertUuid, includeDeleted, isoDateTime, nullableText, robotIdSchema } from '../lib/validation';
+import { clientProfile, companyFeatures, featureCatalogue } from '../services/client-admin';
 import { assignRobot } from '../services/ownership';
 import { toUser, USER_SELECT } from './users';
 
@@ -18,14 +19,23 @@ const ORG_SELECT = `
 SELECT c.id, c.name, c.kind, c.contact_name, c.contact_email, c.notes, c.created_at, c.deleted_at,
        (SELECT count(*)::int FROM company_assignment_history h JOIN robots r ON r.robot_id = h.robot_id
         WHERE h.company_id = c.id AND h.valid_to IS NULL AND r.deleted_at IS NULL) AS robot_count,
-       (SELECT count(*)::int FROM users u WHERE u.company_id = c.id AND u.deleted_at IS NULL) AS user_count
-FROM companies c`;
-const toOrg = (r: Record<string, unknown>): OrganizationDto => ({
-  ...(r as unknown as OrganizationDto),
-  contact_email: (r.contact_email as string | null) ?? null,
-  created_at: iso(r.created_at as Date)!,
-  deleted_at: iso(r.deleted_at as Date | null),
-});
+       (SELECT count(*)::int FROM users u WHERE u.company_id = c.id AND u.deleted_at IS NULL) AS user_count,
+       coalesce(cp.status, 'active') AS client_status, cp.client_code, cp.contract_end::text AS contract_end,
+       (SELECT count(*)::int FROM software_installs i WHERE i.company_id = c.id AND i.deleted_at IS NULL) AS software_count
+FROM companies c LEFT JOIN client_profiles cp ON cp.company_id = c.id`;
+const toOrg = (r: Record<string, unknown>): OrganizationDto => {
+  const { client_status, client_code, contract_end, software_count, ...rest } = r;
+  return {
+    ...(rest as unknown as OrganizationDto),
+    contact_email: (r.contact_email as string | null) ?? null,
+    created_at: iso(r.created_at as Date)!,
+    deleted_at: iso(r.deleted_at as Date | null),
+    client:
+      r.kind === 'customer'
+        ? { status: client_status as ClientStatus, client_code: (client_code as string | null) ?? null, contract_end: (contract_end as string | null) ?? null, software_count: Number(software_count) }
+        : null,
+  };
+};
 
 const orgBody = z.object({
   name: z.string().trim().min(1).max(200),
@@ -89,7 +99,8 @@ export function organizationRoutes(f: FastifyInstance, app: AppContext): void {
         )
       ).rows.map((r) => ({ ...r, assigned_since: iso(r.assigned_since)! }));
       const users = (await db.query(`${USER_SELECT} WHERE u.company_id = $1 AND u.deleted_at IS NULL ORDER BY u.name`, [org.id])).rows.map(toUser);
-      return { ...org, robots, users };
+      const customer = org.kind === 'customer';
+      return { ...org, robots, users, profile: customer ? await clientProfile(db, org.id) : null, features: customer ? await companyFeatures(db, org.id) : [] };
     },
   });
 
@@ -111,7 +122,11 @@ export function organizationRoutes(f: FastifyInstance, app: AppContext): void {
             [body.name, body.contact_name ?? null, body.contact_email ?? null, body.notes ?? null, user.id],
           )
         ).rows[0].id;
-        await app.audit.record({ action: 'org.created', actor: user, target: { type: 'organization', id }, companyId: id, detail: { name: body.name }, req }, tx);
+        // A new client starts onboarding, with the default client-app features (0021).
+        await tx.query("INSERT INTO client_profiles (company_id, status, created_by, updated_by) VALUES ($1, 'onboarding', $2, $2)", [id, user.id]);
+        const defaults = (await featureCatalogue(tx)).filter((f) => f.is_default && !f.always_on).map((f) => f.key);
+        for (const k of defaults) await tx.query('INSERT INTO company_features (company_id, feature_key, granted_by) VALUES ($1, $2, $3)', [id, k, user.id]);
+        await app.audit.record({ action: 'org.created', actor: user, target: { type: 'organization', id }, companyId: id, detail: { name: body.name, features: defaults }, req }, tx);
         return orgById(id, tx);
       }),
   });

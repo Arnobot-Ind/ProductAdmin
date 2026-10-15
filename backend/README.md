@@ -51,6 +51,9 @@ Production server setup, update and rollback: [`deploy/README.md`](deploy/README
   keeps the last value), shown as "Total driven". Mission distance is the sum of `distance_m` over missions.
 - **Mission report PDFs** (robot → Missions tab, and each mission page) are built in the browser. Per-waypoint
   rows come from the GCS report's `waypoints: [{sequence, label, lat, lng, reached, reached_at}]`.
+- A message in a NEWER format version than this server supports is answered `unsupported_version`, **retryable**,
+  so the robot keeps it queued and resends after the backend is upgraded (from the GCS repo). Unknown older or
+  invalid versions stay permanent rejections.
 - The Saibya Archive server's paths still work for cloud_sync (`PUT /api/ingest/upload`,
   `POST /api/ingest`, `POST /api/ingest/heartbeat`): only the host and the key change.
 
@@ -73,6 +76,45 @@ Production server setup, update and rollback: [`deploy/README.md`](deploy/README
   Robot/device credentials and ingest keys stay separate and are never visible to customer roles.
 - **Audit log** (`/audit`, CSV export): sign-ins (and failures), invitations, recording views, downloads,
   deletes, robot assignments, grant changes, credential reveals and refused requests. Append-only in the DB.
+
+## Client admin (customers, migration 0021)
+
+Ported from the GCS repo's `clientAdmin`, inside this one backend. Arnobot staff set up each customer organization in
+the admin panel; customer users sign in only to the client app (`../client`).
+
+- **Profile** (`PATCH /organizations/:id/profile`, `org.manage`): client code, status (`onboarding`, `active`,
+  `suspended`, `ended`), contract dates, account manager (an Arnobot user, `GET /account-managers`), contact details
+  and `data_history_days`. Suspended or ended clients (and deleted organizations) cannot sign in: sign-in answers
+  `403 client_inactive` with the reason, and existing sessions stop working at once. With a data history limit,
+  every customer data route hides rows older than N days.
+- **Features** (`GET /client-features`, `PUT /organizations/:id/features`): what the organization has in the client
+  app. A user gets (their own features ∩ the organization's) plus the always-on ones; `MeDto.client.features`.
+  Removing a feature from the organization removes it from every user. Routes declare it with `feature:` (checked
+  for customer users only; Arnobot staff are never feature-limited). There is no video and no CSV feature: customers
+  never get those.
+
+  | Feature | Opens |
+  |---|---|
+  | `portal.robots.view` (always on) | robots, live status, dashboard |
+  | `portal.robots.location` | live position (otherwise `null`), GPS track |
+  | `portal.missions.view` | `/robots/:id/reports/missions(/:missionId)` |
+  | `portal.reports.view` (+ missions) | report calendar, day report, distance by day |
+  | `portal.reports.download` | the PDF buttons (the PDF is drawn in the browser, so this only hides controls) |
+  | `portal.telemetry.view` | `/robots/:id/client/telemetry/{battery,health,gps}` (charts, bucketed, ≤ 31 days) |
+  | `portal.events.view` | `/client/events`, `/robots/:id/client/events` (no raw payload) |
+  | `portal.software.view` | `/client/software` (installs, licences; staff notes stripped) |
+- **Users and access** (`GET/PUT /users/:id/access`, Arnobot `user.manage` or the customer's own Manager
+  `user.invite`): role (Manager / Viewer), robots (`all` = an organization grant; or chosen robots = one robot grant
+  each, valid only while the organization owns the robot and never showing another customer's period) and features
+  (within the organization's). Nobody changes their own access.
+- **Software** (`/software-products`, `/organizations/:id/software`, `/software-installs/:id`): the catalogue of
+  Arnobot software and each client's installs and licences (`licence_state`: valid / expiring within 30 days /
+  expired; `update_available` against the catalogue's latest version).
+- **Client credentials** (`/organizations/:id/credentials`, `/client-credentials/:id/{reveal,rotate,revoke}`):
+  secrets Arnobot holds for a client, AES-256-GCM with `CREDENTIAL_ENCRYPTION_KEY`, bound to their own row
+  (`client-cred|<id>|<organization>|<kind>`). Lists carry metadata only; every reveal is audited.
+- Every change is in the audit log (`client.updated`, `features.updated`, `access.updated`, `software.*`,
+  `catalog.software_*`, `credential.*`); an organization's activity is `GET /audit?company_id=`.
 
 ## S3 archive (video, LiDAR, IMU)
 

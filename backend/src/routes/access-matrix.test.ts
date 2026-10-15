@@ -11,6 +11,8 @@ import { archiveRoutes } from './archive';
 import { auditRoutes } from './audit';
 import { authRoutes } from './auth';
 import { catalogueRoutes } from './catalogue';
+import { clientAdminRoutes } from './client-admin';
+import { clientPortalRoutes } from './client-portal';
 import { credentialRoutes } from './credentials';
 import { dashboardRoutes } from './dashboard';
 import { documentRoutes } from './documents';
@@ -32,7 +34,9 @@ const perms = (r: RouteDef<unknown, unknown>): string[] => (typeof r.access === 
 const find = (method: string, path: string) => registry.find((r) => r.method === method && r.path === path);
 
 /** Routes on one robot that customers (robot.read only) may call: overview, live status, the day-wise reports. */
-const CUSTOMER_ROBOT_ROUTES = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live', 'GET /robots/:robotId/reports/day', 'GET /robots/:robotId/reports/daily-distance', 'GET /robots/:robotId/reports/missions', 'GET /robots/:robotId/reports/missions/:missionId', 'GET /robots/:robotId/reports/calendar']);
+const CUSTOMER_ROBOT_ROUTES = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live', 'GET /robots/:robotId/reports/day', 'GET /robots/:robotId/reports/daily-distance', 'GET /robots/:robotId/reports/missions', 'GET /robots/:robotId/reports/missions/:missionId', 'GET /robots/:robotId/reports/calendar', 'GET /robots/:robotId/client/events', 'GET /robots/:robotId/client/telemetry/:kind']);
+/** Of those, the ones that are not the robot itself: each sits behind a client-app feature (0021). */
+const ALWAYS_ON = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live']);
 
 beforeAll(() => {
   const f = stub() as FastifyInstance;
@@ -55,6 +59,8 @@ beforeAll(() => {
     organizationRoutes,
     auditRoutes,
     archiveRoutes,
+    clientAdminRoutes,
+    clientPortalRoutes,
   ]) {
     register(f, app);
   }
@@ -108,5 +114,18 @@ describe('route access matrix (customer view)', () => {
     const customerPerms = new Set(['robot.read', 'user.invite']);
     const open = registry.filter((r) => /^\/(organizations|companies|audit|products|releases|ingest)/.test(r.path) && perms(r).some((p) => customerPerms.has(p)));
     expect(open.map((r) => `${r.method} ${r.path}`)).toEqual([]);
+  });
+
+  it('puts every customer data route behind a client-app feature (Arnobot staff are not feature-limited)', () => {
+    const customerReads = registry.filter((r) => perms(r).length === 1 && perms(r)[0] === 'robot.read' && !ALWAYS_ON.has(`${r.method} ${r.path}`));
+    const unfeatured = customerReads.filter((r) => !r.feature && !/^\/(robots|dashboard|reports\/fleet)$/.test(r.path)).map((r) => `${r.method} ${r.path}`);
+    expect(unfeatured).toEqual([]);
+  });
+
+  it('keeps client admin (profile, features, software, credentials) to Arnobot staff', () => {
+    const customerPerms = new Set(['robot.read', 'user.invite']);
+    const staff = registry.filter((r) => /^\/(software-products|software-installs|client-credentials|account-managers)|^\/organizations\/:id\/(profile|features|software|credentials)/.test(r.path));
+    expect(staff.length).toBeGreaterThanOrEqual(14);
+    for (const r of staff) expect(perms(r).some((p) => customerPerms.has(p)), `${r.method} ${r.path}`).toBe(false);
   });
 });

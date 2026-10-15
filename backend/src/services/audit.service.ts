@@ -31,7 +31,21 @@ export type AuditAction =
   | 'data.restored'
   | 'credential.revealed'
   | 'hardware.updated'
-  | 'software.recorded';
+  | 'software.recorded'
+  // client admin (0021)
+  | 'client.updated'
+  | 'features.updated'
+  | 'access.updated'
+  | 'software.installed'
+  | 'software.updated'
+  | 'software.removed'
+  | 'catalog.software_created'
+  | 'catalog.software_updated'
+  | 'catalog.software_deleted'
+  | 'catalog.software_restored'
+  | 'credential.created'
+  | 'credential.rotated'
+  | 'credential.revoked';
 
 export interface AuditEntry {
   action: AuditAction;

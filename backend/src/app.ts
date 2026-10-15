@@ -12,6 +12,8 @@ import type { IngestPipeline } from './ingest/pipeline';
 import { errorHandler } from './lib/errors';
 import { authRoutes } from './routes/auth';
 import { catalogueRoutes } from './routes/catalogue';
+import { clientAdminRoutes } from './routes/client-admin';
+import { clientPortalRoutes } from './routes/client-portal';
 import { credentialRoutes } from './routes/credentials';
 import { dashboardRoutes } from './routes/dashboard';
 import { documentRoutes } from './routes/documents';
@@ -118,6 +120,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       releaseRoutes(api, ctx);
       userRoutes(api, ctx);
       organizationRoutes(api, ctx);
+      clientAdminRoutes(api, ctx);
+      clientPortalRoutes(api, ctx);
       auditRoutes(api, ctx);
       archiveRoutes(api, ctx);
       systemRoutes(api, ctx);

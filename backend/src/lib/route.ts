@@ -4,6 +4,7 @@
  *   1. session authentication (unless `public`),
  *   2. Zod validation of query and body (multipart is streamed to a temp file) — signed-in users only,
  *   3. can(user, action, target) for the declared permission; the target may depend on the body,
+ *   4. for customer users, the declared client-app feature(s) (0021; Arnobot staff are not feature-limited),
  * and only then calls the handler. Undeclared access is impossible: `access` is required.
  * The same registry feeds the generated OpenAPI document.
  */
@@ -40,6 +41,8 @@ export interface RouteDef<B = unknown, Q = unknown> {
   summary: string;
   tag: string;
   access: Access;
+  /** Client-app feature key(s) a customer user must ALL hold (MeDto.client.features). Ignored for Arnobot staff. */
+  feature?: string | string[];
   body?: z.ZodType<B>;
   query?: z.ZodType<Q>;
   /** multipart/form-data with one `file` field; text fields are validated with `body`. */
@@ -91,6 +94,26 @@ export const robotFromBody = (field = 'robot_id') =>
  * A second permission a handler needs only in some cases (e.g. `?download=1` on a file it may already view).
  * Same rule as the declared access: denied → 403 and an `access.denied` audit entry.
  */
+/**
+ * A customer user must hold every listed client-app feature; Arnobot staff always pass. Denied → 403 and an
+ * `access.denied` audit entry, like a missing permission.
+ */
+export function assertFeature(app: AppContext, req: FastifyRequest, user: AuthUser, feature: string | string[], robotId: string | null = null): void {
+  if (!user.client) return;
+  const missing = (typeof feature === 'string' ? [feature] : feature).filter((k) => !user.client!.features.has(k));
+  if (!missing.length) return;
+  app.audit.note({
+    action: 'access.denied',
+    outcome: 'denied',
+    actor: user,
+    target: robotId ? { type: 'robot', id: robotId } : null,
+    robotId,
+    detail: { feature: missing.join(' + '), method: req.method, path: req.routeOptions.url },
+    req,
+  });
+  throw forbidden(`requires ${missing.join(' and ')}`);
+}
+
 export async function assertCan(app: AppContext, req: FastifyRequest, user: AuthUser, action: string, target: Target): Promise<void> {
   if (await app.perms.can(user, action, target)) return;
   app.audit.note({
@@ -150,6 +173,10 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
             });
             throw forbidden(`requires ${needed.join(' or ')}`);
           }
+        }
+        if (user && def.feature) {
+          const robotId = (req.params as Record<string, string> | undefined)?.robotId ?? null;
+          assertFeature(app, req, user, def.feature, robotId);
         }
         const result = await def.handler({
           req,

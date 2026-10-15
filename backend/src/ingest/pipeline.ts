@@ -5,6 +5,7 @@
  */
 import { isPgError, withTransaction, type Db } from '../db';
 import {
+  SUPPORTED_MESSAGE_VERSIONS,
   INGEST_MAX_FUTURE_SKEW_MS,
   INGEST_MIN_VALID_TS,
   parseRobotMessage,
@@ -71,6 +72,12 @@ export class IngestPipeline {
   async process(raw: unknown, client: IngestClient, transport: 'https' | 'mqtt'): Promise<IngestResult> {
     const parsed = parseRobotMessage(raw);
     if (!parsed.ok) {
+      // A NEWER format than this server knows is not the robot's fault: answer retryable so it keeps
+      // the message queued (instead of moving it to rejected/) and resends once the backend is upgraded.
+      const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).v : undefined;
+      if (Number.isInteger(v) && (v as number) > Math.max(...SUPPORTED_MESSAGE_VERSIONS)) {
+        return this.reject(raw, client, parsed.msg_id ?? null, 'unsupported_version', `format v${v} is newer than this server (supports ${SUPPORTED_MESSAGE_VERSIONS.join(', ')})`, undefined, true);
+      }
       return this.reject(raw, client, parsed.msg_id ?? null, parsed.error, 'message failed validation', parsed.details);
     }
     const msg = parsed.message;
@@ -149,7 +156,7 @@ export class IngestPipeline {
     return 'stored';
   }
 
-  private async reject(raw: unknown, client: IngestClient | null, msgId: string | null, code: string, message: string, details?: unknown): Promise<IngestResult> {
+  private async reject(raw: unknown, client: IngestClient | null, msgId: string | null, code: string, message: string, details?: unknown, retryable = false): Promise<IngestResult> {
     const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     try {
       await this.db.query(
@@ -167,7 +174,7 @@ export class IngestPipeline {
     } catch (err) {
       this.log.warn({ err }, 'could not record ingest rejection');
     }
-    return { msg_id: msgId, status: 'rejected', error: code, retryable: false, details: details ?? message };
+    return { msg_id: msgId, status: 'rejected', error: code, retryable, details: details ?? message };
   }
 }
 

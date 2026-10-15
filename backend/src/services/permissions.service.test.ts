@@ -13,16 +13,26 @@ const grant = (scopeType: UserGrant['scopeType'], scopeId: string | null, perms:
   permissions: new Set(perms),
   createdAt: new Date(),
 });
+/** An Arnobot staff user with these grants. */
 const user = (...grants: UserGrant[]): AuthUser => ({
   id: 'u',
   email: 'e',
   name: 'n',
   sessionId: 's',
+  companyId: 'arnobot',
+  companyName: 'Arnobot',
+  companyKind: 'internal',
+  mustChangePassword: false,
+  grants,
+  client: null,
+});
+/** A user of customer organization c1 (Adani), optionally with a data history limit. */
+const customer = (dataHistoryDays: number | null, ...grants: UserGrant[]): AuthUser => ({
+  ...user(...grants),
   companyId: 'c1',
   companyName: 'Adani',
   companyKind: 'customer',
-  mustChangePassword: false,
-  grants,
+  client: { status: 'active', features: new Set(), organizationFeatures: [], dataHistoryDays },
 });
 
 /** Fake DB: robot saibya01 is currently owned by company c1. */
@@ -119,5 +129,46 @@ describe('ownership-period data scope', () => {
     const u = user(grant('company', 'c1', ['data.delete']));
     expect(perms.holdsAnywhere(u, 'data.delete')).toBe(true);
     expect(perms.holdsAnywhere(u, 'user.manage')).toBe(false);
+  });
+});
+
+describe('customer users (0021): per-user robots stay inside the organization', () => {
+  it('a robot grant counts only while the organization owns the robot', async () => {
+    // fake db: saibya01 is owned by c1, saibya02 is not
+    const u = customer(null, grant('robot', 'saibya01', ['robot.read']), grant('robot', 'saibya02', ['robot.read']));
+    expect(await perms.can(u, 'robot.read', { type: 'robot', id: 'saibya01' })).toBe(true);
+    expect(await perms.can(u, 'robot.read', { type: 'robot', id: 'saibya02' })).toBe(false);
+  });
+  it('grants on another organization are ignored', async () => {
+    const u = customer(null, grant('company', 'c2', ['robot.read']));
+    expect(await perms.can(u, 'robot.read', { type: 'robot', id: 'saibya01' })).toBe(false);
+    const scope = perms.robotScope(u, 'robot.read');
+    expect(scope).toMatchObject({ all: false, companyIds: [], customerOrg: 'c1' });
+  });
+  it('data rule: own robots, owned now, never another customer’s period, and the history limit', () => {
+    const scope = perms.robotScope(customer(30, grant('robot', 'saibya01', ['robot.read'])), 'robot.read');
+    const w = perms.applyDataScope(new Where(), scope, 's.robot_id', 's.started_at');
+    expect(w.parts).toHaveLength(3);
+    expect(w.parts[0]).toBe('s.started_at >= $1');
+    expect((w.params[0] as Date).getTime()).toBeLessThan(Date.now() - 29 * 86_400_000);
+    expect(w.parts[1]).toContain('sc_h.valid_to IS NULL');
+    expect(w.parts[2]).toContain("ds_c.kind = 'customer'");
+    expect(w.params.slice(1)).toEqual([['saibya01'], 'c1', [], 'c1', 'c1']);
+  });
+  it('dataPeriods: a robot grant no longer means the whole history, and the limit clips the start', async () => {
+    const t = (iso: string) => new Date(iso);
+    const fake = {
+      query: async (sql: string) =>
+        sql.startsWith('SELECT 1') ? { rowCount: 1, rows: [] } : { rowCount: 1, rows: [{ valid_from: t('2026-01-01T00:00:00Z'), valid_to: t('2026-03-01T00:00:00Z') }] },
+    } as unknown as Db;
+    const svc = new PermissionsService(fake);
+    expect(await svc.dataPeriods(customer(null, grant('robot', 'saibya02', ['robot.read'])), 'robot.read', 'saibya02')).toEqual([
+      { from: null, to: t('2026-01-01T00:00:00Z') },
+      { from: t('2026-03-01T00:00:00Z'), to: null },
+    ]);
+    const limited = await svc.dataPeriods(customer(7, grant('robot', 'saibya02', ['robot.read'])), 'robot.read', 'saibya02');
+    expect(limited).toHaveLength(1);
+    expect(limited![0].to).toBeNull();
+    expect(limited![0].from!.getTime()).toBeGreaterThan(Date.now() - 8 * 86_400_000);
   });
 });

@@ -1,5 +1,5 @@
 import { hashPassword, passwordProblem, withTransaction, type Queryable } from '../db';
-import { SCOPE_TYPES, type AccessModelDto, type RoleDto, type UserCredentialsDto, type UserDto } from '../shared';
+import { SCOPE_TYPES, type AccessModelDto, type RoleDto, type UserAccessDto, type UserCredentialsDto, type UserDto } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { randomInt } from 'node:crypto';
@@ -10,6 +10,7 @@ import { anyScope, route } from '../lib/route';
 import { iso } from '../lib/sql';
 import { assertUuid, includeDeleted, robotIdSchema, uuidSchema } from '../lib/validation';
 import type { AuthUser } from '../services/auth.service';
+import { companyFeatures, effectiveFeatures, featureCatalogue, setUserFeatures, userFeatures } from '../services/client-admin';
 
 export const USER_SELECT = `
 SELECT u.id, u.email, u.name, u.company_id, c.name AS company_name, c.kind AS company_kind, u.is_active,
@@ -18,7 +19,9 @@ SELECT u.id, u.email, u.name, u.company_id, c.name AS company_name, c.kind AS co
        coalesce((SELECT json_agg(json_build_object('id', g.id, 'role_key', r.key, 'role_name', r.name, 'scope_type', g.scope_type,
                                                    'scope_id', g.scope_id, 'created_at', g.created_at, 'revoked_at', g.revoked_at)
                                  ORDER BY g.created_at)
-                 FROM role_grants g JOIN roles r ON r.id = g.role_id WHERE g.user_id = u.id AND g.revoked_at IS NULL), '[]') AS grants
+                 FROM role_grants g JOIN roles r ON r.id = g.role_id WHERE g.user_id = u.id AND g.revoked_at IS NULL), '[]') AS grants,
+       CASE WHEN c.kind = 'customer' THEN
+         ARRAY(SELECT uf.feature_key FROM user_features uf WHERE uf.user_id = u.id AND uf.revoked_at IS NULL ORDER BY uf.feature_key) END AS features
 FROM users u JOIN companies c ON c.id = u.company_id`;
 export const toUser = (r: Record<string, unknown>): UserDto => ({
   ...(r as unknown as UserDto),
@@ -37,6 +40,9 @@ const grantBody = z.object({
   scope_id: z.string().trim().max(200).nullable().optional(),
 });
 const credentialMethod = z.enum(['invite', 'temporary_password', 'password']);
+/** Customer users (0021): every robot the organization owns, or chosen ones; and their client-app features. */
+const robotsChoice = z.union([z.literal('all'), z.array(robotIdSchema).min(1).max(500)]);
+const featureKeys = z.array(z.string().max(100)).max(200);
 
 /** 16 characters from an unambiguous alphabet (~93 bits). Shown once; the user must change it at first sign-in. */
 export function temporaryPassword(): string {
@@ -238,6 +244,9 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
       credentials: credentialMethod.default('invite'),
       password: z.string().max(256).optional(),
       ...grantBody.shape,
+      /** Customer users only: which robots (default every robot of the organization) and features (default all of its features). */
+      robots: robotsChoice.optional(),
+      features: featureKeys.optional(),
     }),
     handler: ({ body, user, req }) =>
       withTransaction(db, async (tx): Promise<UserCredentialsDto> => {
@@ -277,7 +286,14 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
           },
           tx,
         );
-        await addGrant(tx, created, body, user, req);
+        if (created.company_kind === 'customer') {
+          await setCustomerRole(tx, created, body.role_key, body.robots ?? 'all', user, req);
+          const keys = body.features ?? (await companyFeatures(tx, created.company_id));
+          await setUserFeatures(tx, app, { userId: id, userEmail: created.email, companyId: created.company_id, keys, actor: user, req });
+        } else {
+          if (body.robots || body.features) throw badRequest('robots and features are for customer users only');
+          await addGrant(tx, created, body, user, req);
+        }
         return { user: await userById(id, tx), ...creds };
       }),
   });
@@ -370,6 +386,90 @@ export function userRoutes(f: FastifyInstance, app: AppContext): void {
         }),
     });
   }
+
+  /**
+   * A customer user's role and robots, as grants: robots = all → one organization grant; otherwise one robot grant
+   * per robot (each must be owned by the organization now). Leaves the grants alone when nothing changes.
+   */
+  async function setCustomerRole(tx: PoolClient, target: UserDto, roleKey: string, robots: 'all' | string[], actor: AuthUser, req: Parameters<typeof app.audit.note>[0]['req']) {
+    const current = await customerRole(tx, target.id);
+    const wanted = robots === 'all' ? 'all' : [...new Set(robots)].sort();
+    const same = current.role_key === roleKey && (wanted === 'all' ? current.robots === 'all' : current.robots !== 'all' && wanted.join() === current.robots.join());
+    if (same) return;
+    for (const g of target.grants) {
+      await tx.query('UPDATE role_grants SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL', [g.id, actor.id]);
+      await app.audit.record(
+        {
+          action: 'grant.revoked',
+          actor,
+          target: { type: 'user', id: target.id },
+          companyId: target.company_id,
+          robotId: g.scope_type === 'robot' ? g.scope_id : null,
+          detail: { grant_id: g.id, user_email: target.email, role: g.role_key, scope_type: g.scope_type, scope_id: g.scope_id, reason: 'access changed' },
+          req,
+        },
+        tx,
+      );
+    }
+    const fresh = { ...target, grants: [] };
+    if (wanted === 'all') await addGrant(tx, fresh, { role_key: roleKey, scope_type: 'company', scope_id: target.company_id }, actor, req);
+    else for (const r of wanted) await addGrant(tx, fresh, { role_key: roleKey, scope_type: 'robot', scope_id: r }, actor, req);
+  }
+
+  /** The role and robots a customer user holds now (one role per user in the client app). */
+  async function customerRole(q: Queryable, userId: string): Promise<{ role_key: string | null; robots: 'all' | string[] }> {
+    const grants = (
+      await q.query<{ key: string; scope_type: string; scope_id: string | null }>(
+        'SELECT r.key, g.scope_type, g.scope_id FROM role_grants g JOIN roles r ON r.id = g.role_id WHERE g.user_id = $1 AND g.revoked_at IS NULL ORDER BY g.created_at',
+        [userId],
+      )
+    ).rows;
+    if (!grants.length) return { role_key: null, robots: [] };
+    // Manager wins over Viewer when both are held (older setups).
+    const role = grants.some((g) => g.key === 'manager') ? 'manager' : grants[0].key;
+    if (grants.some((g) => g.scope_type === 'company')) return { role_key: role, robots: 'all' };
+    return { role_key: role, robots: grants.filter((g) => g.scope_type === 'robot').map((g) => g.scope_id!).sort() };
+  }
+
+  const accessOf = async (q: Queryable, target: UserDto): Promise<UserAccessDto> => {
+    const own = await userFeatures(q, target.id);
+    const effective = effectiveFeatures(await featureCatalogue(q), own, await companyFeatures(q, target.company_id));
+    return { user_id: target.id, ...(await customerRole(q, target.id)), features: own, effective_features: effective };
+  };
+  const customerTarget = async (id: string, actor: AuthUser, q: Queryable) => {
+    const target = await userById(id, q);
+    await assertMayManage(actor, target);
+    if (target.company_kind !== 'customer') throw notFound('customer user');
+    return target;
+  };
+
+  route(f, app, {
+    method: 'GET',
+    path: '/users/:id/access',
+    summary: "A customer user's role, robots and client-app features (and what they end up with)",
+    tag,
+    access: manage,
+    handler: async ({ params, user }): Promise<UserAccessDto> => accessOf(db, await customerTarget(params.id, user, db)),
+  });
+
+  route(f, app, {
+    method: 'PUT',
+    path: '/users/:id/access',
+    summary: "Set a customer user's role (Manager / Viewer), robots (all or chosen) and client-app features (within the organization's)",
+    tag,
+    access: manage,
+    body: z.object({ role_key: z.enum(['manager', 'viewer']), robots: robotsChoice, features: featureKeys }),
+    handler: ({ params, body, user, req }) =>
+      withTransaction(db, async (tx): Promise<UserAccessDto> => {
+        const target = await customerTarget(params.id, user, tx);
+        if (target.deleted_at) throw conflict('user is deleted');
+        // Nobody changes their own access: no self-promotion, no locking yourself out.
+        if (target.id === user.id) throw conflict('ask another Manager or Arnobot to change your own access');
+        await setCustomerRole(tx, target, body.role_key, body.robots, user, req);
+        await setUserFeatures(tx, app, { userId: target.id, userEmail: target.email, companyId: target.company_id, keys: body.features, actor: user, req });
+        return accessOf(tx, await userById(target.id, tx));
+      }),
+  });
 
   route(f, app, {
     method: 'POST',

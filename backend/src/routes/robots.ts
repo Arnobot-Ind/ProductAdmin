@@ -1,4 +1,5 @@
 import { registerRobot, withTransaction, type Queryable } from '../db';
+import { CLIENT_FEATURES } from '../shared';
 import type {
   ConnectivityDto,
   DispatchWarrantyDto,
@@ -225,7 +226,11 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Current live state with computed status',
     tag,
     access: { can: 'robot.read', target: robotParam() },
-    handler: ({ params }) => robots.live(params.robotId),
+    handler: async ({ params, user }) => {
+      const live = await robots.live(params.robotId);
+      // Customer users see where the robot is only with the location feature (0021).
+      return user.client && !user.client.features.has(CLIENT_FEATURES.robotsLocation) ? { ...live, position: null } : live;
+    },
   });
 
   // ── ownership (row 2) ────────────────────────────────────────────────────
