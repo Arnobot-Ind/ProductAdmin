@@ -26,6 +26,7 @@ export const SQL_AREAS: SqlArea[] = [
   { area: 'Live data', what: 'Live state, events, missions, received messages', tables: ['live_state', 'events', 'missions', 'mission_files', 'ingested_messages', 'ingest_rejections'] },
   { area: 'Telemetry', what: 'GPS, encoder, battery and health time series', tables: ['telemetry_gps', 'telemetry_encoder', 'telemetry_battery', 'telemetry_health'] },
   { area: 'Documents', what: 'Document records and versions (the files themselves are in document storage)', tables: ['files', 'documents', 'document_versions', 'releases'] },
+  { area: 'Detections', what: 'One row per camera detection (people, wildlife, fire / smoke, vegetation); the snapshot JPEG is in the video bucket', tables: ['detections'] },
   { area: 'Video index', what: 'Recording sessions, trips and one row per stored file (the video itself is in the S3 bucket)', tables: ['archive_sessions', 'archive_trips', 'archive_files', 'archive_robot_link'] },
   { area: 'Client admin', what: 'Client profiles (status, contract, data history), client-app features per organization and user, Arnobot software installs and licences, client credentials (AES-256-GCM encrypted)', tables: ['client_profiles', 'client_features', 'company_features', 'user_features', 'software_products', 'software_installs', 'client_credentials'] },
   { area: 'Audit', what: 'Append-only audit log: sign-ins, data access and downloads, robot assignments, permission changes', tables: ['audit_log'] },
@@ -42,7 +43,7 @@ export interface ObjectStore {
 export const OBJECT_STORES: ObjectStore[] = [
   {
     name: 'Video bucket (S3)',
-    what: 'Camera video (.ts), LiDAR (.npz), IMU (.csv.gz), session.json: <robot_id>/sessions/<session>/…',
+    what: 'Camera video (.ts), LiDAR (.npz), IMU (.csv.gz), session.json: <robot_id>/sessions/<session>/…; detection snapshots (.jpg, keys in detections.image_key)',
     env: ['ARCHIVE_S3_BUCKET', 'ARCHIVE_S3_REGION', 'ARCHIVE_S3_ENDPOINT', 'ARCHIVE_S3_ACCESS_KEY', 'ARCHIVE_S3_SECRET_KEY'],
   },
   {
