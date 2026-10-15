@@ -7,7 +7,7 @@
 export const MESSAGE_FORMAT_VERSION = 1;
 export const SUPPORTED_MESSAGE_VERSIONS = [1] as const;
 
-export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission'] as const;
+export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission', 'detection'] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
 /** Spec §7: computed from last-seen time, never stored. */
@@ -114,6 +114,10 @@ export const CLIENT_FEATURES = {
 /** What a camera detection is about (detections.kind, 0022). */
 export const DETECTION_KINDS = ['human', 'wildlife', 'fire', 'vegetation'] as const;
 export type DetectionKind = (typeof DETECTION_KINDS)[number];
+/** What the robot itself reports (`detection` message); vegetation comes only from imports. */
+export const ROBOT_DETECTION_KINDS = ['human', 'wildlife', 'fire'] as const;
+/** Largest detection snapshot accepted (annotated JPEG, ~100–300 KB in practice). */
+export const DETECTION_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const DETECTION_STATUSES = ['confirmed', 'rejected'] as const;
 export type DetectionStatus = (typeof DETECTION_STATUSES)[number];
 

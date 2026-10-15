@@ -15,6 +15,7 @@ import {
   MISSION_FILE_KINDS,
   MISSION_RESULTS,
   SUPPORTED_MESSAGE_VERSIONS,
+  ROBOT_DETECTION_KINDS,
 } from './constants';
 
 /** Lower-cases strings before enum checks so `"OK"` and `"ok"` are the same value. */
@@ -181,12 +182,39 @@ export const missionPayload = z.discriminatedUnion('phase', [
   }),
 ]);
 
+/**
+ * detection: one debounced appearance seen by a robot camera (person, animal, fire). Light JSON only; the annotated
+ * JPEG follows separately via PUT /api/v1/ingest/detections/:detection_id/image when has_image.
+ */
+export const detectionPayload = z.looseObject({
+  /** The robot's own id for this detection (fleetSync: the GCS row id): stable across resends, unique per robot. */
+  detection_id: z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/),
+  kind: lowerEnum(ROBOT_DETECTION_KINDS),
+  detected_at: isoTimestamp,
+  camera: z.string().max(50).optional(),
+  /** Dominant class, e.g. person, dog, fire. */
+  label: z.string().max(100).optional(),
+  /** Class → count when several were seen together. */
+  labels: z.record(z.string(), finite.nonnegative()).optional(),
+  count: z.number().int().nonnegative().optional(),
+  confidence: finite.min(0).max(1).optional(),
+  lat: lat.optional(),
+  lon: lon.optional(),
+  /** Direction the camera faced (true bearing, degrees). */
+  bearing_deg: finite.optional(),
+  mission_id: z.string().max(200).optional(),
+  mission_name: z.string().max(500).optional(),
+  has_image: z.boolean().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const payloadSchemas = {
   hello: helloPayload,
   live: livePayload,
   telemetry: telemetryPayload,
   event: eventPayload,
   mission: missionPayload,
+  detection: detectionPayload,
 } as const;
 
 // ── envelope ────────────────────────────────────────────────────────────────
@@ -211,6 +239,7 @@ export type LivePayload = z.infer<typeof livePayload>;
 export type TelemetryPayload = z.infer<typeof telemetryPayload>;
 export type EventPayload = z.infer<typeof eventPayload>;
 export type MissionPayload = z.infer<typeof missionPayload>;
+export type DetectionPayload = z.infer<typeof detectionPayload>;
 
 /** Declared explicitly: Omit<> over a looseObject's index signature would erase the field types. */
 export interface EnvelopeBase {
@@ -229,7 +258,8 @@ export type LiveMessage = EnvelopeBase & { type: 'live'; payload: LivePayload };
 export type TelemetryMessage = EnvelopeBase & { type: 'telemetry'; payload: TelemetryPayload };
 export type EventMessage = EnvelopeBase & { type: 'event'; payload: EventPayload };
 export type MissionMessage = EnvelopeBase & { type: 'mission'; payload: MissionPayload };
-export type RobotMessage = HelloMessage | LiveMessage | TelemetryMessage | EventMessage | MissionMessage;
+export type DetectionMessage = EnvelopeBase & { type: 'detection'; payload: DetectionPayload };
+export type RobotMessage = HelloMessage | LiveMessage | TelemetryMessage | EventMessage | MissionMessage | DetectionMessage;
 
 export type ParseResult =
   | { ok: true; message: RobotMessage }

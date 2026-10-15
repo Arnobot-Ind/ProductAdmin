@@ -13,6 +13,7 @@ import {
 } from '../shared';
 import type { PoolClient } from 'pg';
 import type { IngestClient } from './auth';
+import { handleDetection } from './handlers/detection';
 import { handleEvent } from './handlers/event';
 import { handleHello } from './handlers/hello';
 import { handleLive } from './handlers/live';
@@ -150,6 +151,9 @@ export class IngestPipeline {
         break;
       case 'mission':
         await handleMission(tx, msg);
+        break;
+      case 'detection':
+        await handleDetection(tx, msg);
         break;
     }
     if (!liveReplaced) await notifyChange(tx, { kind: 'seen', robot_id: msg.robot_id });

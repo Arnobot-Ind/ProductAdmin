@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { AppContext } from './context';
 import { archiveIngestRoutes } from './ingest/archive';
+import { detectionImageRoutes } from './ingest/detectionImage';
 import { ingestRoutes } from './ingest/routes';
 import { archiveRoutes } from './routes/archive';
 import { systemRoutes } from './routes/system';
@@ -83,6 +84,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
 
   // Robot / GCS ingestion: ingest-key auth, no session, so no CSRF hook (registered outside the admin scope).
   await app.register(async (ingest) => ingestRoutes(ingest, ctx.db, makePipeline(app.log), ctx.cfg.ingest), { prefix: API_PREFIX });
+  // Robot → detection snapshots (fleetSync): raw JPEG body, ingest-key auth.
+  await app.register(async (d) => detectionImageRoutes(d, ctx), { prefix: API_PREFIX });
   // Robot → video/sensor archive (cloud_sync). Also under the Saibya Archive server's old paths.
   await app.register(async (a) => archiveIngestRoutes(a, ctx, { upload: '/upload', events: '/events', heartbeat: '/heartbeat' }), {
     prefix: `${API_PREFIX}/archive`,

@@ -295,20 +295,20 @@ async function main(): Promise<void> {
       return;
     }
 
-    const COLS = ['id', 'robot_id', 'detected_at', 'time_estimated', 'kind', 'label', 'labels', 'camera', 'count', 'confidence', 'boxes', 'lat', 'lon', 'bearing_deg', 'mission_id', 'mission_name', 'image_key', 'status', 'source'];
+    const COLS = ['id', 'detection_id', 'robot_id', 'detected_at', 'time_estimated', 'kind', 'label', 'labels', 'camera', 'count', 'confidence', 'boxes', 'lat', 'lon', 'bearing_deg', 'mission_id', 'mission_name', 'image_key', 'status', 'source'];
     const CHUNK = 500;
     for (let i = 0; i < all.length; i += CHUNK) {
       const chunk = all.slice(i, i + CHUNK);
       const params: unknown[] = [];
       const values = chunk.map((r) => {
-        const v = [r.id, ROBOT, r.detected_at, r.time_estimated, r.kind, r.label, r.labels && JSON.stringify(r.labels), r.camera, r.count, r.confidence, r.boxes && JSON.stringify(r.boxes), r.lat, r.lon, r.bearing_deg, r.mission_id, r.mission_name, r.image_key, r.status, r.source];
+        const v = [r.id, r.id, ROBOT, r.detected_at, r.time_estimated, r.kind, r.label, r.labels && JSON.stringify(r.labels), r.camera, r.count, r.confidence, r.boxes && JSON.stringify(r.boxes), r.lat, r.lon, r.bearing_deg, r.mission_id, r.mission_name, r.image_key, r.status, r.source];
         const base = params.length;
         params.push(...v);
         return `(${v.map((_, k) => `$${base + k + 1}`).join(', ')})`;
       });
       await pool.query(
         `INSERT INTO detections (${COLS.join(', ')}) VALUES ${values.join(', ')}
-         ON CONFLICT (id) DO UPDATE SET ${COLS.filter((c) => c !== 'id').map((c) => `${c} = EXCLUDED.${c}`).join(', ')}, imported_at = now()`,
+         ON CONFLICT (id) DO UPDATE SET ${COLS.filter((c) => c !== 'id' && c !== 'detection_id').map((c) => `${c} = EXCLUDED.${c}`).join(', ')}, imported_at = now()`,
         params,
       );
     }
