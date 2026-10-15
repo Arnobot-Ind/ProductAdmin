@@ -102,7 +102,8 @@ export interface ReportMapProps {
 
 export function ReportMap({ points = [], position = null, markers = NO_MARKERS, breakGapMs = 30_000, height = '100%', waypoints = [], missionPath = [], showMissionPath = true }: ReportMapProps) {
   const { theme } = useTheme();
-  const [mapType, setMapType] = useState<'street' | 'satellite' | 'esri'>('street');
+  // Where the robot is now (no track or route): satellite shows the site; the street map is blank away from roads.
+  const [mapType, setMapType] = useState<'street' | 'satellite' | 'esri'>(() => (points.length || waypoints.length || missionPath.length ? 'street' : 'satellite'));
   const isSatellite = mapType !== 'street';
   const isEsri = mapType === 'esri';
   const tileUrl = isEsri ? ESRI_SATELLITE_URL : isSatellite ? SATELLITE_URL : STREET_URL;
