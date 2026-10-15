@@ -74,7 +74,20 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: 'signed_in',
     allowWithTemporaryPassword: true,
-    handler: ({ user }): MeDto => app.auth.toMe(user),
+    handler: async ({ user, req, reply }): Promise<MeDto> => {
+      // Sessions started before COOKIE_DOMAIN was set carry a host-only cookie that api.arnobot.in (live updates)
+      // never receives: re-issue it for the domain, same token and expiry, so nobody has to sign in again.
+      if (app.cfg.cookieDomain) {
+        const name = sessionCookieName(req.headers);
+        const token = req.cookies[name];
+        const row = token ? (await app.db.query<{ expires_at: Date }>('SELECT expires_at FROM sessions WHERE id = $1', [user.sessionId])).rows[0] : undefined;
+        if (token && row) {
+          reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+          reply.setCookie(name, token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: row.expires_at, domain: app.cfg.cookieDomain });
+        }
+      }
+      return app.auth.toMe(user);
+    },
   });
 
   route(f, app, {
