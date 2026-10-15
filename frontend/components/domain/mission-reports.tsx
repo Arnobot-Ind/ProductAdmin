@@ -102,16 +102,19 @@ export function MissionReportsBar({ robotId }: { robotId: string }) {
   );
 }
 
-/** Night surveillance / patrol log PDF (same report as the client portal's). Custom windows live in the portal. */
+/** Night surveillance / patrol log PDF (same report and periods as the client portal's). */
 function PatrolLogControl({ robotId }: { robotId: string }) {
   const toast = useToast();
   const [date, setDate] = useState(istToday());
-  const [windowId, setWindowId] = useState<Exclude<PatrolWindowId, 'custom'>>('night');
+  const [windowId, setWindowId] = useState<PatrolWindowId>('day');
+  const [from, setFrom] = useState('22:00');
+  const [to, setTo] = useState('06:00');
+  const range = patrolRange(windowId, from, to);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
     try {
-      const r = await downloadPatrolLog(robotId, date, patrolRange(windowId, '', ''));
+      const r = await downloadPatrolLog(robotId, date, range);
       toast.success(r.summary.online_s === 0 ? 'Log downloaded. The robot sent no data in this period.' : 'Night surveillance log downloaded');
     } catch (err) {
       toast.error(err);
@@ -127,16 +130,23 @@ function PatrolLogControl({ robotId }: { robotId: string }) {
         </span>
         <span className="flex gap-2">
           <Input type="date" value={date} max={istToday()} onChange={(e) => setDate(e.target.value)} className="h-9 w-40" aria-label="Patrol log date" />
-          <Select value={windowId} onChange={(e) => setWindowId(e.target.value as typeof windowId)} className="h-9 w-56" aria-label="Patrol log period">
-            {PATROL_WINDOWS.filter((w) => w.id !== 'custom').map((w) => (
+          <Select value={windowId} onChange={(e) => setWindowId(e.target.value as PatrolWindowId)} className="h-9 w-64" aria-label="Patrol log period">
+            {PATROL_WINDOWS.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.label}
               </option>
             ))}
           </Select>
+          {windowId === 'custom' && (
+            <>
+              {/* A To time earlier than From ends on the next day. */}
+              <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-28" aria-label="Patrol log from (IST)" title="From (IST)" />
+              <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-28" aria-label="Patrol log to (IST)" title="To (IST); earlier than From ends on the next day" />
+            </>
+          )}
         </span>
       </label>
-      <Button icon={<FileDown className="size-4" aria-hidden />} onClick={() => void run()} loading={busy} disabled={!date}>
+      <Button icon={<FileDown className="size-4" aria-hidden />} onClick={() => void run()} loading={busy} disabled={!date || !range.from || !range.to}>
         Night surveillance log
       </Button>
     </div>

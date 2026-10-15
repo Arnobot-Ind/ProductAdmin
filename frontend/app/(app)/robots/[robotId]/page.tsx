@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 import { ConnectivityTab } from './_tabs/connectivity';
+import { DetectionsTab } from '@/components/domain/detections';
 import { CredentialsTab } from './_tabs/credentials';
 import { DispatchTab } from './_tabs/dispatch';
 import { DocumentsTab } from './_tabs/documents';
@@ -36,6 +37,7 @@ import { DataActivityBadge } from '@/components/archive/badges';
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'videos', label: 'Videos' },
+  { id: 'detections', label: 'Detections' },
   { id: 'telemetry', label: 'Sensor history' },
   { id: 'missions', label: 'Missions' },
   { id: 'events', label: 'Events' },
@@ -162,6 +164,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
       <TabPanel id={tab}>
         {tab === 'overview' && <OverviewTab robot={robot} />}
         {tab === 'videos' && <VideosTab robotId={robot.robot_id} />}
+        {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="staff" />}
         {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
         {tab === 'missions' && <RobotMissionsTab robotId={robot.robot_id} />}
         {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} />}

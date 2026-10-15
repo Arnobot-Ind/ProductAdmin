@@ -46,6 +46,7 @@ export function ClientProfileCard({ org, canEdit }: { org: OrganizationDetailDto
             { label: 'Account manager', value: p.account_manager && `${p.account_manager.name} · ${p.account_manager.email}` },
             { label: 'Contract', value: p.contract_start || p.contract_end ? `${fmtDate(p.contract_start)} – ${fmtDate(p.contract_end)}` : null },
             { label: 'Data history', value: p.data_history_days ? `Last ${p.data_history_days} days` : 'All history' },
+            { label: 'Data visible from', value: p.data_from ? fmtDate(p.data_from) : 'The beginning' },
             { label: 'Legal name', value: p.legal_name },
             { label: 'Industry', value: p.industry },
             { label: 'Phone', value: p.phone },
@@ -78,6 +79,7 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
     contract_start: profile.contract_start ?? '',
     contract_end: profile.contract_end ?? '',
     data_history_days: profile.data_history_days ? String(profile.data_history_days) : '',
+    data_from: profile.data_from ?? '',
   });
   const m = useMutation({
     mutationFn: () =>
@@ -87,6 +89,7 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
         contract_start: f.contract_start || null,
         contract_end: f.contract_end || null,
         data_history_days: f.data_history_days ? Number(f.data_history_days) : null,
+        data_from: f.data_from || null,
       }),
     onSuccess: () => {
       toast.success('Client profile saved');
@@ -148,6 +151,9 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
           error={daysBad ? 'A whole number of days, at least 1' : null}
         >
           <Input type="number" min={1} value={f.data_history_days} onChange={(e) => set({ data_history_days: e.target.value })} placeholder="All history" />
+        </Field>
+        <Field label="Data visible from (IST)" hint="Empty = from the beginning. The client's users see no robot data recorded before this day; Arnobot staff still see all of it.">
+          <Input type="date" value={f.data_from} onChange={(e) => set({ data_from: e.target.value })} />
         </Field>
         <Field label="Contract start">
           <Input type="date" value={f.contract_start} onChange={(e) => set({ contract_start: e.target.value })} />
