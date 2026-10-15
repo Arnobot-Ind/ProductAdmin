@@ -166,6 +166,7 @@ export async function clientProfile(q: Queryable, companyId: string): Promise<Cl
       contract_start: null,
       contract_end: null,
       data_history_days: null,
+      data_from: null,
       updated_at: null,
     };
   }
@@ -183,6 +184,7 @@ export async function clientProfile(q: Queryable, companyId: string): Promise<Cl
     contract_start: day(r.contract_start),
     contract_end: day(r.contract_end),
     data_history_days: r.data_history_days,
+    data_from: day(r.data_from),
     updated_at: iso(r.updated_at),
   };
 }

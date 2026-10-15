@@ -16,6 +16,7 @@ import { clientAdminRoutes } from './routes/client-admin';
 import { clientPortalRoutes } from './routes/client-portal';
 import { credentialRoutes } from './routes/credentials';
 import { dashboardRoutes } from './routes/dashboard';
+import { detectionRoutes } from './routes/detections';
 import { documentRoutes } from './routes/documents';
 import { eventRoutes } from './routes/events';
 import { hardwareRoutes } from './routes/hardware';
@@ -29,6 +30,7 @@ import { reportRoutes } from './routes/reports';
 import { robotRoutes } from './routes/robots';
 import { telemetryRoutes } from './routes/telemetry';
 import { userRoutes } from './routes/users';
+import { sessionCookieName } from './services/auth.service';
 
 export const API_PREFIX = '/api/v1';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -54,7 +56,10 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
   await app.register(rateLimit, {
     max: 600,
     timeWindow: '1 minute',
-    keyGenerator: (req) => (req.cookies?.pms_session ? `s:${req.cookies.pms_session.slice(0, 16)}` : `ip:${req.ip}`),
+    keyGenerator: (req) => {
+      const session = req.cookies?.[sessionCookieName(req.headers)];
+      return session ? `s:${session.slice(0, 16)}` : `ip:${req.ip}`;
+    },
   });
 
   // Never let an API response be cached by a browser or proxy (contains operational data).
@@ -122,6 +127,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       organizationRoutes(api, ctx);
       clientAdminRoutes(api, ctx);
       clientPortalRoutes(api, ctx);
+      detectionRoutes(api, ctx);
       auditRoutes(api, ctx);
       archiveRoutes(api, ctx);
       systemRoutes(api, ctx);

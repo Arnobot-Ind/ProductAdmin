@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "archive:sim": "tsx --env-file=.env src/tools/archive-sim.ts",
-    "import:gcs": "tsx --env-file=.env src/tools/import-gcs-dump.ts"
+    "import:gcs": "tsx --env-file=.env src/tools/import-gcs-dump.ts",
+    "import:detections": "tsx --env-file=.env src/tools/import-detections.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1141.0",

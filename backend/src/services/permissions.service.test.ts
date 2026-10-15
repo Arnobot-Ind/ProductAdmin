@@ -2,7 +2,7 @@ import type { Db } from '../db';
 import { describe, expect, it } from 'vitest';
 import { Where } from '../lib/sql';
 import type { AuthUser, UserGrant } from './auth.service';
-import { PermissionsService } from './permissions.service';
+import { dataSince, PermissionsService } from './permissions.service';
 
 const grant = (scopeType: UserGrant['scopeType'], scopeId: string | null, perms: string[]): UserGrant => ({
   id: 'g',
@@ -32,7 +32,7 @@ const customer = (dataHistoryDays: number | null, ...grants: UserGrant[]): AuthU
   companyId: 'c1',
   companyName: 'Adani',
   companyKind: 'customer',
-  client: { status: 'active', features: new Set(), organizationFeatures: [], dataHistoryDays },
+  client: { status: 'active', features: new Set(), organizationFeatures: [], dataHistoryDays, dataFrom: null },
 });
 
 /** Fake DB: robot saibya01 is currently owned by company c1. */
@@ -170,5 +170,25 @@ describe('customer users (0021): per-user robots stay inside the organization', 
     expect(limited).toHaveLength(1);
     expect(limited![0].to).toBeNull();
     expect(limited![0].from!.getTime()).toBeGreaterThan(Date.now() - 8 * 86_400_000);
+  });
+});
+
+describe('customer data start (0023)', () => {
+  const withFrom = (dataHistoryDays: number | null, dataFrom: string | null): AuthUser => {
+    const u = customer(dataHistoryDays);
+    return { ...u, client: { ...u.client!, dataFrom } };
+  };
+
+  it('starts at the beginning of the IST day', () => {
+    expect(dataSince(withFrom(null, '2026-10-01'))?.toISOString()).toBe('2026-09-30T18:30:00.000Z');
+  });
+
+  it('takes the later of the start date and the history limit', () => {
+    expect(dataSince(withFrom(1, '2026-10-01'))!.getTime()).toBeGreaterThan(Date.parse('2026-10-01T00:00:00+05:30'));
+    expect(dataSince(withFrom(36500, '2026-10-01'))?.toISOString()).toBe('2026-09-30T18:30:00.000Z');
+  });
+
+  it('is null without either limit', () => {
+    expect(dataSince(withFrom(null, null))).toBeNull();
   });
 });

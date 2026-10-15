@@ -12,7 +12,7 @@ import type { Queryable } from '../db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AppContext } from '../context';
-import { SESSION_COOKIE, type AuthUser } from '../services/auth.service';
+import { sessionCookieName, type AuthUser } from '../services/auth.service';
 import type { Target } from '../services/permissions.service';
 import { ApiError, forbidden, notFound, unauthenticated } from './errors';
 import { readMultipart, type UploadedFile } from './multipart';
@@ -137,7 +137,7 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
     handler: async (req, reply) => {
       let user: AuthUser | null = null;
       if (def.access !== 'public') {
-        user = await app.auth.userFromToken(req.cookies[SESSION_COOKIE]);
+        user = await app.auth.userFromToken(req.cookies[sessionCookieName(req.headers)]);
         if (!user) throw unauthenticated();
         // Signed in with a temporary password: nothing else works until it is changed.
         if (user.mustChangePassword && !def.allowWithTemporaryPassword) {

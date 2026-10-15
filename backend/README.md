@@ -84,9 +84,10 @@ the admin panel; customer users sign in only to the client app (`../client`).
 
 - **Profile** (`PATCH /organizations/:id/profile`, `org.manage`): client code, status (`onboarding`, `active`,
   `suspended`, `ended`), contract dates, account manager (an Arnobot user, `GET /account-managers`), contact details
-  and `data_history_days`. Suspended or ended clients (and deleted organizations) cannot sign in: sign-in answers
-  `403 client_inactive` with the reason, and existing sessions stop working at once. With a data history limit,
-  every customer data route hides rows older than N days.
+  `data_history_days` and `data_from` (0023). Suspended or ended clients (and deleted organizations) cannot sign in:
+  sign-in answers `403 client_inactive` with the reason, and existing sessions stop working at once. With a data
+  history limit (last N days) and/or a data start day (`data_from`, IST; the later one wins), every customer data
+  route hides rows recorded before it. Adani: `data_from` = 2026-10-01.
 - **Features** (`GET /client-features`, `PUT /organizations/:id/features`): what the organization has in the client
   app. A user gets (their own features ∩ the organization's) plus the always-on ones; `MeDto.client.features`.
   Removing a feature from the organization removes it from every user. Routes declare it with `feature:` (checked
@@ -127,6 +128,26 @@ the admin panel; customer users sign in only to the client app (`../client`).
   `available` + `reason`, plus what the caller may do (`access`). LiDAR/IMU previews:
   `/archive/sessions/:id/sensors/lidar?chunk=` and `/sensors/imu`, decoded on the server; unreadable or missing
   files come back as `status: 'unavailable'` with a `problem` code instead of an error.
+
+## Camera detections (migration 0022)
+
+- People, wildlife, fire / smoke and vegetation the robot's cameras detected. The `detections` table is the index
+  (time, camera, kind / label, count, confidence, position, mission); each snapshot JPEG stays in the archive bucket
+  (`image_key`) and streams through the API, with the robot's own boxes already drawn in.
+- Admin panel: `GET /robots/:robotId/detections` (`robot.details`; `status=rejected|all` shows false positives,
+  plus `status` / `source`). Client app: `GET /robots/:robotId/client/detections` (`robot.read` +
+  `portal.detections.view`; confirmed only, position only with `portal.robots.location`). Images:
+  `…/detections/:id/image`. Both keep to the user's ownership periods and data history limit.
+- Loaded with `npm run import:detections`. It merges the GCS dump (`apis_humandetection`,
+  `apis_environmentevent`) with the offline detector runs under `<root>offline/` (boxes, labels, events the GCS
+  never got, rejected ones), and skips vegetation-index readings without a snapshot and rows with a 1970 clock.
+  Re-running updates in place. Adani's data (GCS bot "saibya01" is our **saibya02**):
+
+  ```bash
+  npm run import:detections -- --robot saibya02 \
+    --root "adani-trails/Part 1 - 2026-10-04 to 10-06 2122/Detections/" \
+    --dump "adani-trails/Part 1 - 2026-10-04 to 10-06 2122/Database/gcs_db_dump_2026-10-13.sql.gz"
+  ```
 
 ## Commands
 

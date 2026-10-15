@@ -108,7 +108,14 @@ export const CLIENT_FEATURES = {
   telemetryView: 'portal.telemetry.view',
   eventsView: 'portal.events.view',
   softwareView: 'portal.software.view',
+  detectionsView: 'portal.detections.view',
 } as const;
+
+/** What a camera detection is about (detections.kind, 0022). */
+export const DETECTION_KINDS = ['human', 'wildlife', 'fire', 'vegetation'] as const;
+export type DetectionKind = (typeof DETECTION_KINDS)[number];
+export const DETECTION_STATUSES = ['confirmed', 'rejected'] as const;
+export type DetectionStatus = (typeof DETECTION_STATUSES)[number];
 
 export const SOFTWARE_KINDS = ['desktop_app', 'web_app', 'robot_software', 'firmware', 'service'] as const;
 export type SoftwareKind = (typeof SOFTWARE_KINDS)[number];

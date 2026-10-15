@@ -27,17 +27,20 @@ export type Target =
  * `customerOrg`: set for customer users. Their robot grants (a Manager picking robots per user, 0021) are NOT the
  * whole-history robot grants Arnobot staff get: the robot must still be owned by the user's organization and its data
  * follows the organization rule (never another customer's period).
- * `since`: customer organizations with a data history limit (client_profiles.data_history_days) see no robot data
+ * `since`: customer organizations with a data history limit (client_profiles.data_history_days) or a data start date
+ * (client_profiles.data_from, whichever is later) see no robot data
  * recorded before it; null = all history.
  */
 export type RobotScope =
   | { all: true }
   | { all: false; robotIds: string[]; companyIds: string[]; siteIds: string[]; customerOrg: string | null; since: Date | null };
 
-/** Start of the data a customer user may see, from their organization's data history limit; null = all history. */
+/** Start of the data a customer user may see: the later of the data start date (IST day) and the history limit; null = all history. */
 export function dataSince(user: AuthUser): Date | null {
   const days = user.client?.dataHistoryDays;
-  return days ? new Date(Date.now() - days * 86_400_000) : null;
+  const from = user.client?.dataFrom;
+  const limits = [days ? Date.now() - days * 86_400_000 : null, from ? Date.parse(`${from}T00:00:00+05:30`) : null].filter((t): t is number => t !== null && !Number.isNaN(t));
+  return limits.length ? new Date(Math.max(...limits)) : null;
 }
 
 export class PermissionsService {

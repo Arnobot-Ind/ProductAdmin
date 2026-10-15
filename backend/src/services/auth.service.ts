@@ -38,12 +38,24 @@ export interface ClientAccess {
   organizationFeatures: string[];
   /** client_profiles.data_history_days: data older than this is hidden (null = all history). */
   dataHistoryDays: number | null;
+  /** client_profiles.data_from: no data recorded before this IST day (YYYY-MM-DD); null = no start date. */
+  dataFrom: string | null;
 }
 
 /** Invitation links are valid this long. */
 export const INVITE_TTL_HOURS = 72;
 
 export const SESSION_COOKIE = 'pms_session';
+/**
+ * The client portal (client/) keeps its own session cookie, marked by its `X-Pms-App: client` header. Browsers do
+ * not separate cookies by port, so on localhost a staff sign-in in the admin panel would otherwise replace a
+ * customer's session in the portal (which then shows the staff preview of every robot).
+ */
+export const CLIENT_SESSION_COOKIE = 'pms_client_session';
+
+export function sessionCookieName(headers: Record<string, string | string[] | undefined>): string {
+  return headers['x-pms-app'] === 'client' ? CLIENT_SESSION_COOKIE : SESSION_COOKIE;
+}
 
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60_000;
@@ -130,10 +142,11 @@ export class AuthService {
         company_deleted: boolean;
         client_status: ClientStatus;
         data_history_days: number | null;
+        data_from: string | null;
       }>(
         `SELECT s.id AS session_id, s.last_seen_at, u.id, u.email, u.name, u.must_change_password,
                 c.id AS company_id, c.name AS company_name, c.kind AS company_kind, c.deleted_at IS NOT NULL AS company_deleted,
-                coalesce(cp.status, 'active') AS client_status, cp.data_history_days
+                coalesce(cp.status, 'active') AS client_status, cp.data_history_days, to_char(cp.data_from, 'YYYY-MM-DD') AS data_from
          FROM sessions s JOIN users u ON u.id = s.user_id JOIN companies c ON c.id = u.company_id
          LEFT JOIN client_profiles cp ON cp.company_id = c.id
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
@@ -159,7 +172,7 @@ export class AuthService {
       mustChangePassword: row.must_change_password,
       grants: await this.loadGrants(row.id),
       client: customer
-        ? { status: row.client_status, features: await this.loadFeatures(row.id), organizationFeatures: await this.organizationFeatures(row.company_id), dataHistoryDays: row.data_history_days }
+        ? { status: row.client_status, features: await this.loadFeatures(row.id), organizationFeatures: await this.organizationFeatures(row.company_id), dataHistoryDays: row.data_history_days, dataFrom: row.data_from }
         : null,
     };
   }
@@ -264,7 +277,7 @@ export class AuthService {
       must_change_password: user.mustChangePassword,
       grants,
       client: user.client
-        ? { status: user.client.status, features: [...user.client.features].sort(), organization_features: user.client.organizationFeatures, data_history_days: user.client.dataHistoryDays }
+        ? { status: user.client.status, features: [...user.client.features].sort(), organization_features: user.client.organizationFeatures, data_history_days: user.client.dataHistoryDays, data_from: user.client.dataFrom }
         : null,
     };
   }

@@ -31,6 +31,7 @@ const profileBody = z
     contract_start: nullableDate,
     contract_end: nullableDate,
     data_history_days: z.coerce.number().int().min(1).max(36500).nullable(),
+    data_from: nullableDate,
   })
   .partial()
   .strict();

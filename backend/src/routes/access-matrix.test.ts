@@ -15,6 +15,7 @@ import { clientAdminRoutes } from './client-admin';
 import { clientPortalRoutes } from './client-portal';
 import { credentialRoutes } from './credentials';
 import { dashboardRoutes } from './dashboard';
+import { detectionRoutes } from './detections';
 import { documentRoutes } from './documents';
 import { eventRoutes } from './events';
 import { hardwareRoutes } from './hardware';
@@ -34,7 +35,7 @@ const perms = (r: RouteDef<unknown, unknown>): string[] => (typeof r.access === 
 const find = (method: string, path: string) => registry.find((r) => r.method === method && r.path === path);
 
 /** Routes on one robot that customers (robot.read only) may call: overview, live status, the day-wise reports. */
-const CUSTOMER_ROBOT_ROUTES = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live', 'GET /robots/:robotId/reports/day', 'GET /robots/:robotId/reports/daily-distance', 'GET /robots/:robotId/reports/missions', 'GET /robots/:robotId/reports/missions/:missionId', 'GET /robots/:robotId/reports/calendar', 'GET /robots/:robotId/client/events', 'GET /robots/:robotId/client/telemetry/:kind']);
+const CUSTOMER_ROBOT_ROUTES = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live', 'GET /robots/:robotId/reports/day', 'GET /robots/:robotId/reports/daily-distance', 'GET /robots/:robotId/reports/missions', 'GET /robots/:robotId/reports/missions/:missionId', 'GET /robots/:robotId/reports/calendar', 'GET /robots/:robotId/client/events', 'GET /robots/:robotId/client/telemetry/:kind', 'GET /robots/:robotId/client/detections', 'GET /robots/:robotId/client/detections/:id/image']);
 /** Of those, the ones that are not the robot itself: each sits behind a client-app feature (0021). */
 const ALWAYS_ON = new Set(['GET /robots/:robotId', 'GET /robots/:robotId/live']);
 
@@ -61,6 +62,7 @@ beforeAll(() => {
     archiveRoutes,
     clientAdminRoutes,
     clientPortalRoutes,
+    detectionRoutes,
   ]) {
     register(f, app);
   }
@@ -95,6 +97,8 @@ describe('route access matrix (customer view)', () => {
     ['GET', '/robots/:robotId/documents'],
     ['GET', '/robots/:robotId/dispatch'],
     ['GET', '/robots/:robotId/connectivity'],
+    ['GET', '/robots/:robotId/detections'],
+    ['GET', '/robots/:robotId/detections/:id/image'],
     ['GET', '/missions'],
     ['GET', '/missions/:missionId'],
     ['GET', '/events'],
