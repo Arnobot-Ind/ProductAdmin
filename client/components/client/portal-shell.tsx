@@ -1,5 +1,6 @@
 'use client';
 
+import { CLIENT_FEATURES } from '@arnobot/message-schema';
 import { useQueryClient } from '@tanstack/react-query';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import Link from 'next/link';
@@ -7,17 +8,19 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { BrandMark } from '@/components/common/brand';
 import { api } from '@/lib/api';
-import { useCanAnywhere, useMe } from '@/lib/auth';
+import { useCanAnywhere, useFeature, useMe } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 
 /**
  * The client view's frame (customer organizations, e.g. Adani): a top bar with the brand, the organization, and
- * the client destinations only — dashboard, robots (with their reports), team (Managers) and account. Nothing from the admin panel.
+ * the client destinations only — dashboard, robots (with their reports), events and software (when the organization has
+ * those features), team (Managers) and account. Nothing from the admin panel.
  */
 export function PortalShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const canAnywhere = useCanAnywhere();
+  const has = useFeature();
   const pathname = usePathname();
   const qc = useQueryClient();
   const { theme, toggle } = useTheme();
@@ -28,6 +31,8 @@ export function PortalShell({ children }: { children: ReactNode }) {
     // Dashboard matches exactly; every other destination also covers its sub-pages.
     { href: '/', label: 'Dashboard', active: pathname === '/' },
     { href: '/robots', label: 'Robots', active: pathname.startsWith('/robots') },
+    ...(has(CLIENT_FEATURES.eventsView) ? [{ href: '/events', label: 'Events', active: pathname.startsWith('/events') }] : []),
+    ...(has(CLIENT_FEATURES.softwareView) ? [{ href: '/software', label: 'Software', active: pathname.startsWith('/software') }] : []),
     ...(canAnywhere('user.invite') ? [{ href: '/team', label: 'Team', active: pathname.startsWith('/team') }] : []),
     { href: '/account', label: 'Account', active: pathname.startsWith('/account') },
   ];

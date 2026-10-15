@@ -1,17 +1,24 @@
 'use client';
 
-import type { FleetReportDto } from '@arnobot/message-schema';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { CLIENT_FEATURES, type FleetReportDto, type LiveStateDto } from '@arnobot/message-schema';
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { RobotStatusBadge } from '@/components/common/status';
 import { Card, EmptyState, ErrorState, LoadingBlock, PageHeader } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import { useMe } from '@/lib/auth';
+import { useFeature, useMe } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration, fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useNow } from '@/lib/hooks';
+
+// Leaflet is client-only.
+const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-xs text-muted">Loading map…</div>,
+});
 
 const IST = 'Asia/Kolkata';
 /** IST calendar day `daysAgo` days back, YYYY-MM-DD. */
@@ -26,7 +33,10 @@ const PERIODS = [
 ] as const;
 type PeriodId = (typeof PERIODS)[number]['id'];
 
-/** The client dashboard: the organization's robots over a period — missions, results and distance, at a glance. */
+/**
+ * The client dashboard: the organization's robots over a period — distance at a glance, plus missions and results
+ * (portal.missions.view) and where the robots are now (portal.robots.location).
+ */
 export default function PortalDashboardPage() {
   useDocumentTitle('Dashboard');
   const me = useMe();
@@ -72,6 +82,8 @@ export default function PortalDashboardPage() {
 }
 
 function Dashboard({ data }: { data: FleetReportDto }) {
+  const has = useFeature();
+  const missions = has(CLIENT_FEATURES.missionsView);
   const t = data.totals;
   if (!t.robots) {
     return <EmptyState title="No robots yet" description="No robot is assigned to your organization yet. Contact Arnobot to have your robots added." />;
@@ -81,18 +93,26 @@ function Dashboard({ data }: { data: FleetReportDto }) {
     <div className="flex flex-col gap-5">
       <section aria-label="Totals" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Tile label="Robots online" value={`${t.online} / ${t.robots}`} />
-        <Tile label="Missions" value={String(t.total)} note={t.in_progress ? `${t.in_progress} in progress` : undefined} />
-        <Tile label="Completed" value={String(t.completed)} note={t.total ? `${Math.round((t.completed / t.total) * 100)} % of missions` : undefined} />
-        <Tile label="Aborted or failed" value={String(unsuccessful)} note={unsuccessful ? `${t.aborted} aborted · ${t.failed} failed` : undefined} />
+        {missions && (
+          <>
+            <Tile label="Missions" value={String(t.total)} note={t.in_progress ? `${t.in_progress} in progress` : undefined} />
+            <Tile label="Completed" value={String(t.completed)} note={t.total ? `${Math.round((t.completed / t.total) * 100)} % of missions` : undefined} />
+            <Tile label="Aborted or failed" value={String(unsuccessful)} note={unsuccessful ? `${t.aborted} aborted · ${t.failed} failed` : undefined} />
+          </>
+        )}
         <Tile label="Distance driven" value={fmtDistance(t.driven_m)} />
         <Tile label="Time on the move" value={fmtDuration(t.moving_s)} />
       </section>
 
+      {has(CLIENT_FEATURES.robotsLocation) && <FleetMap robots={data.robots} />}
+
       {data.daily.length > 1 && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Card title="Missions per day">
-            <MissionsChart daily={data.daily} />
-          </Card>
+        <div className={cn('grid gap-5', missions && 'lg:grid-cols-2')}>
+          {missions && (
+            <Card title="Missions per day">
+              <MissionsChart daily={data.daily} />
+            </Card>
+          )}
           <Card title="Distance driven per day (km)">
             <DistanceChart daily={data.daily} />
           </Card>
@@ -100,7 +120,7 @@ function Dashboard({ data }: { data: FleetReportDto }) {
       )}
 
       <Card title="Robots" bodyClassName="p-0">
-        <RobotsTable robots={data.robots} />
+        <RobotsTable robots={data.robots} missions={missions} />
       </Card>
     </div>
   );
@@ -324,8 +344,44 @@ function DayTable({ daily, cols }: { daily: Day[]; cols: { label: string; value:
   );
 }
 
+// ── where the robots are now ────────────────────────────────────────────────
+/** Each robot's last reported position (its live state; the API hides positions without portal.robots.location). */
+function FleetMap({ robots }: { robots: FleetReportDto['robots'] }) {
+  const lives = useQueries({
+    queries: robots.map((r) => ({
+      queryKey: ['robot', r.robot_id, 'live'],
+      queryFn: () => api.get<LiveStateDto>(`/robots/${r.robot_id}/live`),
+      refetchInterval: 30_000,
+      retry: false,
+    })),
+  });
+  const json = JSON.stringify(
+    robots.flatMap((r, i) => {
+      const p = lives[i]?.data?.position;
+      return p ? [{ lat: p.lat, lon: p.lon, label: r.robot_id.toUpperCase() }] : [];
+    }),
+  );
+  // Same array while no robot moved, so the map only re-fits when a position changes.
+  const markers = useMemo(() => JSON.parse(json) as { lat: number; lon: number; label: string }[], [json]);
+  const loading = lives.some((l) => l.isLoading);
+  return (
+    <Card title="Where your robots are">
+      {markers.length ? (
+        <div className="h-80">
+          <ReportMap markers={markers} height="100%" />
+        </div>
+      ) : loading ? (
+        <LoadingBlock rows={3} label="Loading positions" />
+      ) : (
+        <EmptyState title="No positions yet" description="None of your robots has reported a GPS position." />
+      )}
+    </Card>
+  );
+}
+
 // ── robots table ──────────────────────────────────────────────────────────
-function RobotsTable({ robots }: { robots: FleetReportDto['robots'] }) {
+type Robot = FleetReportDto['robots'][number];
+function RobotsTable({ robots, missions }: { robots: FleetReportDto['robots']; missions: boolean }) {
   const now = useNow(10_000);
   const rows = [...robots].sort((a, b) => a.robot_id.localeCompare(b.robot_id));
   const num = (n: number) => <span className="tabular-nums">{n}</span>;
@@ -348,10 +404,14 @@ function RobotsTable({ robots }: { robots: FleetReportDto['robots'] }) {
         },
         { key: 'status', header: 'Status', cell: (r) => <RobotStatusBadge lastSeenAt={r.last_seen_at} /> },
         { key: 'battery', header: 'Battery', align: 'right', cell: (r) => (r.battery_pct === null ? <span className="text-muted">—</span> : `${Math.round(r.battery_pct)} %`) },
-        { key: 'missions', header: 'Missions', align: 'right', cell: (r) => num(r.missions.total) },
-        { key: 'completed', header: 'Completed', align: 'right', cell: (r) => num(r.missions.completed) },
-        { key: 'aborted', header: 'Aborted', align: 'right', cell: (r) => num(r.missions.aborted) },
-        { key: 'failed', header: 'Failed', align: 'right', cell: (r) => num(r.missions.failed) },
+        ...(missions
+          ? [
+              { key: 'missions', header: 'Missions', align: 'right' as const, cell: (r: Robot) => num(r.missions.total) },
+              { key: 'completed', header: 'Completed', align: 'right' as const, cell: (r: Robot) => num(r.missions.completed) },
+              { key: 'aborted', header: 'Aborted', align: 'right' as const, cell: (r: Robot) => num(r.missions.aborted) },
+              { key: 'failed', header: 'Failed', align: 'right' as const, cell: (r: Robot) => num(r.missions.failed) },
+            ]
+          : []),
         { key: 'driven', header: 'Distance driven', align: 'right', cell: (r) => fmtDistance(r.driven_m) },
         { key: 'seen', header: 'Last seen', cell: (r) => (r.last_seen_at ? fmtRelative(r.last_seen_at, now) : 'Never') },
       ]}

@@ -49,3 +49,12 @@ export function useCanAnywhere(): (permission: string) => boolean {
 export function useIsCustomer(): boolean {
   return useContext(MeContext)?.organization?.kind === 'customer';
 }
+
+/**
+ * Holds a client-app feature (MeDto.client.features, 0021: the user's features ∩ the organization's, plus always-on
+ * ones). UI only: it hides what the API would refuse with 403 anyway. Users without client access hold none.
+ */
+export function useFeature(): (key: string) => boolean {
+  const me = useContext(MeContext);
+  return (key: string) => !!me?.client?.features.includes(key);
+}

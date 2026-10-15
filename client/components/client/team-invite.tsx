@@ -4,12 +4,15 @@ import type { UserCredentialsDto } from '@arnobot/message-schema';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2 } from 'lucide-react';
 import { useState } from 'react';
+import { accessValid, AccessEditor, type AccessChoice } from '@/components/client/access-editor';
+import { RoleField } from '@/components/client/team-access';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { Field, Input, Select } from '@/components/ui/field';
+import { Checkbox, Field, Input } from '@/components/ui/field';
 import { CopyButton, InlineAlert } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useMe } from '@/lib/auth';
 
 const fmtExpiry = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' IST' : 'in 72 hours';
@@ -19,7 +22,7 @@ export function inviteMessage(r: UserCredentialsDto): string {
   return [
     `Hello ${r.user.name},`,
     '',
-    `You've been invited to the Arnobot portal for ${r.user.company_name}, where you can see your robots, their day-wise reports and distance by day.`,
+    `You've been invited to the Arnobot portal for ${r.user.company_name}, where you can see your robots, their missions and reports.`,
     '',
     'Open this link to choose your password and sign in (it works once and expires in 72 h):',
     r.invite_url ?? '',
@@ -69,25 +72,38 @@ export function InviteLinkDialog({ result, onClose }: { result: UserCredentialsD
 export function InviteDialog({ open, onClose, onInvited }: { open: boolean; onClose: () => void; onInvited: (r: UserCredentialsDto) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const orgFeatures = useMe().client?.organization_features ?? [];
   const blank = { name: '', email: '', role: 'viewer' as 'viewer' | 'manager' };
   const [f, setF] = useState(blank);
+  // Off: every robot and every feature of the organization (the API's default). On: chosen here.
+  const [custom, setCustom] = useState(false);
+  const [choice, setChoice] = useState<AccessChoice>({ robots: 'all', features: orgFeatures });
   const m = useMutation({
     mutationFn: () =>
-      api.post<UserCredentialsDto>('/users', { name: f.name.trim(), email: f.email.trim(), credentials: 'invite', role_key: f.role, scope_type: 'company' }),
+      api.post<UserCredentialsDto>('/users', {
+        name: f.name.trim(),
+        email: f.email.trim(),
+        credentials: 'invite',
+        role_key: f.role,
+        ...(custom && { robots: choice.robots, features: choice.features }),
+      }),
     onSuccess: (r) => {
       toast.success('Invitation created');
       void qc.invalidateQueries({ queryKey: ['portal', 'team'] });
       setF(blank);
+      setCustom(false);
+      setChoice({ robots: 'all', features: orgFeatures });
       onClose();
       onInvited(r);
     },
     onError: toast.error,
   });
-  const valid = f.name.trim() && /\S+@\S+\.\S+/.test(f.email);
+  const valid = f.name.trim() && /\S+@\S+\.\S+/.test(f.email) && (!custom || accessValid(choice));
   return (
     <Dialog
       open={open}
       onClose={onClose}
+      size={custom ? 'lg' : 'md'}
       title="Invite a colleague"
       description="They get a one-time link to choose their own password."
       footer={
@@ -113,12 +129,15 @@ export function InviteDialog({ open, onClose, onInvited }: { open: boolean; onCl
         <Field label="Email" required>
           <Input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="off" />
         </Field>
-        <Field label="Role" className="sm:col-span-2" hint={f.role === 'manager' ? 'Sees the robots and reports, and can invite and remove colleagues.' : 'Sees the robots and downloads reports.'}>
-          <Select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as typeof f.role })}>
-            <option value="viewer">Viewer</option>
-            <option value="manager">Manager</option>
-          </Select>
-        </Field>
+        <RoleField className="sm:col-span-2" role={f.role} onChange={(role) => setF({ ...f, role })} />
+        <div className="sm:col-span-2">
+          <Checkbox label="Limit robots or features (otherwise: every robot and everything your organization has)" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
+        </div>
+        {custom && (
+          <div className="sm:col-span-2">
+            <AccessEditor value={choice} onChange={setChoice} organizationFeatures={orgFeatures} />
+          </div>
+        )}
       </form>
     </Dialog>
   );

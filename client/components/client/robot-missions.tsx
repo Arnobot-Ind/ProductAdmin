@@ -1,6 +1,6 @@
 'use client';
 
-import type { ClientMissionDto, ClientMissionsDto, MissionState, MissionStatsDto, RobotDetailDto } from '@arnobot/message-schema';
+import { CLIENT_FEATURES, type ClientMissionDto, type ClientMissionsDto, type MissionState, type MissionStatsDto, type RobotDetailDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowRight, FileDown } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
@@ -10,6 +10,7 @@ import { Badge, Card, EmptyState, ErrorState, LoadingBlock, Pagination } from '@
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useFeature } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration } from '@/lib/format';
 import { downloadMissionReport } from '@/lib/robot-reports';
@@ -100,7 +101,7 @@ function MissionPdfButton({ robotId, mission }: { robotId: string; mission: Clie
 }
 
 type MissionColumn = { key: string; header: string; rowHeader?: boolean; align?: 'right'; cell: (m: ClientMissionDto) => ReactNode };
-function missionColumns(robotId: string, withReason: boolean): MissionColumn[] {
+function missionColumns(robotId: string, withReason: boolean, withPdf: boolean): MissionColumn[] {
   const cols: MissionColumn[] = [
     { key: 'name', header: 'Mission', rowHeader: true, cell: (m: ClientMissionDto) => <span className="font-medium">{m.name ?? m.mission_id}</span> },
     { key: 'date', header: 'Date', cell: (m: ClientMissionDto) => <span className="whitespace-nowrap">{istDate(m.started_at)}</span> },
@@ -110,13 +111,14 @@ function missionColumns(robotId: string, withReason: boolean): MissionColumn[] {
     { key: 'dist', header: 'Distance', align: 'right', cell: (m: ClientMissionDto) => fmtDistance(m.distance_m) },
     { key: 'res', header: 'Result', cell: (m: ClientMissionDto) => <MissionResultBadge result={m.result} /> },
   ];
-  cols.push({ key: 'pdf', header: 'Report', align: 'right', cell: (m: ClientMissionDto) => <MissionPdfButton robotId={robotId} mission={m} /> });
-  if (withReason) cols.splice(cols.length - 1, 0, { key: 'reason', header: 'End reason', cell: (m: ClientMissionDto) => (m.end_reason ? <span>{m.end_reason}</span> : <span className="text-muted">—</span>) });
+  if (withPdf) cols.push({ key: 'pdf', header: 'Report', align: 'right', cell: (m: ClientMissionDto) => <MissionPdfButton robotId={robotId} mission={m} /> });
+  if (withReason) cols.splice(withPdf ? cols.length - 1 : cols.length, 0, { key: 'reason', header: 'End reason', cell: (m: ClientMissionDto) => (m.end_reason ? <span>{m.end_reason}</span> : <span className="text-muted">—</span>) });
   return cols;
 }
 
 // ── Overview tab: all-time stats + last 5 missions ─────────────────────────
 export function RobotMissionsOverview({ robotId, onAllMissions }: { robotId: string; onAllMissions: () => void }) {
+  const canDownload = useFeature()(CLIENT_FEATURES.reportsDownload);
   const q = useMissions(robotId, { page: 1, limit: 5 });
   if (q.isLoading) return <LoadingBlock rows={4} label="Loading missions" />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
@@ -134,7 +136,7 @@ export function RobotMissionsOverview({ robotId, onAllMissions }: { robotId: str
         }
       >
         {d.items.length ? (
-          <DataTable caption="Last 5 missions" dense rows={d.items} rowKey={(m) => m.mission_id} columns={missionColumns(robotId, false)} />
+          <DataTable caption="Last 5 missions" dense rows={d.items} rowKey={(m) => m.mission_id} columns={missionColumns(robotId, false, canDownload)} />
         ) : (
           <div className="p-4">
             <EmptyState title="No missions yet" description="Missions appear here once the robot has run one." />
@@ -164,6 +166,7 @@ const RESULT_FILTERS: { id: MissionState | 'all'; label: string; count: (s: Miss
 const LIMIT = 25;
 
 export function RobotMissionsTab({ robotId }: { robotId: string }) {
+  const canDownload = useFeature()(CLIENT_FEATURES.reportsDownload);
   const [period, setPeriod] = useState<PeriodId>('all');
   const [from, setFrom] = useState(istDay(6));
   const [to, setTo] = useState(istDay());
@@ -257,7 +260,7 @@ export function RobotMissionsTab({ robotId }: { robotId: string }) {
         <EmptyState title="No missions" description="No missions match this period and result." />
       ) : (
         <div>
-          <DataTable caption="Missions" rows={list.data.items} rowKey={(m) => m.mission_id} columns={missionColumns(robotId, true)} />
+          <DataTable caption="Missions" rows={list.data.items} rowKey={(m) => m.mission_id} columns={missionColumns(robotId, true, canDownload)} />
           <Pagination page={page} limit={LIMIT} total={list.data.total} onPage={setPage} />
         </div>
       )}

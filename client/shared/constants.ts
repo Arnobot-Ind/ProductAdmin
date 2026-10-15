@@ -92,3 +92,27 @@ export const INGEST_MAX_FUTURE_SKEW_MS = 5 * 60_000;
 export const INGEST_MIN_VALID_TS = '2024-01-01T00:00:00.000Z';
 /** Max envelopes accepted in one HTTPS batch. */
 export const INGEST_MAX_BATCH = 500;
+
+/** Client admin (0021): a customer organization's status. Only these two may sign in to the client app. */
+export const CLIENT_STATUSES = ['onboarding', 'active', 'suspended', 'ended'] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+export const CLIENT_SIGN_IN_STATUSES: readonly ClientStatus[] = ['onboarding', 'active'];
+
+/** Client app features (client_features rows). The client app's nav and the API both check these keys. */
+export const CLIENT_FEATURES = {
+  robotsView: 'portal.robots.view',
+  robotsLocation: 'portal.robots.location',
+  missionsView: 'portal.missions.view',
+  reportsView: 'portal.reports.view',
+  reportsDownload: 'portal.reports.download',
+  telemetryView: 'portal.telemetry.view',
+  eventsView: 'portal.events.view',
+  softwareView: 'portal.software.view',
+} as const;
+
+export const SOFTWARE_KINDS = ['desktop_app', 'web_app', 'robot_software', 'firmware', 'service'] as const;
+export type SoftwareKind = (typeof SOFTWARE_KINDS)[number];
+
+/** Kinds of secret Arnobot holds for a client (client_credentials). Robot secrets are CREDENTIAL_KINDS. */
+export const CLIENT_CREDENTIAL_KINDS = ['gcs_login', 'gcs_api_token', 'portal', 'camera', 'wifi', 'vpn', 'cloud', 'email', 'other'] as const;
+export type ClientCredentialKind = (typeof CLIENT_CREDENTIAL_KINDS)[number];

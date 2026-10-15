@@ -1,6 +1,6 @@
 'use client';
 
-import type { ClientMissionDto, ClientMissionReportDto, ClientMissionsDto, DayReportDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
+import { CLIENT_FEATURES, type ClientMissionDto, type ClientMissionReportDto, type ClientMissionsDto, type DayReportDto, type ReportCalendarDayDto, type RobotDetailDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, Clock, Download, FileDown, MapPin, Moon, Route, Spline, XCircle } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -11,6 +11,7 @@ import { Card, EmptyState, ErrorState, LoadingBlock } from '@/components/ui/misc
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useFeature } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration } from '@/lib/format';
 import { downloadPatrolReport } from '@/lib/patrol-report';
@@ -53,7 +54,13 @@ function useDownload() {
  * (badges = missions and time logged), then that day's reports. Only four reports: mission report, day summary,
  * monthly summary and the night surveillance log. All times IST.
  */
+/** PDF downloads need portal.reports.download (0021); the reports themselves stay viewable on screen. */
+export function useCanDownloadReports(): boolean {
+  return useFeature()(CLIENT_FEATURES.reportsDownload);
+}
+
 export function RobotReportsTab({ robot }: { robot: RobotDetailDto }) {
+  const canDownload = useCanDownloadReports();
   const today = istDay();
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selected, setSelected] = useState<string | null>(null);
@@ -93,7 +100,7 @@ export function RobotReportsTab({ robot }: { robot: RobotDetailDto }) {
           canNext={month < today.slice(0, 7)}
         />
         {cal.error && <ErrorState error={cal.error} onRetry={() => void cal.refetch()} />}
-        <MonthSummaryButton robot={robot} month={month} />
+        {canDownload && <MonthSummaryButton robot={robot} month={month} />}
       </div>
       {selected ? (
         <DayPanel key={selected} robot={robot} date={selected} day={day || null} />
@@ -236,6 +243,7 @@ function MonthSummaryButton({ robot, month }: { robot: RobotDetailDto; month: st
 
 // ── the selected day ────────────────────────────────────────────────────────
 function DayPanel({ robot, date, day }: { robot: RobotDetailDto; date: string; day: ReportCalendarDayDto | null }) {
+  const canDownload = useCanDownloadReports();
   const daySum = useDownload();
   const missions = useQuery({
     queryKey: ['robot', robot.robot_id, 'report-missions', date],
@@ -262,14 +270,16 @@ function DayPanel({ robot, date, day }: { robot: RobotDetailDto; date: string; d
               : '—'}
           </p>
         </div>
-        <Button
-          variant="primary"
-          icon={<FileDown className="size-4" aria-hidden />}
-          loading={daySum.busy}
-          onClick={() => void daySum.run(async () => `Day summary downloaded (${await downloadDaySummary(robot, date)} missions)`)}
-        >
-          Day summary (PDF)
-        </Button>
+        {canDownload && (
+          <Button
+            variant="primary"
+            icon={<FileDown className="size-4" aria-hidden />}
+            loading={daySum.busy}
+            onClick={() => void daySum.run(async () => `Day summary downloaded (${await downloadDaySummary(robot, date)} missions)`)}
+          >
+            Day summary (PDF)
+          </Button>
+        )}
       </div>
 
       <Card title={`Missions${missions.data ? ` (${missions.data.total})` : ''}`} bodyClassName="p-0">
@@ -339,6 +349,7 @@ function MissionRow({ m, active, onSelect }: { m: ClientMissionDto; active: bool
 
 /** The selected mission on the map with its figures and the PDF download, as the GCS Mission Reports detail. */
 function MissionDetail({ robot, missionId }: { robot: RobotDetailDto; missionId: string }) {
+  const canDownload = useCanDownloadReports();
   const { busy, run } = useDownload();
   const [showTrack, setShowTrack] = useState(true);
   const q = useQuery({
@@ -375,9 +386,11 @@ function MissionDetail({ robot, missionId }: { robot: RobotDetailDto; missionId:
             <Spline className="size-3" aria-hidden /> Actual path · {path.length} pts
           </button>
         )}
-        <Button size="sm" className="ml-auto" icon={<Download className="size-4" aria-hidden />} loading={busy} onClick={() => void run(() => downloadMissionReport(robot, m.mission_id))}>
-          Download
-        </Button>
+        {canDownload && (
+          <Button size="sm" className="ml-auto" icon={<Download className="size-4" aria-hidden />} loading={busy} onClick={() => void run(() => downloadMissionReport(robot, m.mission_id))}>
+            Download
+          </Button>
+        )}
       </div>
       <div className="px-4 py-1.5 text-xs text-muted tabular-nums">
         {istHm(m.started_at)} – {istHm(m.ended_at)} IST{m.end_reason ? ` · ${m.end_reason}` : ''}
@@ -407,6 +420,7 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
 
 // ── night surveillance log of the day (with an on-screen preview) ───────────
 function PatrolLog({ robot, date }: { robot: RobotDetailDto; date: string }) {
+  const canDownload = useCanDownloadReports();
   const { busy, run } = useDownload();
   const [windowId, setWindowId] = useState<PatrolWindowId>('night');
   const [from, setFrom] = useState('22:00');
@@ -428,9 +442,11 @@ function PatrolLog({ robot, date }: { robot: RobotDetailDto; date: string }) {
         </span>
       }
       actions={
-        <Button variant="primary" size="sm" icon={<FileDown className="size-4" aria-hidden />} onClick={() => void run(() => downloadPatrolReport(q.data!))} loading={busy} disabled={!q.data}>
-          Download PDF
-        </Button>
+        canDownload && (
+          <Button variant="primary" size="sm" icon={<FileDown className="size-4" aria-hidden />} onClick={() => void run(() => downloadPatrolReport(q.data!))} loading={busy} disabled={!q.data}>
+            Download PDF
+          </Button>
+        )
       }
     >
       {/* One row of equal-height fields; the explanations sit under the row so they never push a field down. */}

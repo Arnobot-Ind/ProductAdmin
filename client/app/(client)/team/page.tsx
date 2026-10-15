@@ -2,8 +2,9 @@
 
 import type { UserCredentialsDto, UserDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2, Power, Trash2, UserPlus } from 'lucide-react';
+import { KeyRound, Link2, Power, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
+import { AccessDialog } from '@/components/client/team-access';
 import { InviteDialog, InviteLinkDialog } from '@/components/client/team-invite';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -26,9 +27,17 @@ function Status({ u }: { u: UserDto }) {
   return <Badge tone="ok">Active</Badge>;
 }
 
+/** All robots (an organization grant) or how many were chosen (robot grants). */
+function robotsLabel(u: UserDto) {
+  const grants = u.grants.filter((g) => !g.revoked_at);
+  if (grants.some((g) => g.scope_type === 'company')) return 'All';
+  const robots = grants.filter((g) => g.scope_type === 'robot').map((g) => g.scope_id!.toUpperCase());
+  return robots.length ? robots.join(', ') : <span className="text-muted">None</span>;
+}
+
 /**
  * The customer Manager's team (user.invite, 0020): colleagues of their own organization, invitations by one-time
- * link, disable / remove. The API keeps every call inside the Manager's organization.
+ * link, access (role, robots and features per colleague, 0021), disable / remove. The API keeps every call inside the Manager's organization.
  */
 export default function TeamPage() {
   useDocumentTitle('Team');
@@ -40,6 +49,7 @@ export default function TeamPage() {
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState<UserCredentialsDto | null>(null);
   const [removing, setRemoving] = useState<UserDto | null>(null);
+  const [access, setAccess] = useState<UserDto | null>(null);
 
   const users = useQuery({
     queryKey: ['portal', 'team'],
@@ -117,6 +127,7 @@ export default function TeamPage() {
                 ),
               },
               { key: 'role', header: 'Role', cell: (u) => [...new Set(u.grants.filter((g) => !g.revoked_at).map((g) => g.role_name))].join(', ') || <span className="text-muted">No role</span> },
+              { key: 'robots', header: 'Robots', cell: (u) => robotsLabel(u) },
               { key: 'status', header: 'Status', cell: (u) => <Status u={u} /> },
               { key: 'login', header: 'Last sign-in (IST)', cell: (u) => fmtIst(u.last_login_at) },
               {
@@ -126,6 +137,9 @@ export default function TeamPage() {
                 cell: (u) =>
                   u.id === me.id ? null : (
                     <span className="inline-flex flex-wrap justify-end gap-1.5">
+                      <Button size="sm" icon={<KeyRound className="size-4" aria-hidden />} onClick={() => setAccess(u)}>
+                        Access
+                      </Button>
                       {u.is_active && (
                         <Button size="sm" icon={<Link2 className="size-4" aria-hidden />} onClick={() => reissue.mutate(u)} loading={reissue.isPending && reissue.variables?.id === u.id}>
                           New invite link
@@ -147,6 +161,7 @@ export default function TeamPage() {
 
       <InviteDialog open={inviting} onClose={() => setInviting(false)} onInvited={setLink} />
       <InviteLinkDialog result={link} onClose={() => setLink(null)} />
+      <AccessDialog user={access} onClose={() => setAccess(null)} />
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}

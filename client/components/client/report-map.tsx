@@ -6,7 +6,8 @@
  * the Map · Google · Esri toggle, the driven path in orange (split at gaps, estimated stretches dashed white as in the
  * PDF), green start / red end dots and a legend. Dark theme uses the same street tiles under the .gcs-tiles-dark filter.
  *
- * Three modes: `points` (a day report's cleaned track), `position` (the robot's current location), or one mission as the
+ * Modes: `points` (a day report's or telemetry GPS track), `position` (the robot's current location), `markers` (several
+ * robots' current locations, the dashboard), or one mission as the
  * GCS Mission Reports map draws it: `waypoints` (dashed planned route, solid green between reached waypoints, numbered
  * markers green = reached / grey = not reached) plus `missionPath` (the actual driven path in orange).
  * Leaflet touches `window`: load this with next/dynamic and ssr: false.
@@ -81,9 +82,14 @@ function segments(points: ReportPathPointDto[], breakGapMs: number): Segment[] {
   return out.filter((s) => s.pts.length > 1);
 }
 
+/** Stable default, so the fit-to-bounds effect does not re-run on every render. */
+const NO_MARKERS: { lat: number; lon: number; label: string }[] = [];
+
 export interface ReportMapProps {
   points?: ReportPathPointDto[];
   position?: { lat: number; lon: number; label: string } | null;
+  /** Several robots' current positions (dashboard). */
+  markers?: { lat: number; lon: number; label: string }[];
   breakGapMs?: number;
   height?: string;
   /** One mission's waypoints (planned route + reached state). */
@@ -93,7 +99,7 @@ export interface ReportMapProps {
   showMissionPath?: boolean;
 }
 
-export function ReportMap({ points = [], position = null, breakGapMs = 30_000, height = '100%', waypoints = [], missionPath = [], showMissionPath = true }: ReportMapProps) {
+export function ReportMap({ points = [], position = null, markers = NO_MARKERS, breakGapMs = 30_000, height = '100%', waypoints = [], missionPath = [], showMissionPath = true }: ReportMapProps) {
   const { theme } = useTheme();
   const [mapType, setMapType] = useState<'street' | 'satellite' | 'esri'>('street');
   const isSatellite = mapType !== 'street';
@@ -110,8 +116,11 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
   const driven = showMissionPath ? missionPath : [];
   const fitPts = useMemo<[number, number][]>(() => {
     const all: [number, number][] = [...track.map((p) => [p.lat, p.lon] as [number, number]), ...planned, ...driven];
-    return all.length ? all : position ? [[position.lat, position.lon]] : [];
-  }, [track, planned, driven, position]);
+    if (all.length) return all;
+    const here: [number, number][] = markers.map((m) => [m.lat, m.lon]);
+    if (position) here.push([position.lat, position.lon]);
+    return here;
+  }, [track, planned, driven, position, markers]);
   const center: [number, number] = fitPts.length ? fitPts[0] : [22, 78];
   const first = track[0];
   const last = track[track.length - 1];
@@ -180,6 +189,13 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
             </Tooltip>
           </Marker>
         )}
+        {markers.map((m) => (
+          <Marker key={m.label} position={[m.lat, m.lon]} icon={dotIcon(LIVE_COLOR, 18)}>
+            <Tooltip permanent direction="top" offset={[0, -10]}>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>{m.label}</span>
+            </Tooltip>
+          </Marker>
+        ))}
         {position && (
           <Marker position={[position.lat, position.lon]} icon={dotIcon(LIVE_COLOR, 18)}>
             <Tooltip permanent direction="top" offset={[0, -10]}>
@@ -256,7 +272,7 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
         </div>
       )}
 
-      {(track.length > 1 || position || planned.length > 0 || driven.length > 1) && (
+      {(track.length > 1 || position || markers.length > 0 || planned.length > 0 || driven.length > 1) && (
         <div
           style={{
             position: 'absolute',
@@ -281,7 +297,7 @@ export function ReportMap({ points = [], position = null, breakGapMs = 30_000, h
           {hasEst && <LegendRow color={theme === 'light' ? '#6b7280' : '#ffffff'} dashed label="Estimated (no reliable GPS)" />}
           {track.length > 1 && <LegendDot color={START_COLOR} label="Start" />}
           {track.length > 1 && <LegendDot color={END_COLOR} label="Last position" />}
-          {position && <LegendDot color={LIVE_COLOR} label="Robot now" />}
+          {(position || markers.length > 0) && <LegendDot color={LIVE_COLOR} label={markers.length > 1 ? 'Robots now' : 'Robot now'} />}
         </div>
       )}
     </div>
