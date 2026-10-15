@@ -1,10 +1,10 @@
 'use client';
 
 import { CLIENT_FEATURES } from '@arnobot/message-schema';
-import { Bell, Bot, ChevronDown, LayoutDashboard, LogOut, Menu, Moon, Package, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { Bell, Bot, LayoutDashboard, LogOut, Menu, Moon, Package, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { BrandMark } from '@/components/common/brand';
 import { useCanAnywhere, useFeature, useMe, useSignOut } from '@/lib/auth';
 import { cn } from '@/lib/cn';
@@ -61,7 +61,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
               <span className="max-w-[13rem] truncate text-sm font-semibold text-fg" title={me.organization.name}>
                 {me.organization.name}
               </span>
-              <span className="text-[0.625rem] font-semibold tracking-[0.18em] text-muted uppercase">Client portal</span>
+              <span className="text-[0.625rem] font-semibold tracking-[0.18em] text-muted uppercase">Client Admin</span>
             </span>
           </Link>
 
@@ -94,9 +94,32 @@ export function PortalShell({ children }: { children: ReactNode }) {
             >
               {theme === 'dark' ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
             </button>
-            <span className="hidden lg:block">
-              <UserMenu name={me.name} email={me.email} role={role} accountActive={accountActive} onLogout={signOut} signingOut={signingOut} />
-            </span>
+            {/* Always visible: who is signed in (opens Account) and Sign out */}
+            <Link
+              href="/account"
+              aria-current={accountActive ? 'page' : undefined}
+              title="Account"
+              className={cn(
+                'hidden items-center gap-2.5 rounded-full border py-1 pr-3 pl-1 transition-colors lg:inline-flex',
+                accountActive ? 'border-accent bg-accent-soft' : 'border-transparent hover:border-border hover:bg-surface-2',
+              )}
+            >
+              <Avatar name={me.name} email={me.email} size="sm" />
+              <span className="flex max-w-[11rem] flex-col leading-tight">
+                <span className="truncate text-sm font-semibold text-fg">{me.name}</span>
+                {role && <span className="truncate text-[11px] text-muted">{role}</span>}
+              </span>
+            </Link>
+            <span className="mx-1 hidden h-6 w-px bg-border lg:block" aria-hidden />
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={signingOut}
+              className="hidden h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-fg transition-colors hover:border-fault/40 hover:bg-fault-bg hover:text-fault disabled:opacity-60 lg:inline-flex"
+            >
+              <LogOut className="size-4" aria-hidden />
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
             <button
               type="button"
               onClick={() => setOpen((o) => !o)}
@@ -169,71 +192,5 @@ function Avatar({ name, email, size = 'md' }: { name: string; email: string; siz
     >
       {initials(name, email)}
     </span>
-  );
-}
-
-/** Avatar button with a dropdown: who is signed in, Account, Sign out. Closes on outside click, Escape or navigation. */
-function UserMenu({ name, email, role, accountActive, onLogout, signingOut }: { name: string; email: string; role: string | null; accountActive: boolean; onLogout: () => void; signingOut: boolean }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const pathname = usePathname();
-  useEffect(() => setOpen(false), [pathname]);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={cn('inline-flex items-center gap-2 rounded-full py-1 pr-2 pl-1 hover:bg-surface-2', (open || accountActive) && 'bg-surface-2')}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Account menu for ${name}`}
-      >
-        <Avatar name={name} email={email} size="sm" />
-        <span className="hidden max-w-[9rem] truncate text-sm font-medium xl:block">{name}</span>
-        <ChevronDown className={cn('size-4 text-muted transition-transform', open && 'rotate-180')} aria-hidden />
-      </button>
-      {open && (
-        <div role="menu" className="absolute right-0 mt-2 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
-          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-            <Avatar name={name} email={email} />
-            <span className="min-w-0 leading-tight">
-              <span className="block truncate text-sm font-semibold">{name}</span>
-              <span className="block truncate text-xs text-muted">{email}</span>
-              {role && <span className="mt-1 inline-block rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent-text">{role}</span>}
-            </span>
-          </div>
-          <div className="p-1.5">
-            <Link
-              href="/account"
-              role="menuitem"
-              className={cn('flex items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-surface-2', accountActive && 'font-semibold text-accent-text')}
-            >
-              <UserRound className="size-4" aria-hidden />
-              Account
-            </Link>
-            <button type="button" role="menuitem" onClick={onLogout} disabled={signingOut} className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-fault hover:bg-fault-bg disabled:opacity-60">
-              <LogOut className="size-4" aria-hidden />
-              {signingOut ? 'Signing out…' : 'Sign out'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
