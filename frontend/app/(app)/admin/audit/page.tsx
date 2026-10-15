@@ -12,6 +12,7 @@ import { useCan } from '@/lib/auth';
 import { fromLocalInput } from '@/lib/format';
 import { useDebounced, useDocumentTitle } from '@/lib/hooks';
 import { useCompanies } from '@/lib/queries';
+import { ACTION_LABEL, auditSummary } from '@/lib/audit';
 
 const ACTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All events' },
@@ -24,77 +25,12 @@ const ACTIONS: { value: string; label: string }[] = [
   { value: 'user.', label: 'User changes' },
   { value: 'org.', label: 'Organization changes' },
   { value: 'access.denied', label: 'Refused requests' },
-  { value: 'credential.revealed', label: 'Device credential reveals' },
+  { value: 'credential.', label: 'Credentials (stored, revealed, rotated, revoked)' },
+  { value: 'client.updated', label: 'Client profile changes' },
+  { value: 'features.updated', label: 'Client feature changes' },
+  { value: 'access.updated', label: 'User access changes' },
+  { value: 'software.', label: 'Software (client installs, robot updates)' },
 ];
-
-const ACTION_LABEL: Record<string, string> = {
-  'auth.login': 'Signed in',
-  'auth.login_failed': 'Sign-in failed',
-  'auth.logout': 'Signed out',
-  'auth.password_changed': 'Changed password',
-  'auth.invite_accepted': 'Accepted invitation',
-  'access.denied': 'Request refused',
-  'user.created': 'Created user',
-  'user.invited': 'Invited user',
-  'user.updated': 'Updated user',
-  'user.deleted': 'Deleted user',
-  'user.restored': 'Restored user',
-  'grant.added': 'Granted role',
-  'grant.revoked': 'Revoked role',
-  'org.created': 'Created organization',
-  'org.updated': 'Updated organization',
-  'org.deleted': 'Deleted organization',
-  'org.restored': 'Restored organization',
-  'robot.assigned': 'Assigned robot',
-  'data.viewed': 'Opened recording',
-  'data.downloaded': 'Downloaded',
-  'data.deleted': 'Deleted recording',
-  'data.restored': 'Restored recording',
-  'hardware.updated': 'Edited hardware part',
-  'software.recorded': 'Recorded software update',
-  'credential.revealed': 'Revealed device credential',
-};
-
-/** One readable line for an entry's details. */
-function summary(e: AuditEntryDto): string {
-  const d = e.detail as Record<string, unknown>;
-  const s = (k: string) => (d[k] === undefined || d[k] === null ? '' : String(d[k]));
-  switch (e.action) {
-    case 'robot.assigned':
-      return `${e.robot_id}: ${s('from_company') || '—'} → ${s('to_company')}${d.revoked_robot_grants ? ` · ${s('revoked_robot_grants')} robot role(s) revoked` : ''}${s('reason') ? ` · ${s('reason')}` : ''}`;
-    case 'grant.added':
-    case 'grant.revoked':
-      return `${s('user_email')} · ${s('role')} @ ${d.scope_type === 'company' ? `organization ${e.company_name ?? s('scope_id')}` : `${s('scope_type')}${s('scope_id') ? ` ${s('scope_id')}` : ''}`}${s('reason') ? ` · ${s('reason')}` : ''}`;
-    case 'data.downloaded':
-      return `${s('file')}${d.restricted ? ' (restricted sensor data)' : ''}`;
-    case 'data.viewed':
-      return s('session_id');
-    case 'access.denied':
-      return `needs ${s('permission')} · ${s('method')} ${s('path')}`;
-    case 'auth.login_failed':
-      return s('reason');
-    case 'hardware.updated':
-      return `${s('part')}${d.slot ? ` ${s('slot')}` : ''}: ${Object.keys((d.changes as object) ?? {}).join(', ')}`;
-    case 'software.recorded': {
-      const to = (d.to ?? {}) as Record<string, unknown>;
-      return `software ${to.sw_ver ?? '—'} · firmware ${to.fw_ver ?? '—'}${s('note') ? ` · ${s('note')}` : ''}`;
-    }
-    case 'user.created':
-    case 'user.invited':
-    case 'user.updated':
-    case 'user.deleted':
-    case 'user.restored':
-      return [s('email'), s('organization'), s('credentials') || s('credentials_reissued'), d.is_active === false ? 'disabled' : d.is_active === true ? 'enabled' : '', d.password_reset ? 'password reset' : '']
-        .filter(Boolean)
-        .join(' · ');
-    case 'org.created':
-    case 'org.deleted':
-    case 'org.restored':
-      return s('name');
-    default:
-      return Object.keys(d).length ? JSON.stringify(d) : '';
-  }
-}
 
 export default function AuditPage() {
   useDocumentTitle('Audit log');
@@ -224,7 +160,7 @@ export default function AuditPage() {
                   },
                   { key: 'r', header: 'Robot', cell: (e) => (e.robot_id ? <span className="font-mono">{e.robot_id}</span> : <span className="text-muted">—</span>) },
                   { key: 'o', header: 'Organization', cell: (e) => e.company_name ?? <span className="text-muted">—</span> },
-                  { key: 'd', header: 'Details', className: 'max-w-md', cell: (e) => <span className="block truncate text-xs text-muted" title={JSON.stringify(e.detail)}>{summary(e)}</span> },
+                  { key: 'd', header: 'Details', className: 'max-w-md', cell: (e) => <span className="block truncate text-xs text-muted" title={JSON.stringify(e.detail)}>{auditSummary(e)}</span> },
                   { key: 'i', header: 'IP', cell: (e) => <span className="font-mono text-xs">{e.ip ?? '—'}</span> },
                 ]}
               />

@@ -3,6 +3,8 @@
  * only constants + the pure status function (not zod / the message validators).
  */
 export {
+  CLIENT_CREDENTIAL_KINDS,
+  CLIENT_STATUSES,
   CREDENTIAL_KINDS,
   DOCUMENT_TYPES,
   EVENT_SEVERITIES,
@@ -14,6 +16,7 @@ export {
   RELEASE_COMPONENTS,
   ROBOT_STATUSES,
   SCOPE_TYPES,
+  SOFTWARE_KINDS,
   STATUS_THRESHOLDS,
 } from '@arnobot/message-schema/constants';
 export { computeRobotStatus } from '@arnobot/message-schema/status';

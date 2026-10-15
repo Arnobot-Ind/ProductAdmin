@@ -4,6 +4,8 @@
  * Secrets NEVER appear in any of these types (CLAUDE.md rule 11).
  */
 import type {
+  ClientCredentialKind,
+  ClientStatus,
   CredentialKind,
   DocumentType,
   EventSeverity,
@@ -14,6 +16,7 @@ import type {
   ReleaseComponent,
   RobotStatus,
   ScopeType,
+  SoftwareKind,
 } from './constants';
 import type { GeoLineString } from './messages';
 
@@ -51,6 +54,17 @@ export interface MeDto {
   /** Signed in with a temporary password: the panel sends them to change it first. */
   must_change_password: boolean;
   grants: GrantDto[];
+  /** Customer users: client status and effective client-app features. null for Arnobot staff. */
+  client: MeClientDto | null;
+}
+export interface MeClientDto {
+  status: ClientStatus;
+  /** Effective feature keys (the user's ∩ the organization's, plus always-on ones). */
+  features: string[];
+  /** The organization's feature keys: the most a Manager can give one of its users. */
+  organization_features: string[];
+  /** Data older than this many days is hidden; null = all history. */
+  data_history_days: number | null;
 }
 export interface UserDto {
   id: string;
@@ -68,6 +82,8 @@ export interface UserDto {
   created_at: string;
   deleted_at: string | null;
   grants: GrantDto[];
+  /** Customer users: their own client-app feature keys (effective = these ∩ the organization's). null for Arnobot staff. */
+  features: string[] | null;
 }
 export interface RoleDto {
   id: string;
@@ -116,6 +132,8 @@ export interface OrganizationDto {
   user_count: number;
   created_at: string;
   deleted_at: string | null;
+  /** Customer organizations: client status and contract end (no profile yet = active). null for Arnobot. */
+  client: { status: ClientStatus; client_code: string | null; contract_end: string | null; software_count: number } | null;
 }
 export interface OrganizationRobotDto {
   robot_id: string;
@@ -127,6 +145,129 @@ export interface OrganizationRobotDto {
 export interface OrganizationDetailDto extends OrganizationDto {
   robots: OrganizationRobotDto[];
   users: UserDto[];
+  /** Customer organizations only (null for Arnobot): the client profile (defaults when none was saved yet). */
+  profile: ClientProfileDto | null;
+  /** Customer organizations: the client-app features it has (active company_features keys). */
+  features: string[];
+}
+
+// ── client admin (0021) ─────────────────────────────────────────────────────
+export interface UserRefDto {
+  id: string;
+  name: string;
+  email: string;
+}
+export interface ClientProfileDto {
+  company_id: string;
+  client_code: string | null;
+  status: ClientStatus;
+  legal_name: string | null;
+  industry: string | null;
+  phone: string | null;
+  address: string | null;
+  gstin: string | null;
+  billing_email: string | null;
+  account_manager: UserRefDto | null;
+  /** YYYY-MM-DD */
+  contract_start: string | null;
+  contract_end: string | null;
+  data_history_days: number | null;
+  /** null = no profile saved yet (the defaults are shown). */
+  updated_at: string | null;
+}
+export interface ClientFeatureDto {
+  key: string;
+  area: string;
+  name: string;
+  description: string;
+  kind: 'view' | 'export';
+  /** Everyone has it; cannot be removed. */
+  always_on: boolean;
+  /** Part of a new organization's starting set. */
+  is_default: boolean;
+  /** Keys that must be granted with this one. */
+  requires: string[];
+  sort_order: number;
+}
+export interface SoftwareProductDto {
+  id: string;
+  code: string;
+  name: string;
+  kind: SoftwareKind;
+  description: string | null;
+  latest_version: string | null;
+  /** Active installs across all clients. */
+  install_count: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+export type LicenceState = 'none' | 'valid' | 'expiring' | 'expired';
+export interface SoftwareInstallDto {
+  id: string;
+  company_id: string;
+  software: { id: string; code: string; name: string; kind: SoftwareKind; latest_version: string | null };
+  robot_id: string | null;
+  version: string;
+  /** The catalogue's latest version differs from the installed one. */
+  update_available: boolean;
+  host_label: string | null;
+  seats: number | null;
+  /** YYYY-MM-DD */
+  installed_at: string | null;
+  licence_valid_until: string | null;
+  /** expiring = within 30 days. */
+  licence_state: LicenceState;
+  /** Arnobot-only; never sent to the client app. */
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+/** What the client app shows: an install without Arnobot's notes. */
+export type ClientSoftwareDto = Omit<SoftwareInstallDto, 'notes' | 'company_id'>;
+export interface ClientCredentialDto {
+  id: string;
+  company_id: string;
+  kind: ClientCredentialKind;
+  label: string;
+  username: string | null;
+  url: string | null;
+  robot_id: string | null;
+  notes: string | null;
+  key_version: number;
+  created_at: string;
+  created_by_name: string | null;
+  rotated_from_id: string | null;
+  revoked_at: string | null;
+  revoke_reason: string | null;
+}
+export interface ClientCredentialRevealDto {
+  id: string;
+  kind: ClientCredentialKind;
+  label: string;
+  username: string | null;
+  secret: string;
+}
+/** A customer user's access, as their Manager or Arnobot sets it (PUT /users/:id/access). */
+export interface UserAccessDto {
+  user_id: string;
+  /** Manager or Viewer (null = no role yet: the user sees nothing). */
+  role_key: string | null;
+  /** all = every robot the organization owns, now and later; otherwise the chosen robots. */
+  robots: 'all' | string[];
+  /** The user's own feature keys. */
+  features: string[];
+  /** What the user ends up with: (features ∩ the organization's) ∪ always-on. */
+  effective_features: string[];
+}
+/** An event as the client app shows it: no raw payload, no acknowledging staff member. */
+export interface ClientEventDto {
+  id: string;
+  robot_id: string;
+  ts: string;
+  type: EventType;
+  severity: EventSeverity;
+  code: string | null;
+  message: string;
 }
 
 // ── audit log ───────────────────────────────────────────────────────────────

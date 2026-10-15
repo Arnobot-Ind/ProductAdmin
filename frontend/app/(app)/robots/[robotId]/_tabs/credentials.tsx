@@ -2,13 +2,14 @@
 
 import type { CredentialKind, CredentialMetaDto, CredentialRevealDto, IngestClientDto, IngestKeyIssuedDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, EyeOff, KeyRound, Lock, Plus, RefreshCw, ShieldX } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Eye, KeyRound, Lock, Plus, RefreshCw, ShieldX } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { OneTimeKey } from '@/components/domain/one-time-secret';
+import { REVEAL_SECONDS, RevealPanel, SecretInput } from '@/components/domain/secret';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
-import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/field';
-import { Badge, Card, CopyButton, EmptyState, InlineAlert, Mono, QueryView, Time } from '@/components/ui/misc';
+import { Checkbox, Field, Input, Select } from '@/components/ui/field';
+import { Badge, Card, EmptyState, InlineAlert, Mono, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api, errorMessage } from '@/lib/api';
@@ -28,8 +29,8 @@ export const CREDENTIAL_LABELS: Record<CredentialKind, string> = {
   gcs_api_token: 'GCS API token (GCS_API_TOKEN, server only)',
 };
 
-const REVEAL_SECONDS = 30;
 const isPerCamera = (k: CredentialKind) => PER_CAMERA_CREDENTIAL_KINDS.includes(k);
+const isMultiline = (k: CredentialKind | '') => k === 'ssh_public_key' || k === 'cloudflare';
 
 /**
  * Spec §3 row 6 / §10. Lists METADATA only. A secret is fetched only on an explicit, confirmed
@@ -74,7 +75,7 @@ export function CredentialsTab({ robotId }: { robotId: string }) {
         credential.reveal permission.
       </InlineAlert>
 
-      {revealed && <RevealPanel secret={revealed} onHide={() => setRevealed(null)} />}
+      {revealed && <RevealPanel title={CREDENTIAL_LABELS[revealed.kind]} username={revealed.username} secret={revealed.secret} onHide={() => setRevealed(null)} />}
 
       <Card
         title="Device credentials"
@@ -194,65 +195,6 @@ export function CredentialsTab({ robotId }: { robotId: string }) {
   );
 }
 
-function RevealPanel({ secret, onHide }: { secret: CredentialRevealDto; onHide: () => void }) {
-  const [left, setLeft] = useState(REVEAL_SECONDS);
-  const onHideRef = useRef(onHide);
-  onHideRef.current = onHide;
-  useEffect(() => {
-    setLeft(REVEAL_SECONDS);
-    const id = window.setInterval(() => {
-      setLeft((s) => {
-        if (s <= 1) {
-          window.clearInterval(id);
-          onHideRef.current();
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [secret]);
-  return (
-    <section aria-label="Revealed secret" className="rounded-lg border border-warn/50 bg-warn-bg p-4">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 font-semibold text-warn">
-          <KeyRound className="size-4" aria-hidden /> {CREDENTIAL_LABELS[secret.kind]}
-        </p>
-        <p className="text-xs text-fg" aria-live="off">
-          Hides in {left}s
-        </p>
-      </div>
-      {secret.username && (
-        <p className="mb-2 text-sm">
-          Username: <Mono>{secret.username}</Mono>
-        </p>
-      )}
-      <div className="flex flex-wrap items-start gap-2">
-        <code className="min-w-0 flex-1 rounded bg-surface px-2 py-1.5 font-mono text-sm break-all whitespace-pre-wrap select-all">{secret.secret}</code>
-        <CopyButton value={secret.secret} label="Copy secret" />
-        <Button size="sm" icon={<EyeOff className="size-4" aria-hidden />} onClick={onHide}>
-          Hide now
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function SecretInput({ value, onChange, kind }: { value: string; onChange: (v: string) => void; kind: CredentialKind | '' }) {
-  const [show, setShow] = useState(false);
-  if (kind === 'ssh_public_key' || kind === 'cloudflare') {
-    return <Textarea value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />;
-  }
-  return (
-    <div className="flex gap-2">
-      <Input type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="new-password" spellCheck={false} className="font-mono" />
-      <Button size="md" onClick={() => setShow((s) => !s)} aria-pressed={show} aria-label={show ? 'Hide secret' : 'Show secret'}>
-        {show ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
-      </Button>
-    </div>
-  );
-}
-
 function AddCredentialDialog({ robotId, open, onClose }: { robotId: string; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -341,7 +283,7 @@ function AddCredentialDialog({ robotId, open, onClose }: { robotId: string; open
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
         </Field>
         <Field label={kind === 'camera_rtsp_url' ? 'RTSP URL with credentials' : kind === 'gcs_api_token' ? 'Token' : 'Secret / password'} required className="sm:col-span-2">
-          <SecretInput value={secret} onChange={setSecret} kind={kind} />
+          <SecretInput value={secret} onChange={setSecret} multiline={isMultiline(kind)} />
         </Field>
         {error && (
           <p role="alert" className="text-sm font-medium text-fault sm:col-span-2">
@@ -397,7 +339,7 @@ function RotateDialog({ robotId, cred, onClose }: { robotId: string; cred: Crede
           <Input value={username} onChange={(e) => setUsername(e.target.value)} data-autofocus />
         </Field>
         <Field label="New secret" required>
-          <SecretInput value={secret} onChange={setSecret} kind={cred?.kind ?? ''} />
+          <SecretInput value={secret} onChange={setSecret} multiline={isMultiline(cred?.kind ?? '')} />
         </Field>
       </form>
     </Dialog>

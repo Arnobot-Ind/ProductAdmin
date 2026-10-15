@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  AppWindow,
   Bot,
   Building2,
   Boxes,
@@ -64,6 +65,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: 'Access',
     items: [
       { href: '/admin/organizations', label: 'Organizations', Icon: Building2, perm: 'org.manage' },
+      { href: '/admin/software', label: 'Software', Icon: AppWindow, perm: 'org.manage' },
       { href: '/admin/users', label: 'Users', Icon: Users, perm: 'user.manage' },
       { href: '/admin/access', label: 'Roles & permissions', Icon: ShieldCheck },
       { href: '/admin/audit', label: 'Audit log', Icon: ScrollText, perm: 'audit.read' },
