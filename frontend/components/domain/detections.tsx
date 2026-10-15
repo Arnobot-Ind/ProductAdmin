@@ -8,8 +8,9 @@
  */
 import type { DetectionItemDto, DetectionKind, DetectionListDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Clock, Flame, ImageOff, Leaf, MapPin, PawPrint, User, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Download, Flame, ImageOff, Leaf, MapPin, Maximize2, PawPrint, User, Users, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/field';
@@ -259,6 +260,7 @@ function DetectionViewer({
   onNext?: () => void;
 }) {
   const M = KIND_META[d.kind];
+  const [full, setFull] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' && onPrev) onPrev();
@@ -318,8 +320,13 @@ function DetectionViewer({
         <div className="relative overflow-hidden rounded-md bg-black">
           {d.image_url ? (
             // The robot draws the detector's boxes and labels into the snapshot itself.
-            // eslint-disable-next-line @next/next/no-img-element -- authenticated API image
-            <img key={d.id} src={d.image_url} alt={`${title(d)} seen by ${camLabel(d.camera)}`} className="block h-auto max-h-[65vh] w-full object-contain" />
+            <button type="button" onClick={() => setFull(true)} className="group block w-full cursor-zoom-in" aria-label="View the image full size">
+              {/* eslint-disable-next-line @next/next/no-img-element -- authenticated API image */}
+              <img key={d.id} src={d.image_url} alt={`${title(d)} seen by ${camLabel(d.camera)}`} className="block h-auto max-h-[65vh] w-full object-contain" />
+              <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-md bg-black/65 px-2 py-1 text-xs font-medium text-white opacity-90 group-hover:opacity-100">
+                <Maximize2 className="size-3.5" aria-hidden /> Full size
+              </span>
+            </button>
           ) : (
             <span className="flex aspect-[4/3] flex-col items-center justify-center gap-2 text-sm text-white/70">
               <ImageOff className="size-8" aria-hidden />
@@ -335,12 +342,53 @@ function DetectionViewer({
             </div>
           ))}
           {d.image_url && (
-            <a href={d.image_url} target="_blank" rel="noreferrer" className="mt-1 text-sm font-medium text-accent-text hover:underline">
-              Open full-size image ↗
-            </a>
+            <Button size="sm" onClick={() => setFull(true)} icon={<Maximize2 className="size-4" aria-hidden />} className="mt-1 self-start">
+              View full size
+            </Button>
           )}
         </dl>
       </div>
+      {full && d.image_url && <FullImage src={d.image_url} title={title(d)} subtitle={`${camLabel(d.camera)} · ${fmtWhen(d.detected_at)} IST`} onClose={() => setFull(false)} />}
     </Dialog>
+  );
+}
+
+/**
+ * The snapshot over the whole screen, inside the app: a bar with what it is, Download and Close; Esc or a click on
+ * the dark backdrop closes it and returns to the detection. Esc is caught before the dialog underneath sees it.
+ */
+function FullImage({ src, title, subtitle, onClose }: { src: string; title: string; subtitle: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label={`${title}, full size`} className="fixed inset-0 z-[60] flex flex-col bg-black">
+      <div className="flex items-center gap-3 px-4 py-3 text-white">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{title}</p>
+          <p className="truncate text-xs text-white/70">{subtitle}</p>
+        </div>
+        <a href={src} download className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/25 px-3 text-sm hover:bg-white/10">
+          <Download className="size-4" aria-hidden /> Download
+        </a>
+        <button type="button" onClick={onClose} autoFocus className="inline-flex h-9 items-center gap-1.5 rounded-md bg-white px-3 text-sm font-semibold text-black hover:bg-white/90">
+          <X className="size-4" aria-hidden /> Close
+        </button>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- authenticated API image */}
+        <img src={src} alt={title} className="max-h-full max-w-full object-contain" />
+      </div>
+      <p className="pb-3 text-center text-xs text-white/60">Esc or click outside the image to close</p>
+    </div>,
+    document.body,
   );
 }
