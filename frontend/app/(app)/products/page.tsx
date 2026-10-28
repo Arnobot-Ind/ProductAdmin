@@ -27,7 +27,7 @@ export default function ProductsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Catalogue"
+        eyebrow="Hardware & software"
         title="Products"
         description="Products are defined once; every robot points to one product. New products are added as data, with no code change. The product code prefixes every Robot ID and is permanent."
         actions={

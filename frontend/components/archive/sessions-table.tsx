@@ -53,7 +53,7 @@ export function SessionsTable({ sessions, showRobot, caption, empty }: { session
               <span className="flex flex-wrap gap-1">
                 {s.trip && <span className="text-xs text-muted">{s.trip}</span>}
                 {s.simulated && (
-                  <Badge tone="warn" className="px-1.5 py-0 text-[10px]">
+                  <Badge tone="warn" className="px-1.5 py-0 text-xs">
                     Simulated
                   </Badge>
                 )}
@@ -109,7 +109,12 @@ export function SessionsTable({ sessions, showRobot, caption, empty }: { session
 export function RobotLinkPanel({ link }: { link: ArchiveRobotLinkDto | null }) {
   const now = useNow(5000);
   if (!link || (!link.last_seen_at && !link.last_upload_at)) {
-    return <p className="text-sm text-muted">This robot has not uploaded any video yet. Once cloud_sync runs with its ingest key, recordings appear here.</p>;
+    return (
+      <p className="text-sm text-muted">
+        No status from this robot&apos;s uploader yet. Once its uploader (cloud_sync, or cloud_upload on the duct-cleaning Pi) runs with this robot&apos;s ingest key, its status and recordings appear
+        here.
+      </p>
+    );
   }
   const heartbeatAge = link.last_seen_at ? now - Date.parse(link.last_seen_at) : Infinity;
   const stale = heartbeatAge > 5 * 60_000;
@@ -131,7 +136,22 @@ export function RobotLinkPanel({ link }: { link: ArchiveRobotLinkDto | null }) {
             · recording <span className="font-mono">{link.recording_session_id}</span>
           </>
         )}
-        {!stale && (link.pending_files > 0 ? ` · ${link.pending_files} file(s), ${fmtBytes(link.pending_bytes)} waiting to upload` : ' · nothing waiting to upload')}
+        {!stale && link.uploader_online === false && <span className="text-warn"> · uploader cannot reach the server</span>}
+        {!stale && link.uploading_session_id && (
+          <>
+            {' '}
+            · uploading <span className="font-mono">{link.uploading_session_id}</span>
+          </>
+        )}
+        {/* cloud_upload.py (duct-cleaning Pi) counts whole recordings; cloud_sync counts files and bytes. */}
+        {!stale &&
+          (link.pending_sessions !== null
+            ? link.pending_sessions > 0
+              ? ` · ${link.pending_sessions} recording(s) waiting to upload`
+              : ' · nothing waiting to upload'
+            : link.pending_files > 0
+              ? ` · ${link.pending_files} file(s), ${fmtBytes(link.pending_bytes)} waiting to upload`
+              : ' · nothing waiting to upload')}
       </p>
       {!stale &&
         link.alerts.map((a, i) => (

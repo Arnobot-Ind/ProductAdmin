@@ -16,6 +16,7 @@ import type {
   MissionFileKind,
   MissionState,
   ReleaseComponent,
+  RobotLogKind,
   RobotStatus,
   ScopeType,
   SoftwareKind,
@@ -912,6 +913,12 @@ export interface ArchiveRobotLinkDto {
   recording_session_id: string | null;
   pending_files: number;
   pending_bytes: number;
+  /** Sessions waiting to upload, when the uploader counts whole sessions (the duct-cleaning Pi's cloud_upload.py). */
+  pending_sessions: number | null;
+  /** Session being uploaded right now, when the uploader says so. */
+  uploading_session_id: string | null;
+  /** Whether the uploader reached the server on its last round (cloud_upload.py), null if not reported. */
+  uploader_online: boolean | null;
   alerts: ArchiveAlertDto[];
   /** A file was stored in the last 2 minutes. */
   sending_data: boolean;
@@ -1196,4 +1203,24 @@ export interface DetectionListDto extends Paginated<DetectionItemDto> {
   cameras: string[];
   /** First and last detection of the robot the user may see (any period): where the data is. */
   available: { first: string; last: string } | null;
+}
+
+// ── robot activity log ─────────────────────────────────────────────────────
+/** One line of a robot's activity log; `level` is an event severity, or ok / warning / critical / info for the rest. */
+export interface RobotLogEntryDto {
+  ts: string | null;
+  kind: RobotLogKind;
+  level: string;
+  title: string;
+  body: string | null;
+  /** ID of the source row (event, mission, document, …). */
+  ref: string;
+  /** Who did it, when known (audit entries), or "acknowledged" for events. */
+  actor: string | null;
+}
+export interface RobotLogDto extends Paginated<RobotLogEntryDto> {
+  /** Entries per kind for the current date / text filters. */
+  counts: Partial<Record<RobotLogKind, number>>;
+  /** Kinds this user may see (raw messages and audit entries need extra permissions). */
+  available: RobotLogKind[];
 }

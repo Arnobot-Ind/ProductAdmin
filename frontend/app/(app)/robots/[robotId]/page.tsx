@@ -28,30 +28,73 @@ import { DocumentsTab } from './_tabs/documents';
 import { HardwareTab } from './_tabs/hardware';
 import { MaintenanceTab } from './_tabs/maintenance';
 import { RobotEventsTab, RobotMissionsTab } from './_tabs/lists';
-import { OverviewTab } from './_tabs/overview';
+import { HealthTab, LocationTab, MissionStatsCard, OverviewTab, RobotMonthCharts } from './_tabs/overview';
+import { RobotLogTab } from './_tabs/log';
 import { OwnershipTab } from './_tabs/ownership';
 import { SoftwareTab } from './_tabs/software';
 import { TelemetryTab } from './_tabs/telemetry';
 import { VideosTab } from './_tabs/videos';
 import { DataActivityBadge } from '@/components/archive/badges';
 
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'videos', label: 'Videos' },
-  { id: 'detections', label: 'Detections' },
-  { id: 'telemetry', label: 'Sensor history' },
-  { id: 'missions', label: 'Missions' },
-  { id: 'events', label: 'Events' },
-  { id: 'hardware', label: 'Hardware' },
-  { id: 'software', label: 'Software' },
-  { id: 'connectivity', label: 'Connectivity' },
-  { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
-  { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'dispatch', label: 'Dispatch & warranty' },
-  { id: 'maintenance', label: 'Maintenance' },
-  { id: 'ownership', label: 'Ownership' },
-] as const;
+/**
+ * The robot record in five sections, each with a few views (?tab= keeps the view's id, so old links still work).
+ * Status = what it is doing now; Recordings = what it captured; Hardware / Software = how it is built;
+ * Records = paperwork and history; Logs = everything above in one timeline.
+ */
+const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; perm?: string }[] }[] = [
+  {
+    id: 'status',
+    label: 'Live status',
+    tabs: [
+      { id: 'overview', label: 'Summary' },
+      { id: 'location', label: 'Location' },
+      { id: 'health', label: 'Health' },
+      { id: 'telemetry', label: 'Sensor history' },
+      { id: 'connectivity', label: 'Connectivity' },
+    ],
+  },
+  {
+    id: 'recordings',
+    label: 'Recordings',
+    tabs: [
+      { id: 'videos', label: 'Videos' },
+      { id: 'detections', label: 'Detections' },
+      { id: 'missions', label: 'Missions' },
+      { id: 'events', label: 'Events' },
+    ],
+  },
+  {
+    id: 'hardware',
+    label: 'Hardware',
+    tabs: [
+      { id: 'hardware', label: 'Parts fitted' },
+      { id: 'maintenance', label: 'Maintenance' },
+      { id: 'dispatch', label: 'Dispatch & warranty' },
+    ],
+  },
+  {
+    id: 'software',
+    label: 'Software',
+    tabs: [
+      { id: 'software', label: 'Installed software' },
+      { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
+      { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
+    ],
+  },
+  {
+    id: 'records',
+    label: 'Records',
+    tabs: [
+      { id: 'documents', label: 'Documents' },
+      { id: 'ownership', label: 'Ownership' },
+    ],
+  },
+  {
+    id: 'logs',
+    label: 'Logs',
+    tabs: [{ id: 'log', label: 'Activity log' }],
+  },
+];
 
 export default function RobotDetailPage() {
   const { robotId } = useParams<{ robotId: string }>();
@@ -68,9 +111,11 @@ export default function RobotDetailPage() {
 function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const can = useCan();
   const [params, setParams] = useUrlState();
-  const tabs = TABS.filter((t) => !('perm' in t) || can(t.perm));
+  const sections = SECTIONS.map((sec) => ({ ...sec, tabs: sec.tabs.filter((t) => !t.perm || can(t.perm)) })).filter((sec) => sec.tabs.length);
   const requested = params.get('tab') ?? 'overview';
-  const tab = tabs.some((t) => t.id === requested) ? requested : 'overview';
+  const tab = sections.some((sec) => sec.tabs.some((t) => t.id === requested)) ? requested : 'overview';
+  const section = sections.find((sec) => sec.tabs.some((t) => t.id === tab))!;
+  const openTab = (id: string) => setParams({ tab: id === 'overview' ? null : id });
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const qc = useQueryClient();
@@ -89,43 +134,43 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
+      <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted">
         <Link href="/robots" className="hover:underline">
           Robots
         </Link>{' '}
         / <span aria-current="page">{robot.robot_id}</span>
       </nav>
 
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-mono text-2xl font-bold">{robot.robot_id}</h1>
+            <h1 className="font-mono text-3xl font-bold">{robot.robot_id}</h1>
             <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
             <DataActivityBadge lastSeenAt={robot.last_seen_at} lastUploadAt={robot.last_upload_at} sendingData={robot.sending_data} recording={robot.recording} />
             {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
           </div>
-          <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <div className="flex gap-1.5">
-              <dt className="text-muted">Product</dt>
-              <dd>{robot.product_name}</dd>
+          <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-5">
+            <div className="min-w-0">
+              <dt className="text-sm text-muted">Product</dt>
+              <dd className="mt-0.5 font-semibold">{robot.product_name}</dd>
             </div>
-            <div className="flex gap-1.5">
-              <dt className="text-muted">Revision</dt>
-              <dd>{robot.hardware_revision ?? 'Not set'}</dd>
+            <div className="min-w-0">
+              <dt className="text-sm text-muted">Revision</dt>
+              <dd className="mt-0.5 font-semibold">{robot.hardware_revision ?? 'Not set'}</dd>
             </div>
-            <div className="flex gap-1.5">
-              <dt className="text-muted">Serial</dt>
-              <dd>
+            <div className="min-w-0">
+              <dt className="text-sm text-muted">Serial</dt>
+              <dd className="mt-0.5">
                 <Mono>{robot.serial_number}</Mono>
               </dd>
             </div>
-            <div className="flex gap-1.5">
-              <dt className="text-muted">Owner</dt>
-              <dd>{robot.owner_company ?? '—'}</dd>
+            <div className="min-w-0">
+              <dt className="text-sm text-muted">Owner</dt>
+              <dd className="mt-0.5 font-semibold">{robot.owner_company ?? '—'}</dd>
             </div>
-            <div className="flex gap-1.5">
-              <dt className="text-muted">Current mission</dt>
-              <dd>
+            <div className="min-w-0">
+              <dt className="text-sm text-muted">Current mission</dt>
+              <dd className="mt-0.5 font-semibold">
                 {robot.current_mission_id ? (
                   <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
                     {robot.current_mission_name ?? robot.current_mission_id}
@@ -137,7 +182,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
             </div>
           </dl>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 empty:hidden">
           {can('robot.write') && !robot.deleted_at && (
             <Button icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
               Edit
@@ -162,13 +207,39 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         </div>
       )}
 
-      <Tabs label="Robot record sections" items={tabs.map((t) => ({ id: t.id, label: t.label }))} value={tab} onChange={(id) => setParams({ tab: id === 'overview' ? null : id })} />
-      <TabPanel id={tab}>
+      <Tabs label="Robot record sections" items={sections.map((sec) => ({ id: sec.id, label: sec.label }))} value={section.id} onChange={(id) => openTab(sections.find((sec) => sec.id === id)!.tabs[0].id)} />
+      {section.tabs.length > 1 && (
+        <div role="group" aria-label={`${section.label} views`} className="mt-4 flex flex-wrap gap-2">
+          {section.tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              aria-pressed={t.id === tab}
+              onClick={() => openTab(t.id)}
+              className={cn(
+                'rounded-full border px-4 py-1.5 text-sm font-medium',
+                t.id === tab ? 'border-accent bg-accent-soft text-accent-text' : 'border-border bg-surface text-muted hover:border-accent/50 hover:text-fg',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <TabPanel id={section.id} className="pt-5">
         {tab === 'overview' && <OverviewTab robot={robot} />}
+        {tab === 'location' && <LocationTab robot={robot} />}
+        {tab === 'health' && <HealthTab robot={robot} />}
         {tab === 'videos' && <VideosTab robotId={robot.robot_id} />}
         {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="staff" />}
         {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
-        {tab === 'missions' && <RobotMissionsTab robotId={robot.robot_id} />}
+        {tab === 'missions' && (
+          <div className="flex flex-col gap-6">
+            <MissionStatsCard robot={robot} />
+            <RobotMonthCharts robotId={robot.robot_id} />
+            <RobotMissionsTab robotId={robot.robot_id} />
+          </div>
+        )}
         {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} />}
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
@@ -179,6 +250,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
         {tab === 'maintenance' && <MaintenanceTab robotId={robot.robot_id} />}
         {tab === 'ownership' && <OwnershipTab robotId={robot.robot_id} />}
+        {tab === 'log' && <RobotLogTab robotId={robot.robot_id} />}
       </TabPanel>
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />

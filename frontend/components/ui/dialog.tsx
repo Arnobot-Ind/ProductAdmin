@@ -61,11 +61,15 @@ export function Dialog({
       }
     };
     document.addEventListener('keydown', onKey);
-    const overflow = document.body.style.overflow;
+    // Lock page scrolling; pad by the scrollbar's width so the page behind does not shift sideways.
+    const { overflow, paddingRight } = document.body.style;
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
     document.body.style.overflow = 'hidden';
+    if (scrollbar > 0) document.body.style.paddingRight = `${scrollbar}px`;
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = overflow;
+      document.body.style.paddingRight = paddingRight;
       previous?.focus?.();
     };
   }, [open]);

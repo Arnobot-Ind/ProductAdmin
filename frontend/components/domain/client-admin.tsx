@@ -91,7 +91,7 @@ export function FeatureChecklist({
     <div className="grid gap-4 sm:grid-cols-2">
       {areas.map((area) => (
         <fieldset key={area} className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <legend className="px-1 text-xs font-semibold tracking-wide text-muted uppercase">{area}</legend>
+          <legend className="px-1 text-sm font-semibold text-muted">{area}</legend>
           {catalogue
             .filter((f) => f.area === area)
             .map((f) => {

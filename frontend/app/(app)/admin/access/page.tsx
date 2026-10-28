@@ -80,10 +80,10 @@ export default function AccessPage() {
                       <th scope="col" className="sticky left-0 z-10 bg-surface-2 px-3 py-2 text-left font-semibold">
                         Permission
                       </th>
-                      <th colSpan={staff.length} scope="colgroup" className="border-l border-border px-3 pt-2 text-center text-xs font-semibold tracking-wide text-muted uppercase">
+                      <th colSpan={staff.length} scope="colgroup" className="border-l border-border px-3 pt-2 text-center text-sm font-semibold text-muted">
                         Arnobot only
                       </th>
-                      <th colSpan={customer.length} scope="colgroup" className="border-l border-border px-3 pt-2 text-center text-xs font-semibold tracking-wide text-muted uppercase">
+                      <th colSpan={customer.length} scope="colgroup" className="border-l border-border px-3 pt-2 text-center text-sm font-semibold text-muted">
                         Arnobot or customer
                       </th>
                     </tr>
@@ -104,7 +104,7 @@ export default function AccessPage() {
                   {groups.map((g) => (
                     <tbody key={g.title}>
                       <tr className="border-t border-border bg-surface-2/50">
-                        <th scope="rowgroup" colSpan={roles.length + 1} className="sticky left-0 px-3 py-1.5 text-left text-xs font-semibold tracking-wide text-muted uppercase">
+                        <th scope="rowgroup" colSpan={roles.length + 1} className="sticky left-0 px-3 py-1.5 text-left text-sm font-semibold text-muted">
                           {g.title}
                         </th>
                       </tr>

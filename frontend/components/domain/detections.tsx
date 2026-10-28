@@ -230,7 +230,7 @@ function DetectionCard({ d, onOpen }: { d: DetectionItemDto; onOpen: () => void 
             <Badge tone="neutral">False positive</Badge>
           </span>
         )}
-        <span className="absolute right-2 bottom-2 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-semibold text-white">{camLabel(d.camera)}</span>
+        <span className="absolute right-2 bottom-2 rounded bg-black/65 px-1.5 py-0.5 text-xs font-semibold text-white">{camLabel(d.camera)}</span>
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
         <span className="inline-flex items-center gap-1 tabular-nums text-fg" title={d.time_estimated ? 'Approximate time: the robot clock was not synced' : undefined}>
@@ -337,7 +337,7 @@ function DetectionViewer({
         <dl className="flex flex-col gap-3 text-sm">
           {facts.map(([label, value]) => (
             <div key={label}>
-              <dt className="text-xs font-medium tracking-wide text-muted uppercase">{label}</dt>
+              <dt className="text-sm font-medium text-muted">{label}</dt>
               <dd className="mt-0.5 break-words">{value}</dd>
             </div>
           ))}

@@ -31,7 +31,7 @@ export default function IngestPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Platform"
+        eyebrow="System"
         title="Ingest"
         description="Messages pushed by robots and the GCS to the ingest service. Every message is stored exactly once (by msg_id); rejected input is kept for diagnosis."
       />
@@ -193,4 +193,3 @@ function RejectionsTab() {
     </div>
   );
 }
-

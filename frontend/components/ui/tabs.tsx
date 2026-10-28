@@ -46,7 +46,7 @@ export function Tabs({ items, value, onChange, label }: { items: TabItem[]; valu
             onClick={() => onChange(t.id)}
             onKeyDown={(e) => onKey(e, i)}
             className={cn(
-              '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap',
+              '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-4 py-3 text-base font-medium whitespace-nowrap',
               selected ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg',
             )}
           >
@@ -61,7 +61,7 @@ export function Tabs({ items, value, onChange, label }: { items: TabItem[]; valu
 
 export function TabPanel({ id, children, className }: { id: string; children: ReactNode; className?: string }) {
   return (
-    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className={cn('pt-5 outline-none', className)}>
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className={cn('pt-6 outline-none', className)}>
       {children}
     </div>
   );

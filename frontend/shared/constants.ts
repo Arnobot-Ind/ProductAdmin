@@ -75,6 +75,10 @@ export const DOCUMENT_TYPES = [
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+/** Sources merged into a robot's activity log (GET /robots/:robotId/log), in filter-chip order. */
+export const ROBOT_LOG_KINDS = ['event', 'mission', 'hardware', 'maintenance', 'software', 'ownership', 'document', 'audit', 'rejection', 'message'] as const;
+export type RobotLogKind = (typeof ROBOT_LOG_KINDS)[number];
+
 /** Spec §9. */
 export const RELEASE_COMPONENTS = ['software', 'firmware'] as const;
 export type ReleaseComponent = (typeof RELEASE_COMPONENTS)[number];
