@@ -1,0 +1,90 @@
+# Deploys the backend to the production server (EC2, see backend/deploy/README.md) on every push to this branch.
+# Same steps as the README's "Update": database backup, pull backend + storage, migrate, build, pm2 restart,
+# health check. If the new version does not come up healthy, the previous commit is rebuilt and restarted.
+#
+# One-time setup: repo → Settings → Secrets and variables → Actions → New repository secret
+#   EC2_SSH_KEY  the private key (.pem contents) that logs in to the server
+#   EC2_USER     optional, defaults to ubuntu
+# Without EC2_SSH_KEY the run is skipped (not failed).
+name: Deploy backend
+
+on:
+  push:
+    branches: [backend]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  HOST: 43.204.46.19
+  # The server's own key, so the deploy only ever talks to this server.
+  HOST_KEY: 43.204.46.19 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBynpqR5PkP/QjqdCy7WXs9h4FSxbj1z8TGosNvif13J
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSH_KEY" ]; then
+            echo "::notice::EC2_SSH_KEY secret is not set: deploy skipped. See the comment at the top of this workflow."
+            exit 0
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          echo "$HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o ConnectTimeout=20 "${SSH_USER:-ubuntu}@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          # nvm installs of node / pm2 are not on a non-interactive shell's PATH.
+          [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+          cd /opt/productadmin
+          health() {
+            for i in $(seq 1 30); do
+              curl -fsS -m 3 http://127.0.0.1:4000/api/health >/dev/null 2>&1 && return 0
+              sleep 2
+            done
+            return 1
+          }
+          build_and_restart() {
+            (cd backend/backend && npm ci --no-audit --no-fund && npm run build)
+            pm2 restart productadmin-backend --update-env
+          }
+
+          if [ -n "$(git -C backend status --porcelain --untracked-files=no)" ]; then
+            echo "::error::/opt/productadmin/backend has local edits; deploy stopped so they are not lost."
+            git -C backend status --short --untracked-files=no
+            exit 1
+          fi
+          PREV=$(git -C backend rev-parse HEAD)
+          git -C backend fetch -q origin backend
+          git -C storage fetch -q origin storage
+          NEW=$(git -C backend rev-parse origin/backend)
+          echo "backend: $(git -C backend rev-parse --short $PREV) -> $(git -C backend rev-parse --short $NEW)"
+
+          F=backups/arnobot_pms-pre-$(git -C backend rev-parse --short $NEW)-$(date -u +%Y%m%d%H%M).dump
+          pg_dump -d "$(grep ^DATABASE_URL= storage/storage/.env | cut -d= -f2-)" -Fc -f "$F"
+          echo "database backup: $F"
+
+          git -C storage merge --ff-only -q origin/storage
+          (cd storage/storage && npm ci --no-audit --no-fund && npm run db:migrate)
+          git -C backend merge --ff-only -q origin/backend
+          build_and_restart
+
+          if health; then
+            echo "Deployed $(git -C backend log -1 --format='%h %s')"
+            exit 0
+          fi
+          echo "::error::New version is not healthy: rolling back to $(git -C backend rev-parse --short $PREV)"
+          pm2 logs productadmin-backend --lines 40 --nostream || true
+          git -C backend checkout -q "$PREV"
+          build_and_restart
+          health && echo "Rolled back; the previous version is running." || echo "::error::Rollback is not healthy either: check the server."
+          exit 1
+          REMOTE
