@@ -332,7 +332,10 @@ export class ArchiveService {
     const fresh = r.last_seen_at !== null && now - r.last_seen_at.getTime() < HEARTBEAT_FRESH_MS;
     const status = fresh ? (r.last_status ?? {}) : {};
     const session = status.session as { session_id?: unknown } | null | undefined;
-    const alerts = Array.isArray(status.alerts) ? (status.alerts as Record<string, unknown>[]) : [];
+    // cloud_sync sends alerts as { code, severity, message }; the duct-cleaning Pi's cloud_upload.py as plain text.
+    const alerts = (Array.isArray(status.alerts) ? status.alerts : []).map((a): Record<string, unknown> =>
+      typeof a === 'string' ? { code: null, severity: 'warning', message: a } : a && typeof a === 'object' ? (a as Record<string, unknown>) : {},
+    );
     return {
       robot_id: robotId,
       last_seen_at: iso(r.last_seen_at),
@@ -340,6 +343,10 @@ export class ArchiveService {
       recording_session_id: typeof session?.session_id === 'string' ? session.session_id : null,
       pending_files: Number(status.pending_files) || 0,
       pending_bytes: Number(status.pending_bytes) || 0,
+      // cloud_upload.py (duct-cleaning Pi) counts whole sessions and names the one it is sending.
+      pending_sessions: typeof status.pending_sessions === 'number' ? status.pending_sessions : null,
+      uploading_session_id: typeof status.uploading === 'string' ? status.uploading : null,
+      uploader_online: typeof status.online === 'boolean' ? status.online : null,
       alerts: alerts.map((a) => ({
         code: typeof a.code === 'string' ? a.code : null,
         severity: typeof a.severity === 'string' ? a.severity : null,

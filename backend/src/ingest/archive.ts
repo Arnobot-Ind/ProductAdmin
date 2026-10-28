@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context';
-import { classify, COMPLETE_FILE, contentTypeFor, META_FILES, parseSessionKey, SESSION_FILE } from '../services/archive/keys';
+import { classify, COMPLETE_FILE, contentTypeFor, META_FILES, parseSessionKey, robotForFolder, SESSION_FILE } from '../services/archive/keys';
 import { IngestAuth, type IngestClient } from './auth';
 
 const MAX_EVENTS = 500;
@@ -79,9 +79,12 @@ export function archiveIngestRoutes(app: FastifyInstance, ctx: AppContext, paths
       if (file.kind === 'meta' && !META_FILES.has(parsed.name)) {
         return drain(), sendError(reply, 400, 'bad_key', `Not a session file: ${parsed.name} (expected video, LiDAR, IMU or ${[...META_FILES].join(', ')})`);
       }
-      if (!c.robotIds.has(parsed.robotId)) return drain(), sendError(reply, 403, 'robot_not_allowed', `this key may not upload for ${parsed.robotId}`, { key });
-      if (!(await archive.registered([parsed.robotId])).has(parsed.robotId)) {
-        return drain(), sendError(reply, 404, 'unknown_robot', `robot ${parsed.robotId} is not registered in the PMS (or is deleted)`);
+      // An aliased folder (ARCHIVE_ROBOT_ALIASES) uploads for its registered robot: the key and the index use that robot,
+      // the file keeps the folder it was sent under (so it sits with that robot's earlier files in the bucket).
+      const robotId = robotForFolder(parsed.robotId, archive.cfg.robotAliases);
+      if (!c.robotIds.has(robotId)) return drain(), sendError(reply, 403, 'robot_not_allowed', `this key may not upload for ${robotId}`, { key });
+      if (!(await archive.registered([robotId])).has(robotId)) {
+        return drain(), sendError(reply, 404, 'unknown_robot', `robot ${robotId} is not registered in the PMS (or is deleted)`);
       }
 
       const want = String(req.headers['x-content-sha256'] ?? '').trim().toLowerCase();
@@ -96,7 +99,7 @@ export function archiveIngestRoutes(app: FastifyInstance, ctx: AppContext, paths
         drain();
         return { key, size: prev.size, duplicate: true };
       }
-      if (await archive.sessionComplete(parsed.robotId, parsed.sim, parsed.sessionId)) {
+      if (await archive.sessionComplete(robotId, parsed.sim, parsed.sessionId)) {
         return drain(), sendError(reply, 409, 'session_complete', 'Session is complete: its files can no longer change', { key });
       }
       if (prev?.sha256 && parsed.name !== SESSION_FILE) {
@@ -147,7 +150,7 @@ export function archiveIngestRoutes(app: FastifyInstance, ctx: AppContext, paths
         }
       }
       await archive.record(
-        [{ key, robotId: parsed.robotId, sim: parsed.sim, sessionId: parsed.sessionId, file, size, sha256: got, manifest, uploadedAt: new Date() }],
+        [{ key, robotId, sim: parsed.sim, sessionId: parsed.sessionId, file, size, sha256: got, manifest, uploadedAt: new Date() }],
         true,
       );
       if (file.name === COMPLETE_FILE) req.log.info({ key }, 'archive session complete');

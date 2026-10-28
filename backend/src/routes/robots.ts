@@ -14,7 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import type { AppContext } from '../context';
-import { badRequest, conflict, notFound } from '../lib/errors';
+import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { anyScope, platform, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { includeDeleted, isoDate, isoDateTime, nullableText, pageQuery, uuidSchema } from '../lib/validation';
@@ -34,6 +34,8 @@ const registerBody = z.object({
   product_id: uuidSchema,
   hardware_revision_id: uuidSchema.nullable().optional(),
   notes: nullableText(2000).optional(),
+  /** Owner from the start; omitted = Arnobot. A customer owner needs ownership.write as well as robot.write. */
+  company_id: uuidSchema.nullable().optional(),
 });
 const patchBody = z
   .object({
@@ -137,14 +139,36 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.write', target: platform() },
     body: registerBody,
     status: 201,
-    handler: ({ body, user }): Promise<RobotRegisteredDto> =>
+    handler: ({ body, user, req }): Promise<RobotRegisteredDto> =>
       withTransaction(db, async (tx) => {
+        // An owner chosen at registration opens the robot's first ownership period directly (no Arnobot period first).
+        let owner: { id: string; name: string; kind: string } | null = null;
+        if (body.company_id) {
+          owner = (await tx.query<{ id: string; name: string; kind: string }>('SELECT id, name, kind FROM companies WHERE id = $1 AND deleted_at IS NULL', [body.company_id])).rows[0] ?? null;
+          if (!owner) throw notFound('organization');
+          if (owner.kind !== 'internal' && !(await app.perms.can(user, 'ownership.write', { type: 'platform' }))) throw forbidden('requires ownership.write to register a robot for a customer');
+        }
         const reg = await registerRobot(tx, {
           productId: body.product_id,
           hardwareRevisionId: body.hardware_revision_id ?? null,
           notes: body.notes ?? null,
+          companyId: owner?.id ?? null,
           createdBy: user.id,
         });
+        if (owner && owner.kind !== 'internal') {
+          await app.audit.record(
+            {
+              action: 'robot.assigned',
+              actor: user,
+              target: { type: 'robot', id: reg.robotId },
+              robotId: reg.robotId,
+              companyId: owner.id,
+              detail: { from_company_id: null, from_company: null, to_company: owner.name, valid_from: new Date().toISOString(), reason: 'Registered', revoked_robot_grants: 0 },
+              req,
+            },
+            tx,
+          );
+        }
         return { robot: await robots.detail(reg.robotId, tx), ingest_key: reg.ingestKey, ingest_client_id: reg.ingestClientId };
       }),
   });
