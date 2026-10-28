@@ -21,6 +21,7 @@ import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 import { ConnectivityTab } from './_tabs/connectivity';
 import { DetectionsTab } from '@/components/domain/detections';
+import { IngestClientsPanel } from '@/components/domain/ingest-clients';
 import { CredentialsTab } from './_tabs/credentials';
 import { DispatchTab } from './_tabs/dispatch';
 import { DocumentsTab } from './_tabs/documents';
@@ -45,6 +46,7 @@ const TABS = [
   { id: 'software', label: 'Software' },
   { id: 'connectivity', label: 'Connectivity' },
   { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
+  { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
   { id: 'documents', label: 'Documents' },
   { id: 'dispatch', label: 'Dispatch & warranty' },
   { id: 'maintenance', label: 'Maintenance' },
@@ -168,6 +170,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
         {tab === 'missions' && <RobotMissionsTab robotId={robot.robot_id} />}
         {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} />}
+        {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
         {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
         {tab === 'connectivity' && <ConnectivityTab robotId={robot.robot_id} />}
