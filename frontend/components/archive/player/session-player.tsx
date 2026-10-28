@@ -99,7 +99,7 @@ export function SessionPlayer({ start, end, cameras, initialTime }: { start: num
                       onClick={() => setSelected(c.name)}
                       title={`Show ${c.name} (${i + 1})`}
                       aria-pressed={c.name === selected}
-                      className={cn('rounded px-2 py-1 font-mono text-[11px]', c.name === selected ? 'bg-white/15 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white')}
+                      className={cn('rounded px-2 py-1 font-mono text-xs', c.name === selected ? 'bg-white/15 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white')}
                     >
                       {c.name}
                     </button>

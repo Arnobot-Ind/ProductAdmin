@@ -82,7 +82,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
             <FastForward className="size-4" aria-hidden />
           </button>
         </div>
-        <div className="font-mono text-[13px] text-white tabular-nums">
+        <div className="font-mono text-sm text-white tabular-nums">
           {new Date(time).toLocaleDateString()} {fmtClock(time)}
         </div>
         <div className="font-mono text-xs text-white/45 tabular-nums">
@@ -111,7 +111,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
       <div className="flex gap-3 px-3 pt-2 pb-2.5">
         <div className="w-12 shrink-0 pt-5">
           {lanes.map((lane) => (
-            <div key={lane.label} className="flex h-3 items-center justify-end font-mono text-[10px] leading-none text-white/45">
+            <div key={lane.label} className="flex h-3 items-center justify-end font-mono text-xs leading-none text-white/45">
               {lane.label}
             </div>
           ))}
@@ -142,7 +142,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
           <div className="relative h-5 border-b border-white/10">
             {ticks(start, end).map((t) => (
               <div key={t} className="absolute bottom-0 h-1.5 w-px bg-white/25" style={{ left: pct(t) }}>
-                <span className="absolute bottom-2 hidden -translate-x-1/2 font-mono text-[10px] whitespace-nowrap text-white/40 tabular-nums sm:block">
+                <span className="absolute bottom-2 hidden -translate-x-1/2 font-mono text-xs whitespace-nowrap text-white/40 tabular-nums sm:block">
                   {fmtClock(t).slice(0, span > 600_000 ? 5 : 8)}
                 </span>
               </div>
@@ -158,7 +158,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
           {hover !== null && (
             <>
               <div className="pointer-events-none absolute top-0 bottom-0 w-px bg-white/30" style={{ left: pct(hover) }} />
-              <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-sm bg-white px-1 py-px font-mono text-[10px] whitespace-nowrap text-black" style={{ left: pct(hover) }}>
+              <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-sm bg-white px-1 py-px font-mono text-xs whitespace-nowrap text-black" style={{ left: pct(hover) }}>
                 {fmtClock(hover)}
               </div>
             </>
@@ -168,7 +168,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
           </div>
         </div>
       </div>
-      <p className="hidden px-3 pb-2 text-right text-[10px] text-white/35 lg:block">
+      <p className="hidden px-3 pb-2 text-right text-xs text-white/35 lg:block">
         Space play / pause · ←/→ 5 s · F full screen
       </p>
     </div>

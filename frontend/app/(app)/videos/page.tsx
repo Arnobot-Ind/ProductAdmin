@@ -159,7 +159,7 @@ export default function VideosPage() {
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'ok' }) {
   return (
     <div className="rounded-lg border border-border bg-surface px-4 py-3">
-      <dt className="text-xs font-medium tracking-wide text-muted uppercase">{label}</dt>
+      <dt className="text-sm font-medium text-muted">{label}</dt>
       <dd className={`mt-1 font-display text-xl font-bold ${tone === 'ok' ? 'text-ok' : ''}`}>{value}</dd>
     </div>
   );

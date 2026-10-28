@@ -1,12 +1,21 @@
 import Image from 'next/image';
 
-/** ARNOBOT logo (public/brand, black on light theme, white on dark), with the product line underneath. */
-export function BrandMark({ compact }: { compact?: boolean }) {
+/** ARNOBOT logo (public/brand, black on light theme, white on dark; always white with onDark), with the product line beside it. */
+export function BrandMark({ compact, onDark }: { compact?: boolean; onDark?: boolean }) {
   return (
-    <span className="inline-flex flex-col leading-none">
-      <Image src="/brand/arnobot-logo-black.png" alt="Arnobot" width={1392} height={320} priority className="h-6 w-auto dark:hidden" />
-      <Image src="/brand/arnobot-logo-white.png" alt="Arnobot" width={1405} height={320} priority className="hidden h-6 w-auto dark:block" />
-      {!compact && <span className="mt-1.5 text-[0.625rem] font-semibold tracking-[0.2em] text-muted uppercase">PMS · Product Admin</span>}
+    <span className="inline-flex items-center gap-3 leading-none">
+      {!onDark && <Image src="/brand/arnobot-logo-black.png" alt="Arnobot" width={1392} height={320} priority className="h-10 w-auto dark:hidden" />}
+      <Image src="/brand/arnobot-logo-white.png" alt="Arnobot" width={1405} height={320} priority className={onDark ? 'h-10 w-auto' : 'hidden h-10 w-auto dark:block'} />
+      {!compact && (
+        <>
+          <span className="hidden h-9 w-px bg-current opacity-30 sm:block" aria-hidden />
+          <span className="hidden text-sm leading-snug font-semibold tracking-[0.16em] text-muted uppercase sm:block">
+            PMS
+            <br />
+            Product Admin
+          </span>
+        </>
+      )}
     </span>
   );
 }

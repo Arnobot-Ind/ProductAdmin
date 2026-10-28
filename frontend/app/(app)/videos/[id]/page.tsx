@@ -163,7 +163,7 @@ function VideoView({ d }: { d: ArchiveSessionDetailDto }) {
 function Info({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted uppercase">
+      <dt className="flex items-center gap-1.5 text-sm font-medium text-muted">
         <span aria-hidden>{icon}</span>
         {label}
       </dt>

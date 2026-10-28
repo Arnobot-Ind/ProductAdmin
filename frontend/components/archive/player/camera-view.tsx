@@ -168,7 +168,7 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
       {(error || noSignal) && (
         <div className="absolute inset-0 grid place-items-center bg-[#0b0c0f] p-4 text-center">
           <div>
-            {noSignal && !compact && <div className="text-[10px] font-medium tracking-[0.15em] text-white/40 uppercase">No signal</div>}
+            {noSignal && !compact && <div className="text-xs font-medium tracking-[0.15em] text-white/40 uppercase">No signal</div>}
             <div className="mt-1 text-xs text-white/55">
               {!segments.length ? 'No video uploaded for this camera' : media === null ? 'No recording at this time' : error}
             </div>
@@ -179,12 +179,12 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
       {(buffering || !loaded) && canPlay && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2" role="status">
           <div className="size-5 animate-spin rounded-full border border-white/20 border-t-white/80" />
-          <span className={cn('text-[11px] text-white/60', loaded && 'sr-only')}>{loaded ? 'Buffering' : 'Loading video…'}</span>
+          <span className={cn('text-xs text-white/60', loaded && 'sr-only')}>{loaded ? 'Buffering' : 'Loading video…'}</span>
         </div>
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1 bg-gradient-to-b from-black/60 to-transparent px-1.5 pt-1.5 pb-5">
-        <span className="rounded-sm bg-black/70 px-1.5 py-0.5 font-mono text-[11px] font-medium text-white/90">
+        <span className="rounded-sm bg-black/70 px-1.5 py-0.5 font-mono text-xs font-medium text-white/90">
           {camera}
           {!compact && <span className="ml-1.5 text-white/40">{index + 1}</span>}
         </span>

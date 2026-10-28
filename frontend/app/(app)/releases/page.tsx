@@ -50,7 +50,7 @@ export default function ReleasesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Catalogue"
+        eyebrow="Hardware & software"
         title="Software & firmware releases"
         description="Software (navigation, cameras, maps) and firmware (motors, battery, sensors) are versioned separately. Each package carries a SHA-256 checksum and an Arnobot signature; the robot refuses a package that fails either check."
         actions={

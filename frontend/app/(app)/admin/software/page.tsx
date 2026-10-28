@@ -58,7 +58,7 @@ export default function SoftwarePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Access"
+        eyebrow="Hardware & software"
         title="Software"
         description="Arnobot software that clients run (GCS, client portal, robot software). Record each client's installs, versions and licences on its organization page."
         actions={

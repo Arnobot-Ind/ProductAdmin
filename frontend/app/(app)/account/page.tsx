@@ -44,7 +44,7 @@ export default function AccountPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Platform" title="My account" description="See Roles & permissions for what each permission allows." />
+      <PageHeader eyebrow="System" title="My account" description="See Roles & permissions for what each permission allows." />
       <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
         <Card title="Profile">
           <KeyValue

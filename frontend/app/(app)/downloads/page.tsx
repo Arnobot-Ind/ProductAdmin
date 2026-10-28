@@ -188,7 +188,7 @@ export default function DownloadsPage() {
           <div className="overflow-x-auto rounded-lg border border-border bg-surface">
             <table className="w-full border-collapse text-sm">
               <caption className="sr-only">Recordings to download</caption>
-              <thead className="bg-surface-2 text-left text-xs font-semibold tracking-wide text-muted uppercase">
+              <thead className="bg-surface-2 text-left text-sm font-semibold text-muted">
                 <tr>
                   <th scope="col" className="w-10 px-4 py-2">
                     <input
@@ -257,8 +257,8 @@ export default function DownloadsPage() {
       </section>
 
       {/* Sticky summary: what one click will download. */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur lg:left-60">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <p className="text-sm">
             <span className="font-semibold">{chosen.length}</span> recording{chosen.length === 1 ? '' : 's'} ·{' '}
             {picked.size ? [...picked].map((k) => TYPES.find((t) => t.key === k)!.label).join(', ') : 'nothing selected'} ·{' '}

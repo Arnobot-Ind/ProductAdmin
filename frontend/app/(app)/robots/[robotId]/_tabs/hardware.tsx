@@ -64,7 +64,16 @@ export function HardwareTab({ robotId }: { robotId: string }) {
     queryKey: ['robot', robotId, 'hardware', false],
     queryFn: () => api.get<HardwarePartDto[]>(`/robots/${robotId}/hardware`, { current: true }),
   });
-  const q = { data: current.data && types.data ? { parts: current.data, types: types.data } : undefined, isLoading: current.isLoading || types.isLoading, error: current.error ?? types.error, refetch: () => current.refetch() };
+  // The part-type catalogue needs catalog.read. Without it (viewers), show the fitted parts' own types instead of an error.
+  const fallbackTypes = useMemo<PartTypeDto[] | undefined>(
+    () =>
+      types.error && current.data
+        ? [...new Map(current.data.map((p) => [p.part_type_key, { id: p.part_type_key, key: p.part_type_key, name: p.part_type_name, max_per_robot: null }])).values()]
+        : undefined,
+    [types.error, current.data],
+  );
+  const typeList = types.data ?? fallbackTypes;
+  const q = { data: current.data && typeList ? { parts: current.data, types: typeList } : undefined, isLoading: current.isLoading || types.isLoading, error: current.error, refetch: () => current.refetch() };
   return (
     <div className="flex flex-col gap-6">
       <QueryView query={q}>{(d) => <HardwareEditor robotId={robotId} parts={d.parts} types={d.types} />}</QueryView>
@@ -159,7 +168,7 @@ function HardwareEditor({ robotId, parts, types }: { robotId: string; parts: Har
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] border-collapse text-sm">
             <caption className="sr-only">Fitted hardware, editable</caption>
-            <thead className="bg-surface-2 text-left text-xs font-semibold tracking-wide text-muted uppercase">
+            <thead className="bg-surface-2 text-left text-sm font-semibold text-muted">
               <tr>
                 <th scope="col" className="px-4 py-2">
                   Part

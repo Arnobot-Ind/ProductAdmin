@@ -461,7 +461,7 @@ function ProductTotals({ robots }: { robots: RobotListItemDto[] }) {
     <dl className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {items.map(([label, value, sub]) => (
         <div key={label} className="rounded-lg bg-surface-2 px-3 py-2.5">
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">{label}</dt>
+          <dt className="text-sm font-medium text-muted">{label}</dt>
           <dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd>
           {sub && <dd className="text-xs text-muted">{sub}</dd>}
         </div>

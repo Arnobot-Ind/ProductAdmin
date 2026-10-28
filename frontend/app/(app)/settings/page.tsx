@@ -21,7 +21,7 @@ export default function SettingsPage() {
   if (!can('system.read')) {
     return (
       <>
-        <PageHeader eyebrow="Platform" title="Settings & status" />
+        <PageHeader eyebrow="System" title="Settings & status" />
         <InlineAlert tone="fault">The server status page is for Arnobot staff.</InlineAlert>
       </>
     );
@@ -46,7 +46,7 @@ function SettingsView() {
   return (
     <>
       <PageHeader
-        eyebrow="Platform"
+        eyebrow="System"
         title="Settings & status"
         description={`Live health of the PMS services: the backend server, the database, video storage and the robot fleet link. Checked every ${POLL_MS / 1000} s.`}
         actions={
@@ -218,7 +218,7 @@ function ServiceTile({
   const dot = pending ? 'bg-offline' : ok ? 'bg-ok' : neutral ? 'bg-offline' : 'bg-fault';
   return (
     <section className="rounded-lg border border-border bg-surface p-4" aria-label={label}>
-      <p className="flex items-center gap-2 text-xs font-medium tracking-wide text-muted uppercase">
+      <p className="flex items-center gap-2 text-sm font-medium text-muted">
         <Icon className="size-4" aria-hidden />
         {label}
       </p>

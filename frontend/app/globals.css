@@ -6,20 +6,21 @@
 
 /*
  * Arnobot brand (ARNOBOT_BRAND_CONTEXT.md): black / near-black surfaces, white type,
- * steel-blue (#A7BCE3) and brand blue (#38559D) accents, Syne for display, DM Sans for body.
+ * steel-blue (#A7BCE3) and brand blue (#38559D) accents, Ubuntu for display and body.
  * Every foreground/background pair below meets WCAG 2.2 AA (≥ 4.5:1 for text).
  */
 :root,
 [data-theme='light'] {
-  --bg: #f5f5f5;
+  /* Light grey page (rgb 219, 219, 219), white cards, deep slate text, Arnobot brand blue for actions. */
+  --bg: #dbdbdb; /* rgb(219, 219, 219) */
   --surface: #ffffff;
-  --surface-2: #eef1f7;
-  --border: #d4d8e0;
-  --text: #111111;
-  --text-muted: #4a4f5a;
+  --surface-2: #f3f6fb;
+  --border: #dbe2ee;
+  --text: #0f172a;
+  --text-muted: #526079;
   --accent: #38559d;
   --accent-fg: #ffffff;
-  --accent-soft: #e3e9f6;
+  --accent-soft: #e6ecf8;
   --accent-text: #2d4582;
   --ok: #15803d;
   --ok-bg: #dcfce7;
@@ -35,29 +36,104 @@
   color-scheme: light;
 }
 
+/*
+ * Chart status fills (both themes): validated for charts, separate from the darker status TEXT colours above.
+ * Distinct to normal and colour-blind vision; amber is faint on white by design, so charts always pair it with
+ * a legend label, a tooltip and a table view.
+ */
+:root {
+  --chart-good: #0ca30c;
+  --chart-warning: #fab219;
+  --chart-critical: #d03b3b;
+  --chart-neutral: #8b8f97;
+}
+/* On the dark grey cards the red is lifted one step so it keeps 3:1 contrast. */
 [data-theme='dark'] {
-  --bg: #0a0a0a;
-  --surface: #111111;
-  --surface-2: #181b22;
-  --border: #2a2e37;
+  --chart-critical: #ef6b6b;
+}
+
+[data-theme='dark'] {
+  /* rgb(13, 13, 13) page; cards one step lighter so they stand out; near-white text. */
+  --bg: #0d0d0d;
+  --surface: #1a1a1a;
+  --surface-2: #242424;
+  --border: #303030;
   --text: #f2f2f2;
-  --text-muted: #a8adb8;
+  --text-muted: #bdbdbd;
   --accent: #a7bce3;
   --accent-fg: #0a0a0a;
-  --accent-soft: #1b2338;
-  --accent-text: #a7bce3;
+  --accent-soft: #1f2a40;
+  --accent-text: #b9cbee;
   --ok: #4ade80;
-  --ok-bg: #0f2a1a;
+  --ok-bg: #12301d;
   --warn: #fbbf24;
-  --warn-bg: #2d2205;
+  --warn-bg: #352a0d;
   --fault: #f87171;
-  --fault-bg: #2e1111;
-  --offline: #a3a3a3;
-  --offline-bg: #1f2126;
+  --fault-bg: #3a1717;
+  --offline: #c4c4c4;
+  --offline-bg: #2a2a2a;
   --focus: #a7bce3;
   --map-planned: #fbbf24;
   --map-actual: #60a5fa;
   color-scheme: dark;
+}
+
+/* Type scale (larger than Tailwind's defaults so labels and tables stay readable). */
+@theme {
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.4rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6rem;
+  --text-lg: 1.1875rem;
+  --text-lg--line-height: 1.75rem;
+}
+
+/* App menu (components/domain/app-shell.tsx): drops down from the top, lifts away when closed. */
+@theme {
+  --animate-app-menu-in: app-menu-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-app-menu-out: app-menu-out 280ms cubic-bezier(0.64, 0, 0.78, 0) both;
+}
+@keyframes app-menu-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes app-menu-out {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-100%);
+    opacity: 0.4;
+  }
+}
+
+/*
+ * App bar (header): deep brand navy in both themes, with light text and steel-blue accents. Its own token values,
+ * so everything inside it (logo, Live badge, buttons) reads correctly on the navy.
+ */
+.app-bar {
+  --surface: #13213f;
+  --surface-2: #1d2d52;
+  --border: #23345c;
+  --text: #f4f6fb;
+  --text-muted: #b6c3df;
+  --accent: #a7bce3;
+  --accent-fg: #0b1430;
+  --accent-soft: #24375f;
+  --accent-text: #c7d5f2;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --focus: #a7bce3;
+  color: var(--text);
 }
 
 @theme inline {
@@ -79,8 +155,8 @@
   --color-fault-bg: var(--fault-bg);
   --color-offline: var(--offline);
   --color-offline-bg: var(--offline-bg);
-  --font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;
-  --font-sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Ubuntu', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Ubuntu', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Courier New', monospace;
 }
 
@@ -95,8 +171,8 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100dvh;
-    font-size: 0.9375rem;
-    line-height: 1.55;
+    font-size: 1rem;
+    line-height: 1.6;
   }
   h1,
   h2,
@@ -131,9 +207,9 @@
 
 .eyebrow {
   font-family: var(--font-display);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
