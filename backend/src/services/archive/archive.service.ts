@@ -85,13 +85,19 @@ export interface CameraSegment {
 
 /**
  * Camera chunks in time order with their durations (for the HLS playlist, time sync and MP4 export).
- * A gap longer than a segment means recording paused; keep the nominal length then.
+ * A gap longer than a segment means recording paused; keep the nominal length then. The last chunk ends with the
+ * session (endedAt, when known): a 20 s recording is one short chunk, not a nominal 60 s one.
  */
-export function cameraSegments(files: { object_key: string; name: string; size_bytes: number; chunk_start: Date | null }[], segmentSec: number): CameraSegment[] {
+export function cameraSegments(
+  files: { object_key: string; name: string; size_bytes: number; chunk_start: Date | null }[],
+  segmentSec: number,
+  endedAt: string | null = null,
+): CameraSegment[] {
   const chunks = files.filter((f) => f.chunk_start).sort((a, b) => a.chunk_start!.getTime() - b.chunk_start!.getTime());
+  const end = endedAt ? Date.parse(endedAt) : NaN;
   return chunks.map((f, i) => {
     const start = f.chunk_start!.getTime();
-    const next = chunks[i + 1]?.chunk_start?.getTime();
+    const next = chunks[i + 1]?.chunk_start?.getTime() ?? (end > start ? end : undefined);
     const gap = next !== undefined ? (next - start) / 1000 : segmentSec;
     const duration = gap > 0 && gap <= segmentSec * 1.5 ? gap : segmentSec;
     return { key: f.object_key, name: f.name, size: Number(f.size_bytes), start, duration };
@@ -382,7 +388,7 @@ export class ArchiveService {
     const segSec = videoSegmentSec(row.manifest, this.cfg);
     const base = `${API_ARCHIVE_BASE}/${id}`;
     const cameras: ArchiveCameraDto[] = sortCameras(new Set(files.flatMap((f) => (f.camera ? [f.camera] : [])))).map((name) => {
-      const segs = cameraSegments(files.filter((f) => f.kind === 'camera' && f.camera === name), segSec);
+      const segs = cameraSegments(files.filter((f) => f.kind === 'camera' && f.camera === name), segSec, session.ended_at);
       return {
         name,
         segments: segs.map((s) => ({ start_ms: s.start, duration_s: s.duration })),
@@ -534,7 +540,8 @@ export class ArchiveService {
         [id, camera],
       )
     ).rows;
-    return { session: summarize(row, this.cfg), segments: cameraSegments(files, videoSegmentSec(row.manifest, this.cfg)) };
+    const session = summarize(row, this.cfg);
+    return { session, segments: cameraSegments(files, videoSegmentSec(row.manifest, this.cfg), session.ended_at) };
   }
 
   // ── re-index ──────────────────────────────────────────────────────────────
