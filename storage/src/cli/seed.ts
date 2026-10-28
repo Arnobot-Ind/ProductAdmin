@@ -234,6 +234,15 @@ async function seedDemoOrganization(tx: PoolClient, adminId: string): Promise<vo
     ).rows[0].id;
     console.log('✓ created demo organization Adani');
   }
+  // Client profile and the default client-app features (0021), as the panel gives a new client.
+  await tx.query("INSERT INTO client_profiles (company_id, client_code, created_by, updated_by) VALUES ($1, 'ADANI', $2, $2) ON CONFLICT (company_id) DO NOTHING", [org, adminId]);
+  await tx.query(
+    `INSERT INTO company_features (company_id, feature_key, granted_by)
+     SELECT $1, f.key, $2 FROM client_features f
+     WHERE f.is_default AND NOT f.always_on AND f.retired_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM company_features cf WHERE cf.company_id = $1 AND cf.feature_key = f.key AND cf.revoked_at IS NULL)`,
+    [org, adminId],
+  );
   const current = (await tx.query<{ company_id: string }>("SELECT company_id FROM company_assignment_history WHERE robot_id = 'saibya02' AND valid_to IS NULL")).rows[0];
   if (!current || current.company_id === org) return;
   // Only move saibya02 if it still sits with Arnobot (never undo an assignment someone made by hand).
