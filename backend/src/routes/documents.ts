@@ -158,13 +158,15 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
   route(f, app, {
     method: 'GET',
     path: '/document-versions/:id/download',
-    summary: 'Download one document version',
+    summary: 'Download (or, with ?inline=1, preview) one document version',
     tag,
     access: { can: 'robot.details', target: docVersionReader },
-    handler: async ({ params, reply }) => {
+    // ?inline=1 previews it in the browser (images, video, audio, PDF, text only; everything else still downloads).
+    query: z.object({ inline: optionalBool }),
+    handler: async ({ params, query, reply }) => {
       const v = (await db.query<{ file_id: string }>('SELECT file_id FROM document_versions WHERE id = $1', [params.id])).rows[0];
       if (!v) throw badRequest('unknown version');
-      return files.send(v.file_id, reply);
+      return files.send(v.file_id, reply, { inline: query.inline });
     },
   });
 }

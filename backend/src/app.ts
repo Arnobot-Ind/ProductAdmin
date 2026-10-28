@@ -29,6 +29,7 @@ import { auditRoutes } from './routes/audit';
 import { releaseRoutes } from './routes/releases';
 import { reportRoutes } from './routes/reports';
 import { robotRoutes } from './routes/robots';
+import { robotLogRoutes } from './routes/robot-log';
 import { telemetryRoutes } from './routes/telemetry';
 import { userRoutes } from './routes/users';
 import { sessionCookieName } from './services/auth.service';
@@ -117,6 +118,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       dashboardRoutes(api, ctx);
       catalogueRoutes(api, ctx);
       robotRoutes(api, ctx);
+      robotLogRoutes(api, ctx);
       hardwareRoutes(api, ctx);
       telemetryRoutes(api, ctx);
       reportRoutes(api, ctx);

@@ -65,17 +65,32 @@ export class FilesService {
   }
 
   /** Streams a local file or redirects to a presigned S3 URL. */
-  async send(fileId: string, reply: FastifyReply): Promise<FastifyReply> {
+  /**
+   * Streams a stored file. `inline` asks the browser to show it in place (preview) instead of saving it; it is honoured
+   * only for types that cannot run script (raster images, audio, video, PDF, plain text). Anything else, e.g. HTML or
+   * SVG uploaded as a document, is always sent as an attachment, so a document can never execute in the app's origin.
+   */
+  async send(fileId: string, reply: FastifyReply, opts: { inline?: boolean } = {}): Promise<FastifyReply> {
     const f = await this.get(fileId);
     const dl = await this.storage.download(f);
     if (!dl) throw notFound('file content');
     if (dl.kind === 'redirect') return reply.redirect(dl.url, 302);
+    const inline = !!opts.inline && isPreviewable(f.content_type);
     return reply
       .header('Content-Type', f.content_type || 'application/octet-stream')
       .header('Content-Length', String(dl.size))
-      .header('Content-Disposition', `attachment; filename="${safeFilename(f.filename)}"`)
+      .header('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeFilename(f.filename)}"`)
+      // No script, no outside connections, even if a browser misjudges the type. Chrome will not render a PDF in a
+      // sandboxed document, so PDFs skip `sandbox` (its viewer runs PDF scripts in its own isolated process).
+      .header('Content-Security-Policy', `default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'${/^application\/pdf/i.test(f.content_type ?? '') ? '' : '; sandbox'}`)
       .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .send(dl.stream);
   }
+}
+
+/** Types safe to show inline: they cannot carry script. SVG (image/svg+xml) and HTML are deliberately absent. */
+const PREVIEWABLE = /^(image\/(png|jpe?g|gif|webp|avif|bmp)|video\/[\w.+-]+|audio\/[\w.+-]+|application\/pdf|text\/plain)$/i;
+export function isPreviewable(contentType: string | null): boolean {
+  return !!contentType && PREVIEWABLE.test(contentType.split(';')[0].trim());
 }

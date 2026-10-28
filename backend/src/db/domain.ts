@@ -23,7 +23,7 @@ export interface RegisterRobotInput {
   productId: string;
   hardwareRevisionId?: string | null;
   notes?: string | null;
-  /** v1: always Arnobot (default when omitted). */
+  /** First owner; Arnobot (the internal organization) when omitted. */
   companyId?: string | null;
   createdBy: string | null;
 }
@@ -83,7 +83,12 @@ export async function registerRobot(tx: PoolClient, input: RegisterRobotInput): 
 
   const companyId =
     input.companyId ??
-    (await tx.query<{ id: string }>("SELECT id FROM companies WHERE lower(name) = 'arnobot' AND deleted_at IS NULL")).rows[0]?.id;
+    // Arnobot is the internal organization (named e.g. "Arnobot Private Limited"); prefer one named exactly "Arnobot".
+    (
+      await tx.query<{ id: string }>(
+        "SELECT id FROM companies WHERE kind = 'internal' AND deleted_at IS NULL ORDER BY (lower(name) = 'arnobot') DESC, created_at LIMIT 1",
+      )
+    ).rows[0]?.id;
   if (!companyId) throw new DomainError('invalid', 'no owner company (seed the Arnobot company first)');
   await tx.query(
     `INSERT INTO company_assignment_history (robot_id, company_id, valid_from, reason, created_by)

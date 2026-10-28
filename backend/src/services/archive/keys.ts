@@ -42,6 +42,14 @@ export function parseSessionKey(key: string): SessionKey | null {
   return { robotId: m[1], sim: Boolean(m[2]), sessionId: m[3], name: m[4] };
 }
 
+/**
+ * The registered robot a bucket folder belongs to: the folder itself, or the robot it is an alias of
+ * (ARCHIVE_ROBOT_ALIASES, e.g. the duct-cleaning Pi uploads as "ductrobot01" for robot "ductcleaning01").
+ */
+export function robotForFolder(folder: string, aliases: ReadonlyMap<string, string>): string {
+  return aliases.get(folder) ?? folder;
+}
+
 export function sessionsPrefix(robotId: string, sim: boolean): string {
   return `${robotId}/${sim ? 'sim/' : ''}sessions/`;
 }
