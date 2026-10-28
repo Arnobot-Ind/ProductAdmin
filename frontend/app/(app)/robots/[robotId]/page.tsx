@@ -16,9 +16,12 @@ import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
+import { cn } from '@/lib/cn';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 import { ConnectivityTab } from './_tabs/connectivity';
+import { DetectionsTab } from '@/components/domain/detections';
+import { IngestClientsPanel } from '@/components/domain/ingest-clients';
 import { CredentialsTab } from './_tabs/credentials';
 import { DispatchTab } from './_tabs/dispatch';
 import { DocumentsTab } from './_tabs/documents';
@@ -35,6 +38,7 @@ import { DataActivityBadge } from '@/components/archive/badges';
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'videos', label: 'Videos' },
+  { id: 'detections', label: 'Detections' },
   { id: 'telemetry', label: 'Sensor history' },
   { id: 'missions', label: 'Missions' },
   { id: 'events', label: 'Events' },
@@ -42,6 +46,7 @@ const TABS = [
   { id: 'software', label: 'Software' },
   { id: 'connectivity', label: 'Connectivity' },
   { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
+  { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
   { id: 'documents', label: 'Documents' },
   { id: 'dispatch', label: 'Dispatch & warranty' },
   { id: 'maintenance', label: 'Maintenance' },
@@ -122,8 +127,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               <dt className="text-muted">Current mission</dt>
               <dd>
                 {robot.current_mission_id ? (
-                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className="font-mono text-accent-text hover:underline">
-                    {robot.current_mission_id}
+                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
+                    {robot.current_mission_name ?? robot.current_mission_id}
                   </Link>
                 ) : (
                   'None'
@@ -161,9 +166,11 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
       <TabPanel id={tab}>
         {tab === 'overview' && <OverviewTab robot={robot} />}
         {tab === 'videos' && <VideosTab robotId={robot.robot_id} />}
+        {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="staff" />}
         {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
         {tab === 'missions' && <RobotMissionsTab robotId={robot.robot_id} />}
         {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} />}
+        {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
         {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
         {tab === 'connectivity' && <ConnectivityTab robotId={robot.robot_id} />}

@@ -6,6 +6,7 @@ import { Building2, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ClientStatusBadge } from '@/components/domain/client-admin';
 import { OrganizationDialog } from '@/components/domain/organization-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/field';
@@ -13,6 +14,7 @@ import { Badge, EmptyState, InlineAlert, PageHeader, QueryView, Time } from '@/c
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
+import { fmtDate } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 
 /** Arnobot and its customers. Each customer organization owns robots and has its own team of users. */
@@ -41,7 +43,7 @@ export default function OrganizationsPage() {
       <PageHeader
         eyebrow="Access"
         title="Organizations"
-        description="Customers (e.g. Adani) and Arnobot itself. Assign robots to an organization and invite its team: they see only their organization’s robots and data."
+        description="Customers (e.g. Adani) and Arnobot itself. Assign robots, set up each client (status, contract, features, software, credentials) and invite its team: they sign in to the client app and see only their organization’s robots and data."
         actions={
           <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={() => setCreating(true)}>
             New organization
@@ -78,8 +80,12 @@ export default function OrganizationsPage() {
                   header: 'Type',
                   cell: (o) => (o.deleted_at ? <Badge tone="fault">Deleted</Badge> : o.kind === 'internal' ? <Badge tone="accent">Arnobot</Badge> : <Badge>Customer</Badge>),
                 },
+                { key: 'cs', header: 'Client status', cell: (o) => (o.client ? <ClientStatusBadge status={o.client.status} /> : <span className="text-muted">—</span>) },
+                { key: 'cc', header: 'Code', cell: (o) => (o.client?.client_code ? <span className="font-mono">{o.client.client_code}</span> : <span className="text-muted">—</span>) },
                 { key: 'r', header: 'Robots', align: 'right', cell: (o) => o.robot_count },
                 { key: 'u', header: 'Users', align: 'right', cell: (o) => o.user_count },
+                { key: 'sw', header: 'Software', align: 'right', cell: (o) => (o.client ? o.client.software_count : <span className="text-muted">—</span>) },
+                { key: 'ce', header: 'Contract ends', cell: (o) => (o.client?.contract_end ? fmtDate(o.client.contract_end) : <span className="text-muted">—</span>) },
                 { key: 'c', header: 'Contact', cell: (o) => (o.contact_name || o.contact_email ? [o.contact_name, o.contact_email].filter(Boolean).join(' · ') : <span className="text-muted">—</span>) },
                 { key: 't', header: 'Created', cell: (o) => <Time iso={o.created_at} /> },
               ]}

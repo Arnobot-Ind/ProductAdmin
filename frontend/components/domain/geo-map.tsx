@@ -91,7 +91,8 @@ export function GeoMap({
   clickRef.current = onPointClick;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [base, setBase] = useState<BaseLayer>('road');
+  // Only points (where robots are now): satellite shows the site; the roadmap is blank away from roads.
+  const [base, setBase] = useState<BaseLayer>(() => (lines.length ? 'road' : 'satellite'));
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +219,7 @@ export function GeoMap({
     const fitKey = [...lines.map((l) => `l:${l.id}`), ...points.map((p) => `p:${p.id}`)].join('|');
     if (Number.isFinite(bounds[0]) && fittedFor.current !== fitKey) {
       fittedFor.current = fitKey;
-      if (bounds[0] === bounds[2] && bounds[1] === bounds[3]) map.jumpTo({ center: [bounds[0], bounds[1]], zoom: 16 });
+      if (bounds[0] === bounds[2] && bounds[1] === bounds[3]) map.jumpTo({ center: [bounds[0], bounds[1]], zoom: 15 });
       else map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
     }
   }, [lines, points, ready]);

@@ -2,7 +2,7 @@
 
 import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { GeoMap, MapLegend } from '@/components/domain/geo-map';
 import { Button } from '@/components/ui/button';
@@ -32,8 +32,14 @@ function useSeries<T>(robotId: string, kind: string, from: string, to: string) {
 export function TelemetryTab({ robotId }: { robotId: string }) {
   const [preset, setPreset] = useState<string>('24h');
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
-  // Anchor "now" when the range is chosen so query keys stay stable between renders.
+  // Anchor "now" when the range is chosen so query keys stay stable between renders, and move it forward every
+  // 30 s (the robot's telemetry cadence) so a "last 24 h" view keeps showing what has just arrived.
   const [anchor, setAnchor] = useState(() => Date.now());
+  useEffect(() => {
+    if (preset === 'custom') return;
+    const id = window.setInterval(() => setAnchor(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [preset]);
 
   const { from, to } = useMemo(() => {
     if (preset === 'custom' && custom) return custom;

@@ -6,6 +6,7 @@ import { Bot, Link2, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ClientStatusBadge } from '@/components/domain/client-admin';
 import { OrganizationDialog } from '@/components/domain/organization-dialog';
 import { CreateUserDialog, useRoles, UsersTable } from '@/components/domain/user-admin';
 import { Button } from '@/components/ui/button';
@@ -13,10 +14,27 @@ import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Badge, Card, EmptyState, InlineAlert, KeyValue, Mono, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
+import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
-import { useDocumentTitle } from '@/lib/hooks';
+import { useDocumentTitle, useUrlState } from '@/lib/hooks';
+import { ActivityTab } from './_tabs/activity';
+import { ClientCredentialsTab } from './_tabs/credentials';
+import { FeaturesTab } from './_tabs/features';
+import { ClientProfileCard } from './_tabs/profile';
+import { SoftwareTab } from './_tabs/software';
+
+/** Customer organizations only: Arnobot itself keeps the single page (details, robots, users). */
+const CLIENT_TABS = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'robots', label: 'Robots' },
+  { id: 'users', label: 'Users & access' },
+  { id: 'features', label: 'Features' },
+  { id: 'software', label: 'Software' },
+  { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
+  { id: 'activity', label: 'Activity', perm: 'audit.read' },
+] as const;
 
 export default function OrganizationPage() {
   const { id } = useParams<{ id: string }>();
@@ -49,6 +67,85 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
     onError: toast.error,
   });
   const customer = org.kind === 'customer';
+  const [params, setParams] = useUrlState();
+  const tabs = CLIENT_TABS.filter((t) => !('perm' in t) || can(t.perm));
+  const requested = params.get('tab') ?? 'profile';
+  const tab = tabs.some((t) => t.id === requested) ? requested : 'profile';
+
+  const detailsCard = (
+    <Card title="Details">
+      <KeyValue
+        columns={3}
+        items={[
+          { label: 'Contact', value: org.contact_name },
+          { label: 'Email', value: org.contact_email },
+          { label: 'Created', value: <Time iso={org.created_at} /> },
+          { label: 'Notes', value: org.notes },
+        ]}
+      />
+    </Card>
+  );
+  const robotsCard = (
+    <Card
+      title={`Robots (${org.robots.length})`}
+      actions={
+        can('ownership.write') &&
+        !org.deleted_at && (
+          <Button size="sm" variant="primary" icon={<Link2 className="size-4" aria-hidden />} onClick={() => setAssigning(true)}>
+            Assign robot
+          </Button>
+        )
+      }
+      bodyClassName="p-0"
+    >
+      {org.robots.length === 0 ? (
+        <div className="p-4">
+          <EmptyState
+            icon={<Bot className="size-8" />}
+            title="No robots assigned"
+            description={customer ? `Assign a robot and ${org.name}'s users will see it and its data.` : 'Robots return here when they are not assigned to a customer.'}
+          />
+        </div>
+      ) : (
+        <DataTable
+          caption={`Robots of ${org.name}`}
+          rows={org.robots}
+          rowKey={(r) => r.robot_id}
+          columns={[
+            {
+              key: 'r',
+              header: 'Robot',
+              rowHeader: true,
+              cell: (r) => (
+                <Link href={`/robots/${r.robot_id}`} className="font-mono font-semibold text-accent-text hover:underline">
+                  {r.robot_id}
+                </Link>
+              ),
+            },
+            { key: 'p', header: 'Product', cell: (r) => r.product_name },
+            { key: 's', header: 'Serial', cell: (r) => <Mono>{r.serial_number}</Mono> },
+            { key: 'st', header: 'Status', cell: (r) => <Badge tone={r.status === 'online' ? 'ok' : r.status === 'stale' ? 'warn' : 'offline'}>{r.status}</Badge> },
+            { key: 'a', header: 'Assigned since', cell: (r) => <Time iso={r.assigned_since} /> },
+          ]}
+        />
+      )}
+    </Card>
+  );
+  const usersCard = (
+    <Card
+      title={`Users (${org.users.length})`}
+      actions={
+        can('user.manage') &&
+        !org.deleted_at && (
+          <Button size="sm" variant="primary" icon={<UserPlus className="size-4" aria-hidden />} onClick={() => setInviting(true)}>
+            {customer ? `Invite ${org.name} user` : 'Add Arnobot user'}
+          </Button>
+        )
+      }
+    >
+      {can('user.manage') ? <UsersTable users={org.users} showOrganization={false} caption={`Users of ${org.name}`} /> : <p className="text-sm text-muted">Managing users needs the user.manage permission.</p>}
+    </Card>
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -63,6 +160,7 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{org.name}</h1>
             {customer ? <Badge>Customer</Badge> : <Badge tone="accent">Arnobot (internal)</Badge>}
+            {org.profile && <ClientStatusBadge status={org.profile.status} />}
             {org.deleted_at && <Badge tone="fault">Deleted</Badge>}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -85,76 +183,31 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
         </div>
       </div>
 
-      <Card title="Details">
-        <KeyValue
-          columns={3}
-          items={[
-            { label: 'Contact', value: org.contact_name },
-            { label: 'Email', value: org.contact_email },
-            { label: 'Created', value: <Time iso={org.created_at} /> },
-            { label: 'Notes', value: org.notes },
-          ]}
-        />
-      </Card>
-
-      <Card
-        title={`Robots (${org.robots.length})`}
-        actions={
-          can('ownership.write') &&
-          !org.deleted_at && (
-            <Button size="sm" variant="primary" icon={<Link2 className="size-4" aria-hidden />} onClick={() => setAssigning(true)}>
-              Assign robot
-            </Button>
-          )
-        }
-        bodyClassName="p-0"
-      >
-        {org.robots.length === 0 ? (
-          <div className="p-4">
-            <EmptyState
-              icon={<Bot className="size-8" />}
-              title="No robots assigned"
-              description={customer ? `Assign a robot and ${org.name}'s users will see it and its data.` : 'Robots return here when they are not assigned to a customer.'}
-            />
-          </div>
-        ) : (
-          <DataTable
-            caption={`Robots of ${org.name}`}
-            rows={org.robots}
-            rowKey={(r) => r.robot_id}
-            columns={[
-              {
-                key: 'r',
-                header: 'Robot',
-                rowHeader: true,
-                cell: (r) => (
-                  <Link href={`/robots/${r.robot_id}`} className="font-mono font-semibold text-accent-text hover:underline">
-                    {r.robot_id}
-                  </Link>
-                ),
-              },
-              { key: 'p', header: 'Product', cell: (r) => r.product_name },
-              { key: 's', header: 'Serial', cell: (r) => <Mono>{r.serial_number}</Mono> },
-              { key: 'st', header: 'Status', cell: (r) => <Badge tone={r.status === 'online' ? 'ok' : r.status === 'stale' ? 'warn' : 'offline'}>{r.status}</Badge> },
-              { key: 'a', header: 'Assigned since', cell: (r) => <Time iso={r.assigned_since} /> },
-            ]}
-          />
-        )}
-      </Card>
-
-      <Card
-        title={`Users (${org.users.length})`}
-        actions={
-          can('user.manage') &&
-          !org.deleted_at && (
-            <Button size="sm" variant="primary" icon={<UserPlus className="size-4" aria-hidden />} onClick={() => setInviting(true)}>
-              {customer ? `Invite ${org.name} user` : 'Add Arnobot user'}
-            </Button>
-          )
-        }
-      >
-        {can('user.manage') ? <UsersTable users={org.users} showOrganization={false} caption={`Users of ${org.name}`} /> : <p className="text-sm text-muted">Managing users needs the user.manage permission.</p>}
-      </Card>
+      {customer ? (
+        <div>
+          <Tabs label={`${org.name} sections`} items={tabs.map((t) => ({ id: t.id, label: t.label }))} value={tab} onChange={(id) => setParams({ tab: id === 'profile' ? null : id })} />
+          <TabPanel id={tab}>
+            {tab === 'profile' && (
+              <div className="flex flex-col gap-5">
+                {detailsCard}
+                <ClientProfileCard org={org} canEdit={can('org.manage')} />
+              </div>
+            )}
+            {tab === 'robots' && robotsCard}
+            {tab === 'users' && usersCard}
+            {tab === 'features' && <FeaturesTab org={org} canEdit={can('org.manage')} />}
+            {tab === 'software' && <SoftwareTab org={org} canEdit={can('org.manage')} />}
+            {tab === 'credentials' && <ClientCredentialsTab org={org} />}
+            {tab === 'activity' && <ActivityTab org={org} />}
+          </TabPanel>
+        </div>
+      ) : (
+        <>
+          {detailsCard}
+          {robotsCard}
+          {usersCard}
+        </>
+      )}
 
       {editing && <OrganizationDialog open onClose={() => setEditing(false)} org={org} />}
       <AssignRobotDialog open={assigning} onClose={() => setAssigning(false)} org={org} />

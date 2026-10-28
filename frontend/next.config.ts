@@ -13,7 +13,7 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com",
+  "img-src 'self' data: blob: https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com https://server.arcgisonline.com",
   `connect-src 'self' ${wsOrigin.origin} ${wsOrigin.origin.replace(/^http/, 'ws')} https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com`,
   "worker-src 'self' blob:",
   "media-src 'self' blob:",
@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: appRoot,
   env: {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000',
+    NEXT_PUBLIC_CLIENT_URL: process.env.NEXT_PUBLIC_CLIENT_URL || 'http://localhost:3001',
   },
   // Browser → same-origin /api/v1 → proxied to the backend, so the session cookie is first-party.
   async rewrites() {

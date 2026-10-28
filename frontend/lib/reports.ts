@@ -30,9 +30,10 @@ export interface ReportRobot {
 }
 
 // ── formatting ──────────────────────────────────────────────────────────────
-const pad = (n: number) => String(n).padStart(2, '0');
-const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
-const time = (iso: string | null) => (iso ? `${pad(new Date(iso).getHours())}:${pad(new Date(iso).getMinutes())}:${pad(new Date(iso).getSeconds())}` : '-');
+// Always IST, whatever time zone the viewer's computer is in (robots and customers are in India).
+const IST = 'Asia/Kolkata';
+const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST }) : '-');
+const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: IST }) : '-');
 const dateTime = (iso: string | null) => (iso ? `${date(iso)} ${time(iso)}` : '-');
 function duration(s: number | null | undefined): string {
   if (s === null || s === undefined) return '-';

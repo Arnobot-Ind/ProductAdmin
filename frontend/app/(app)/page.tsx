@@ -110,8 +110,8 @@ export default function DashboardPage() {
                         header: 'Mission',
                         rowHeader: true,
                         cell: (m) => (
-                          <Link className="block max-w-44 truncate font-mono text-accent-text hover:underline" href={missionHref(m)} title={m.mission_id}>
-                            {m.mission_id}
+                          <Link className={cn('block max-w-44 truncate text-accent-text hover:underline', !m.name && 'font-mono')} href={missionHref(m)} title={m.name ? `${m.name} (${m.mission_id})` : m.mission_id}>
+                            {m.name ?? m.mission_id}
                           </Link>
                         ),
                       },

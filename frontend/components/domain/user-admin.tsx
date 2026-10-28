@@ -2,7 +2,7 @@
 
 import type { CompanyDto, GrantDto, OrganizationDetailDto, Paginated, RobotListItemDto, RoleDto, ScopeType, UserCredentialsDto, UserDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Link2, Mail, Pencil, RotateCcw, ShieldPlus, Trash2, X } from 'lucide-react';
+import { KeyRound, Link2, Mail, Pencil, RotateCcw, ShieldPlus, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { fmtDateTime } from '@/lib/format';
 import { useCompanies } from '@/lib/queries';
+import { UserAccessDialog } from './client-admin';
 
 export const MIN_PASSWORD = 10;
 
@@ -293,6 +294,11 @@ export function CreateUserDialog({
           </fieldset>
           <RoleSelect roles={roles} audience={audience} value={f.role_key} onChange={(v) => setF({ ...f, role_key: v })} />
           <ScopeFields customerOrgId={audience === 'customer' ? f.company_id : null} scopeType={scopeType} scopeId={scopeId} onType={setScopeType} onId={setScopeId} />
+          {audience === 'customer' && (
+            <p className="text-xs text-muted sm:col-span-2">
+              They start with every client-app feature of the organization. Change their robots and features afterwards with Access.
+            </p>
+          )}
         </form>
       </Dialog>
       <CredentialsResultDialog result={result} onClose={() => setResult(null)} />
@@ -455,6 +461,7 @@ export function UsersTable({ users, showOrganization = true, caption = 'Users' }
   const [reissuing, setReissuing] = useState<UserDto | null>(null);
   const [deleting, setDeleting] = useState<UserDto | null>(null);
   const [revoking, setRevoking] = useState<GrantDto | null>(null);
+  const [accessOf, setAccessOf] = useState<UserDto | null>(null);
   const superAdmin = isSuperAdmin(me.grants);
   // Arnobot-wide accounts are managed by super-admins only (the API refuses otherwise).
   const mayManage = (u: UserDto) => superAdmin || !u.grants.some((g) => g.scope_type === 'platform' && !g.revoked_at);
@@ -549,6 +556,7 @@ export function UsersTable({ users, showOrganization = true, caption = 'Users' }
                 <span className="text-xs text-muted">No roles: sees nothing</span>
               ) : (
                 <ul className="flex flex-col gap-1">
+                  {u.features && <li className="text-xs text-muted">{u.features.length} client-app feature{u.features.length === 1 ? '' : 's'} (plus always-on)</li>}
                   {active.map((g) => (
                     <li key={g.id} className="flex flex-wrap items-center gap-2 text-xs">
                       <Badge tone="accent">{g.role_name}</Badge>
@@ -581,6 +589,11 @@ export function UsersTable({ users, showOrganization = true, caption = 'Users' }
                 <span className="flex flex-wrap justify-end gap-1">
                   {!u.deleted_at && (
                     <>
+                      {u.company_kind === 'customer' && u.id !== me.id && (
+                        <Button size="sm" variant="ghost" icon={<SlidersHorizontal className="size-3.5" aria-hidden />} onClick={() => setAccessOf(u)} aria-label={`Access of ${u.name}`}>
+                          Access
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" icon={<ShieldPlus className="size-3.5" aria-hidden />} onClick={() => setGranting(u)} aria-label={`Add role to ${u.name}`}>
                         Role
                       </Button>
@@ -613,6 +626,7 @@ export function UsersTable({ users, showOrganization = true, caption = 'Users' }
       <EditUserDialog user={editing} onClose={() => setEditing(null)} isSelf={editing?.id === me.id} />
       <GrantDialog user={granting} onClose={() => setGranting(null)} roles={roles.data ?? []} />
       <ReissueDialog user={reissuing} onClose={() => setReissuing(null)} />
+      <UserAccessDialog user={accessOf} onClose={() => setAccessOf(null)} />
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}

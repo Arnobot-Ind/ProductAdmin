@@ -56,10 +56,10 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
         toggle();
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
-        seek(time + (e.shiftKey ? 60_000 : 5_000));
+        seek(time + 5_000);
       } else if (e.code === 'ArrowLeft') {
         e.preventDefault();
-        seek(time - (e.shiftKey ? 60_000 : 5_000));
+        seek(time - 5_000);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -169,7 +169,7 @@ export function Timeline({ clock, start, end, lanes }: { clock: Clock; start: nu
         </div>
       </div>
       <p className="hidden px-3 pb-2 text-right text-[10px] text-white/35 lg:block">
-        Space play · ←/→ 5 s · Shift+←/→ 1 min · 1–9 camera · G grid · V focus · F fullscreen
+        Space play / pause · ←/→ 5 s · F full screen
       </p>
     </div>
   );

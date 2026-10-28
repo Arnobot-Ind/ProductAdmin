@@ -19,13 +19,13 @@ import { useLivePoll } from '@/lib/realtime';
 export default function MissionDetailPage() {
   const { robotId, missionId } = useParams<{ robotId: string; missionId: string }>();
   const id = decodeURIComponent(missionId);
-  useDocumentTitle(`Mission ${id}`);
   const poll = useLivePoll();
   const q = useQuery({
     queryKey: ['mission', id],
     queryFn: () => api.get<MissionDetailDto>(`/missions/${encodeURIComponent(id)}`),
     refetchInterval: (query) => (query.state.data?.result === 'in_progress' ? poll || 15_000 : false),
   });
+  useDocumentTitle(`Mission ${q.data?.name ?? id}`);
 
   return (
     <QueryView query={q} rows={8}>
@@ -73,7 +73,7 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
           Missions
         </Link>
       </nav>
-      <PageHeader eyebrow="Mission report" title={<span className="font-mono">{m.mission_id}</span>} description={m.name ?? undefined} actions={
+      <PageHeader eyebrow="Mission report" title={m.name ?? <span className="font-mono">{m.mission_id}</span>} description={m.name ? <span className="font-mono">{m.mission_id}</span> : undefined} actions={
           <>
             <MissionResultBadge result={m.result} />
             <MissionReportButton mission={m} />
@@ -119,7 +119,7 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
                 lines={lines}
                 points={points}
                 className="h-[28rem]"
-                ariaLabel={`Map of mission ${m.mission_id}: planned path with ${m.planned_path?.coordinates.length ?? 0} points, actual path with ${m.actual_path?.coordinates.length ?? 0} points`}
+                ariaLabel={`Map of mission ${m.name ?? m.mission_id}: planned path with ${m.planned_path?.coordinates.length ?? 0} points, actual path with ${m.actual_path?.coordinates.length ?? 0} points`}
               />
               <MapLegend
                 items={[
