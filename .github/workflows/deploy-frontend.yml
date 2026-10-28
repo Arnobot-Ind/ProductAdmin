@@ -1,0 +1,25 @@
+# Deploys the admin panel (pms.arnobot.in, AWS Amplify) on every push to this branch.
+# Amplify builds by itself when the branch it is connected to changes (its GitHub webhook): if that is this
+# branch, the build has already started. If it is main, main is only synced from the part branches every
+# 15 min, so this runs that sync now and Amplify builds main straight after. Either way, nothing to do by hand.
+name: Deploy frontend
+
+on:
+  push:
+    branches: [frontend]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  sync-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync main now (so an Amplify build of main gets this commit too)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run sync-main.yml -R "$GITHUB_REPOSITORY" --ref main
+          echo "::notice::Amplify is building ${GITHUB_SHA::7}: https://pms.arnobot.in shows it in about 3 minutes (Ctrl+Shift+R if the page looks old)."
