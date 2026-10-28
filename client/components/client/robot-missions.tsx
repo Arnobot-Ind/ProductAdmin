@@ -71,7 +71,7 @@ export function MissionStatsTiles({ stats }: { stats: MissionStatsDto }) {
     <section aria-label="Mission statistics" className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
       {tiles.map((t) => (
         <div key={t.label} className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-          <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{t.label}</p>
+          <p className="text-sm font-semibold text-muted">{t.label}</p>
           <p className={cn('mt-1 text-lg font-semibold tabular-nums', t.tone === 'ok' && 'text-ok', t.tone === 'fault' && 'text-fault')}>{t.value}</p>
         </div>
       ))}

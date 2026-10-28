@@ -5,6 +5,7 @@ import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
+import { RankBars } from '@/components/client/charts';
 import { RobotStatusBadge } from '@/components/common/status';
 import { Card, EmptyState, ErrorState, LoadingBlock, PageHeader } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
@@ -119,6 +120,12 @@ function Dashboard({ data }: { data: FleetReportDto }) {
         </div>
       )}
 
+      {data.robots.length > 1 && (
+        <Card title="Distance driven per robot">
+          <RankBars rows={data.robots.map((r) => ({ key: r.robot_id, label: r.robot_id.toUpperCase(), value: r.driven_m, display: fmtDistance(r.driven_m) }))} empty="No driving recorded in this period." />
+        </Card>
+      )}
+
       <Card title="Robots" bodyClassName="p-0">
         <RobotsTable robots={data.robots} missions={missions} />
       </Card>
@@ -172,7 +179,7 @@ function ColumnChart({
   return (
     <div className="relative">
       <div className="flex" style={{ height: H }}>
-        <div className="relative w-9 shrink-0 text-right text-[11px] tabular-nums text-muted" aria-hidden>
+        <div className="relative w-9 shrink-0 text-right text-xs tabular-nums text-muted" aria-hidden>
           {ticks.map((v) => (
             <span key={v} className="absolute right-2" style={{ bottom: `${scale(v)}%`, transform: "translateY(50%)" }}>
               {fmtTick(v)}
@@ -211,7 +218,7 @@ function ColumnChart({
           )}
         </div>
       </div>
-      <div className="ml-9 flex text-[11px] text-muted" aria-hidden>
+      <div className="ml-9 flex text-xs text-muted" aria-hidden>
         {daily.map((d, i) => (
           <span key={d.date} className="relative h-5 flex-1">
             {i % every === 0 && <span className="absolute top-1 left-1/2 -translate-x-1/2 whitespace-nowrap">{dayLabel(d.date, { day: 'numeric', month: 'short' })}</span>}
@@ -222,11 +229,11 @@ function ColumnChart({
   );
 }
 
-/** Mission results are states, so they wear the reserved status tokens — always with a legend label. */
+/** Mission results are states, so they wear the validated status chart fills (globals.css) — always with a legend label. */
 const RESULTS = [
-  { key: 'completed', label: 'Completed', color: 'var(--ok)' },
-  { key: 'aborted', label: 'Aborted', color: 'var(--warn)' },
-  { key: 'failed', label: 'Failed', color: 'var(--fault)' },
+  { key: 'completed', label: 'Completed', color: 'var(--chart-good)' },
+  { key: 'aborted', label: 'Aborted', color: 'var(--chart-warning)' },
+  { key: 'failed', label: 'Failed', color: 'var(--chart-critical)' },
 ] as const;
 
 function MissionsChart({ daily }: { daily: Day[] }) {

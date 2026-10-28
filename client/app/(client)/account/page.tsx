@@ -75,7 +75,7 @@ function Detail({ icon, label, value }: { icon: ReactNode; label: string; value:
         {icon}
       </span>
       <div className="min-w-0">
-        <dt className="text-xs font-medium tracking-wide text-muted uppercase">{label}</dt>
+        <dt className="text-sm font-medium text-muted">{label}</dt>
         <dd className="mt-0.5 break-words">{value}</dd>
       </div>
     </div>

@@ -19,7 +19,7 @@ const toneClass: Record<Tone, string> = {
 
 export function Badge({ tone = 'neutral', icon, children, className, title }: { tone?: Tone; icon?: ReactNode; children: ReactNode; className?: string; title?: string }) {
   return (
-    <span title={title} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold whitespace-nowrap', toneClass[tone], className)}>
+    <span title={title} className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap', toneClass[tone], className)}>
       {icon}
       {children}
     </span>
@@ -28,26 +28,26 @@ export function Badge({ tone = 'neutral', icon, children, className, title }: { 
 
 export function Card({ title, actions, children, className, bodyClassName }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string }) {
   return (
-    <section className={cn('rounded-lg border border-border bg-surface', className)}>
+    <section className={cn('rounded-xl border border-border bg-surface shadow-sm', className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-          {title && <h2 className="text-sm font-semibold tracking-wide">{title}</h2>}
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3.5">
+          {title && <h2 className="text-base font-semibold">{title}</h2>}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       {/* A custom body class replaces the default padding (cn() does not resolve Tailwind conflicts). */}
-      <div className={bodyClassName ?? 'p-4'}>{children}</div>
+      <div className={bodyClassName ?? 'p-5'}>{children}</div>
     </section>
   );
 }
 
 export function PageHeader({ title, eyebrow, description, actions }: { title: ReactNode; eyebrow?: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow && <p className="eyebrow mb-1">{eyebrow}</p>}
-        <h1 className="text-2xl font-bold">{title}</h1>
-        {description && <p className="mt-1 max-w-3xl text-sm text-muted">{description}</p>}
+        <h1 className="text-3xl font-bold">{title}</h1>
+        {description && <p className="mt-2 max-w-3xl text-base text-muted">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -129,7 +129,7 @@ export function KeyValue({ items, columns = 2 }: { items: { label: ReactNode; va
     <dl className={cn('grid gap-x-6 gap-y-3', columns === 2 && 'sm:grid-cols-2', columns === 3 && 'sm:grid-cols-2 lg:grid-cols-3')}>
       {items.map((it, i) => (
         <div key={i} className="min-w-0">
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">{it.label}</dt>
+          <dt className="text-sm text-muted">{it.label}</dt>
           <dd className="mt-0.5 break-words">{it.value ?? <span className="text-muted">—</span>}</dd>
         </div>
       ))}
@@ -183,7 +183,7 @@ export function Pagination({ page, limit, total, onPage }: { page: number; limit
 }
 
 export function Mono({ children, className }: { children: ReactNode; className?: string }) {
-  return <code className={cn('rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[0.8125rem]', className)}>{children}</code>;
+  return <code className={cn('rounded bg-surface-2 px-1.5 py-0.5 font-mono text-sm', className)}>{children}</code>;
 }
 
 export function InlineAlert({ tone = 'warn', title, children }: { tone?: 'warn' | 'fault' | 'ok' | 'accent'; title?: ReactNode; children: ReactNode }) {
