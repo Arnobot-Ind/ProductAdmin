@@ -12,9 +12,13 @@ export interface ApiConfig {
   host: string;
   databaseUrl: string;
   adminOrigins: string[];
+  /** The separate client portal app (customer organizations); also allowed to call the API. Invites of customer users link here. */
+  clientOrigins: string[];
   sessionSecret: string;
   sessionTtlHours: number;
   cookieSecure: boolean;
+  /** Session cookie domain, e.g. ".arnobot.in" so api.arnobot.in (live updates) gets the panel's cookie; unset = host only. */
+  cookieDomain: string | undefined;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   maxUploadBytes: number;
   /** Robot / GCS ingestion (POST /api/v1/ingest, optional MQTT). */
@@ -56,7 +60,20 @@ export interface ApiConfig {
     mp4CacheHours: number;
     /** Incremental re-index of the bucket every N minutes (and at start-up); 0 = off. Picks up data written straight to S3. */
     syncMinutes: number;
+    /** Bucket folder → registered robot, for recordings uploaded under another name (ARCHIVE_ROBOT_ALIASES=ductrobot01=ductcleaning01). */
+    robotAliases: Map<string, string>;
+    /** DVR footage copied straight into the bucket (…/Video/<cam>/<YYYY-MM-DD>/<HH-MM-SS>.ts), indexed as one recording
+     *  per robot and day (ARCHIVE_DVR_SOURCES=saibya02=adani-trails/). */
+    dvrSources: { robotId: string; prefix: string }[];
   };
+}
+
+/** "a=b,c=d" → [["a","b"],["c","d"]]; blanks and malformed entries are skipped. */
+function pairs(value: string | undefined): [string, string][] {
+  return (value ?? '')
+    .split(',')
+    .map((p) => p.split('=').map((s) => s.trim()))
+    .filter((p): p is [string, string] => p.length === 2 && !!p[0] && !!p[1]);
 }
 
 /** "+05:30" → 330 */
@@ -96,9 +113,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     host: env.API_HOST || '0.0.0.0',
     databaseUrl: required('DATABASE_URL'),
     adminOrigins: (env.ADMIN_ORIGIN || 'http://localhost:3000').split(',').map((s) => s.trim()).filter(Boolean),
+    clientOrigins: (env.CLIENT_ORIGIN || 'http://localhost:3001').split(',').map((s) => s.trim()).filter(Boolean),
     sessionSecret,
     sessionTtlHours: Number(env.SESSION_TTL_HOURS || 12),
     cookieSecure: env.COOKIE_SECURE === 'true',
+    cookieDomain: env.COOKIE_DOMAIN?.trim() || undefined,
     logLevel: ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info',
     maxUploadBytes: Number(env.MAX_UPLOAD_MB || 1024) * 1024 * 1024,
     ingest: {
@@ -140,6 +159,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ffprobePath: env.FFPROBE_PATH || 'ffprobe',
       mp4CacheHours: positive(env.MP4_CACHE_HOURS, 24),
       syncMinutes: env.ARCHIVE_SYNC_MINUTES === '0' ? 0 : positive(env.ARCHIVE_SYNC_MINUTES, 10),
+      robotAliases: new Map(pairs(env.ARCHIVE_ROBOT_ALIASES)),
+      dvrSources: pairs(env.ARCHIVE_DVR_SOURCES).map(([robotId, prefix]) => ({ robotId, prefix: prefix.endsWith('/') ? prefix : `${prefix}/` })),
     },
   };
 }

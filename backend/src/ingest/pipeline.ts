@@ -5,6 +5,7 @@
  */
 import { isPgError, withTransaction, type Db } from '../db';
 import {
+  SUPPORTED_MESSAGE_VERSIONS,
   INGEST_MAX_FUTURE_SKEW_MS,
   INGEST_MIN_VALID_TS,
   parseRobotMessage,
@@ -12,6 +13,7 @@ import {
 } from '../shared';
 import type { PoolClient } from 'pg';
 import type { IngestClient } from './auth';
+import { handleDetection } from './handlers/detection';
 import { handleEvent } from './handlers/event';
 import { handleHello } from './handlers/hello';
 import { handleLive } from './handlers/live';
@@ -29,6 +31,13 @@ export interface IngestResult {
   details?: unknown;
 }
 
+/**
+ * Setup problems (robot not registered or deleted, wrong key or product) and a clock running ahead are not the
+ * data's fault: the robot keeps such messages queued and resends them once the setup is fixed or the time has
+ * caught up, instead of discarding them. A 1970 timestamp (clock never set) can never become valid: permanent.
+ */
+const RETRYABLE_CODES = new Set(['robot_not_allowed', 'unknown_robot', 'robot_deleted', 'product_mismatch', 'clock_ahead']);
+
 class Rejection extends Error {
   constructor(
     readonly code: string,
@@ -36,6 +45,10 @@ class Rejection extends Error {
     readonly details?: unknown,
   ) {
     super(message);
+  }
+
+  get retryable(): boolean {
+    return RETRYABLE_CODES.has(this.code);
   }
 }
 
@@ -71,6 +84,12 @@ export class IngestPipeline {
   async process(raw: unknown, client: IngestClient, transport: 'https' | 'mqtt'): Promise<IngestResult> {
     const parsed = parseRobotMessage(raw);
     if (!parsed.ok) {
+      // A NEWER format than this server knows is not the robot's fault: answer retryable so it keeps
+      // the message queued (instead of moving it to rejected/) and resends once the backend is upgraded.
+      const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).v : undefined;
+      if (Number.isInteger(v) && (v as number) > Math.max(...SUPPORTED_MESSAGE_VERSIONS)) {
+        return this.reject(raw, client, parsed.msg_id ?? null, 'unsupported_version', `format v${v} is newer than this server (supports ${SUPPORTED_MESSAGE_VERSIONS.join(', ')})`, undefined, true);
+      }
       return this.reject(raw, client, parsed.msg_id ?? null, parsed.error, 'message failed validation', parsed.details);
     }
     const msg = parsed.message;
@@ -82,7 +101,7 @@ export class IngestPipeline {
       const status = await withTransaction(this.db, (tx) => this.store(tx, msg, raw, client, transport));
       return { msg_id: msg.msg_id, status };
     } catch (err) {
-      if (err instanceof Rejection) return this.reject(raw, client, msg.msg_id, err.code, err.message, err.details);
+      if (err instanceof Rejection) return this.reject(raw, client, msg.msg_id, err.code, err.message, err.details, err.retryable);
       if (err instanceof MissionConflictError) return this.reject(raw, client, msg.msg_id, err.code, err.message);
       if (isPgError(err) && ['23514', '23503', '22P02', '22003', '22007', '22008'].includes(err.code)) {
         // data that passed the schema but violates a DB constraint: permanent, not retryable
@@ -144,12 +163,15 @@ export class IngestPipeline {
       case 'mission':
         await handleMission(tx, msg);
         break;
+      case 'detection':
+        await handleDetection(tx, msg);
+        break;
     }
     if (!liveReplaced) await notifyChange(tx, { kind: 'seen', robot_id: msg.robot_id });
     return 'stored';
   }
 
-  private async reject(raw: unknown, client: IngestClient | null, msgId: string | null, code: string, message: string, details?: unknown): Promise<IngestResult> {
+  private async reject(raw: unknown, client: IngestClient | null, msgId: string | null, code: string, message: string, details?: unknown, retryable = false): Promise<IngestResult> {
     const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     try {
       await this.db.query(
@@ -167,7 +189,7 @@ export class IngestPipeline {
     } catch (err) {
       this.log.warn({ err }, 'could not record ingest rejection');
     }
-    return { msg_id: msgId, status: 'rejected', error: code, retryable: false, details: details ?? message };
+    return { msg_id: msgId, status: 'rejected', error: code, retryable, details: details ?? message };
   }
 }
 

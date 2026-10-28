@@ -8,3 +8,4 @@ coverage/
 .sim-keys.json
 storage/
 tmp/
+.env.bak*

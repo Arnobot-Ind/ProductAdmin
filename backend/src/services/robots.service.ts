@@ -10,6 +10,7 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
        r.created_at, r.updated_at, r.deleted_at,
        o.company_id AS owner_company_id, c.name AS owner_company, o.valid_from AS owner_since,
        ls.last_seen_at, ls.battery_pct, ls.current_mission_id, ls.odometer_m,
+       (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name,
        ls.health_controller, ls.health_lidar, ls.health_cameras, ls.health_gps,
        coalesce(ls.sw_ver, sw.sw_ver) AS sw_ver, coalesce(ls.fw_ver, sw.fw_ver) AS fw_ver,
        CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
@@ -79,6 +80,7 @@ export function toRobotListItem(r: RobotRow): RobotListItemDto {
       gps: (r.health_gps as HealthLevel | null) ?? null,
     },
     current_mission_id: (r.current_mission_id as string | null) ?? null,
+    current_mission_name: (r.current_mission_name as string | null) ?? null,
     odometer_m: r.odometer_m === null || r.odometer_m === undefined ? null : Number(r.odometer_m),
     sw_ver: (r.sw_ver as string | null) ?? null,
     fw_ver: (r.fw_ver as string | null) ?? null,

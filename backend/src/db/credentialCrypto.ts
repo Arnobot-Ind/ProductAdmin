@@ -2,7 +2,8 @@
  * Envelope for robot_credentials (spec §10, rule 11): AES-256-GCM, random 12-byte IV per secret,
  * master key held OUTSIDE the database (env CREDENTIAL_ENCRYPTION_KEY, or a KMS later).
  * key_version lets the key rotate: old rows stay decryptable via CREDENTIAL_ENCRYPTION_OLD_KEYS.
- * The AAD binds a ciphertext to its robot + kind + slot, so rows cannot be swapped between robots.
+ * The AAD binds a ciphertext to its robot + kind + slot, so rows cannot be swapped between robots. Client
+ * credentials (client_credentials, 0021) bind to their own row id + organization + kind instead.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
@@ -17,6 +18,13 @@ export interface CredentialAad {
   robotId: string;
   kind: string;
   slot: number | null;
+}
+
+/** client_credentials: the row id is generated before the insert, so each ciphertext belongs to exactly one row. */
+export interface ClientCredentialAad {
+  credentialId: string;
+  companyId: string;
+  kind: string;
 }
 
 function parseKey(b64: string, label: string): Buffer {
@@ -45,11 +53,12 @@ export class CredentialCipher {
     return new CredentialCipher(env.CREDENTIAL_ENCRYPTION_KEY, Number(env.CREDENTIAL_KEY_VERSION || 1), env.CREDENTIAL_ENCRYPTION_OLD_KEYS || '');
   }
 
-  private static aad(a: CredentialAad): Buffer {
+  private static aad(a: CredentialAad | ClientCredentialAad): Buffer {
+    if ('credentialId' in a) return Buffer.from(`client-cred|${a.credentialId}|${a.companyId}|${a.kind}`, 'utf8');
     return Buffer.from(`pms-cred|${a.robotId}|${a.kind}|${a.slot ?? 0}`, 'utf8');
   }
 
-  encrypt(plaintext: string, aad: CredentialAad): EncryptedSecret {
+  encrypt(plaintext: string, aad: CredentialAad | ClientCredentialAad): EncryptedSecret {
     const key = this.keys.get(this.currentVersion)!;
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
@@ -58,7 +67,7 @@ export class CredentialCipher {
     return { ciphertext, iv, authTag: cipher.getAuthTag(), keyVersion: this.currentVersion };
   }
 
-  decrypt(secret: EncryptedSecret, aad: CredentialAad): string {
+  decrypt(secret: EncryptedSecret, aad: CredentialAad | ClientCredentialAad): string {
     const key = this.keys.get(secret.keyVersion);
     if (!key) throw new Error(`No key available for credential key_version ${secret.keyVersion}`);
     const decipher = createDecipheriv('aes-256-gcm', key, secret.iv);

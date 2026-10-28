@@ -34,6 +34,14 @@ const msg = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('IngestPipeline decisions (before touching the DB)', () => {
+  it('answers a newer format version as retryable (the robot keeps it queued), an unknown older one as permanent', async () => {
+    const s = stubDb();
+    const p = new IngestPipeline(s.db, log);
+    expect(await p.process(msg({ v: 2 }), client, 'https')).toMatchObject({ status: 'rejected', error: 'unsupported_version', retryable: true });
+    expect(await p.process(msg({ v: 0 }), client, 'https')).toMatchObject({ status: 'rejected', error: 'invalid_envelope', retryable: false });
+    expect(s.rejections).toHaveLength(2);
+  });
+
   it('rejects an invalid envelope as non-retryable and records it', async () => {
     const s = stubDb();
     const r = await new IngestPipeline(s.db, log).process({ v: 1, robot_id: 'saibya01' }, client, 'https');
@@ -53,6 +61,8 @@ describe('IngestPipeline decisions (before touching the DB)', () => {
     const s = stubDb();
     const p = new IngestPipeline(s.db, log);
     expect((await p.process(msg({ ts: new Date(Date.now() + 3_600_000).toISOString() }), client, 'https')).error).toBe('clock_ahead');
+    // the clock catching up makes it valid: the robot keeps it queued
+    expect((await p.process(msg({ ts: new Date(Date.now() + 3_600_000).toISOString() }), client, 'https')).retryable).toBe(true);
     expect((await p.process(msg({ ts: '1970-01-01T00:00:10.000Z' }), client, 'https')).error).toBe('clock_unsynced');
   });
 

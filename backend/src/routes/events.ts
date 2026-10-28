@@ -47,9 +47,9 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/events',
     summary: 'Event log across robots the user may read',
     tag,
-    access: { can: 'robot.read', target: anyScope() },
+    access: { can: 'robot.details', target: anyScope() },
     query: listQuery,
-    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'e.robot_id', 'e.ts')),
+    handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts')),
   });
 
   route(f, app, {
@@ -57,12 +57,12 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/events',
     summary: 'Events of one robot',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: listQuery,
     handler: async ({ params, query, user }) => {
       await app.robots.assertExists(params.robotId, { allowDeleted: true });
       const w = new Where().add('e.robot_id = ?', params.robotId);
-      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.read'), 'e.robot_id', 'e.ts'));
+      return list({ ...query, robot: undefined }, app.perms.applyDataScope(w, app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts'));
     },
   });
 

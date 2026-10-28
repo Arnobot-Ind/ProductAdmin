@@ -7,7 +7,7 @@
 export const MESSAGE_FORMAT_VERSION = 1;
 export const SUPPORTED_MESSAGE_VERSIONS = [1] as const;
 
-export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission'] as const;
+export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission', 'detection'] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
 /** Spec §7: computed from last-seen time, never stored. */
@@ -92,3 +92,38 @@ export const INGEST_MAX_FUTURE_SKEW_MS = 5 * 60_000;
 export const INGEST_MIN_VALID_TS = '2024-01-01T00:00:00.000Z';
 /** Max envelopes accepted in one HTTPS batch. */
 export const INGEST_MAX_BATCH = 500;
+
+/** Client admin (0021): a customer organization's status. Only these two may sign in to the client app. */
+export const CLIENT_STATUSES = ['onboarding', 'active', 'suspended', 'ended'] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+export const CLIENT_SIGN_IN_STATUSES: readonly ClientStatus[] = ['onboarding', 'active'];
+
+/** Client app features (client_features rows). The client app's nav and the API both check these keys. */
+export const CLIENT_FEATURES = {
+  robotsView: 'portal.robots.view',
+  robotsLocation: 'portal.robots.location',
+  missionsView: 'portal.missions.view',
+  reportsView: 'portal.reports.view',
+  reportsDownload: 'portal.reports.download',
+  telemetryView: 'portal.telemetry.view',
+  eventsView: 'portal.events.view',
+  softwareView: 'portal.software.view',
+  detectionsView: 'portal.detections.view',
+} as const;
+
+/** What a camera detection is about (detections.kind, 0022). */
+export const DETECTION_KINDS = ['human', 'wildlife', 'fire', 'vegetation'] as const;
+export type DetectionKind = (typeof DETECTION_KINDS)[number];
+/** What the robot itself reports (`detection` message); vegetation comes only from imports. */
+export const ROBOT_DETECTION_KINDS = ['human', 'wildlife', 'fire'] as const;
+/** Largest detection snapshot accepted (annotated JPEG, ~100–300 KB in practice). */
+export const DETECTION_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const DETECTION_STATUSES = ['confirmed', 'rejected'] as const;
+export type DetectionStatus = (typeof DETECTION_STATUSES)[number];
+
+export const SOFTWARE_KINDS = ['desktop_app', 'web_app', 'robot_software', 'firmware', 'service'] as const;
+export type SoftwareKind = (typeof SOFTWARE_KINDS)[number];
+
+/** Kinds of secret Arnobot holds for a client (client_credentials). Robot secrets are CREDENTIAL_KINDS. */
+export const CLIENT_CREDENTIAL_KINDS = ['gcs_login', 'gcs_api_token', 'portal', 'camera', 'wifi', 'vpn', 'cloud', 'email', 'other'] as const;
+export type ClientCredentialKind = (typeof CLIENT_CREDENTIAL_KINDS)[number];

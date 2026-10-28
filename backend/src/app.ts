@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { AppContext } from './context';
 import { archiveIngestRoutes } from './ingest/archive';
+import { detectionImageRoutes } from './ingest/detectionImage';
 import { ingestRoutes } from './ingest/routes';
 import { archiveRoutes } from './routes/archive';
 import { systemRoutes } from './routes/system';
@@ -12,20 +13,25 @@ import type { IngestPipeline } from './ingest/pipeline';
 import { errorHandler } from './lib/errors';
 import { authRoutes } from './routes/auth';
 import { catalogueRoutes } from './routes/catalogue';
+import { clientAdminRoutes } from './routes/client-admin';
+import { clientPortalRoutes } from './routes/client-portal';
 import { credentialRoutes } from './routes/credentials';
 import { dashboardRoutes } from './routes/dashboard';
+import { detectionRoutes } from './routes/detections';
 import { documentRoutes } from './routes/documents';
 import { eventRoutes } from './routes/events';
 import { hardwareRoutes } from './routes/hardware';
-import { ingestAdminRoutes } from './routes/ingest-admin';
+import { ingestAdminRoutes } from './routes/ingestAdmin';
 import { metaRoutes } from './routes/meta';
 import { missionRoutes } from './routes/missions';
 import { organizationRoutes } from './routes/organizations';
 import { auditRoutes } from './routes/audit';
 import { releaseRoutes } from './routes/releases';
+import { reportRoutes } from './routes/reports';
 import { robotRoutes } from './routes/robots';
 import { telemetryRoutes } from './routes/telemetry';
 import { userRoutes } from './routes/users';
+import { sessionCookieName } from './services/auth.service';
 
 export const API_PREFIX = '/api/v1';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -51,7 +57,10 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
   await app.register(rateLimit, {
     max: 600,
     timeWindow: '1 minute',
-    keyGenerator: (req) => (req.cookies?.pms_session ? `s:${req.cookies.pms_session.slice(0, 16)}` : `ip:${req.ip}`),
+    keyGenerator: (req) => {
+      const session = req.cookies?.[sessionCookieName(req.headers)];
+      return session ? `s:${session.slice(0, 16)}` : `ip:${req.ip}`;
+    },
   });
 
   // Never let an API response be cached by a browser or proxy (contains operational data).
@@ -75,6 +84,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
 
   // Robot / GCS ingestion: ingest-key auth, no session, so no CSRF hook (registered outside the admin scope).
   await app.register(async (ingest) => ingestRoutes(ingest, ctx.db, makePipeline(app.log), ctx.cfg.ingest), { prefix: API_PREFIX });
+  // Robot → detection snapshots (fleetSync): raw JPEG body, ingest-key auth.
+  await app.register(async (d) => detectionImageRoutes(d, ctx), { prefix: API_PREFIX });
   // Robot → video/sensor archive (cloud_sync). Also under the Saibya Archive server's old paths.
   await app.register(async (a) => archiveIngestRoutes(a, ctx, { upload: '/upload', events: '/events', heartbeat: '/heartbeat' }), {
     prefix: `${API_PREFIX}/archive`,
@@ -94,7 +105,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
         const origin = req.headers.origin;
         const host = req.headers.host;
         const sameHost = origin && host && (origin === `http://${host}` || origin === `https://${host}`);
-        if (origin && !sameHost && !ctx.cfg.adminOrigins.includes(origin)) {
+        if (origin && !sameHost && ![...ctx.cfg.adminOrigins, ...ctx.cfg.clientOrigins].includes(origin)) {
           return reply.code(403).send({ error: { code: 'forbidden', message: 'cross-origin request refused' } });
         }
         if (req.headers['x-requested-with'] !== 'pms-admin') {
@@ -108,6 +119,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       robotRoutes(api, ctx);
       hardwareRoutes(api, ctx);
       telemetryRoutes(api, ctx);
+      reportRoutes(api, ctx);
       credentialRoutes(api, ctx);
       ingestAdminRoutes(api, ctx);
       missionRoutes(api, ctx);
@@ -116,6 +128,9 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       releaseRoutes(api, ctx);
       userRoutes(api, ctx);
       organizationRoutes(api, ctx);
+      clientAdminRoutes(api, ctx);
+      clientPortalRoutes(api, ctx);
+      detectionRoutes(api, ctx);
       auditRoutes(api, ctx);
       archiveRoutes(api, ctx);
       systemRoutes(api, ctx);

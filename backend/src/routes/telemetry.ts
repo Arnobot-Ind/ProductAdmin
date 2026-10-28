@@ -41,13 +41,13 @@ const worst = (col: string) =>
 export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
   const { db, robots } = app;
   const tag = 'Telemetry';
-  const access = { can: 'robot.read', target: robotParam() };
+  const access = { can: 'robot.details', target: robotParam() };
 
   async function series<T>(user: AuthUser, robotId: string, q: z.infer<typeof rangeQuery>, rawSql: string, bucketSql: string): Promise<TelemetrySeriesDto<T>> {
     await robots.assertExists(robotId, { allowDeleted: true });
     const { from, to, bucket } = resolveRange(q);
     // Organizations never see telemetry recorded while another customer owned the robot: the range is clipped.
-    const periods = await app.perms.dataPeriods(user, 'robot.read', robotId);
+    const periods = await app.perms.dataPeriods(user, 'robot.details', robotId);
     const spans = (periods ?? [{ from, to }])
       .map((p) => ({ from: new Date(Math.max(from.getTime(), (p.from ?? from).getTime())), to: new Date(Math.min(to.getTime(), (p.to ?? to).getTime())) }))
       .filter((s) => s.from < s.to);

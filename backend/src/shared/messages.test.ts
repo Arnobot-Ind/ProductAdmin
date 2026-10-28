@@ -98,3 +98,19 @@ describe('computeRobotStatus (spec §7)', () => {
   });
   it('never seen → offline', () => expect(computeRobotStatus(null, now)).toBe('offline'));
 });
+
+describe('detection (0024, fleetSync)', () => {
+  const det = (payload: Record<string, unknown>) => parseRobotMessage({ ...base, type: 'detection', payload });
+  const ok = { detection_id: '0b6c9d3e-6a1f-4b8e-9a51-2d1c7f3e8a90', kind: 'human', detected_at: '2026-10-09T18:30:00Z', camera: 'cam2', count: 2, confidence: 0.81, has_image: true };
+
+  it('accepts what fleetSync sends', () => {
+    expect(det(ok).ok).toBe(true);
+    expect(det({ ...ok, kind: 'WILDLIFE', label: 'dog', labels: { dog: 1 } }).ok).toBe(true);
+  });
+
+  it('rejects unknown kinds, bad ids and confidences above 1', () => {
+    expect(det({ ...ok, kind: 'vegetation' }).ok).toBe(false);
+    expect(det({ ...ok, detection_id: 'a/b' }).ok).toBe(false);
+    expect(det({ ...ok, confidence: 1.5 }).ok).toBe(false);
+  });
+});

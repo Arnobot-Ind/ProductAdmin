@@ -1,4 +1,4 @@
-import type { DashboardDto, RobotStatus } from '../shared';
+import { CLIENT_FEATURES, type DashboardDto, type RobotStatus } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context';
 import { anyScope, route } from '../lib/route';
@@ -16,6 +16,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.read', target: anyScope() },
     handler: async ({ user }): Promise<DashboardDto> => {
       const scope = app.perms.robotScope(user, 'robot.read');
+      // Missions, events, messages and warranty are Arnobot-internal (robot.details): customers get none of them.
+      const detailScope = app.perms.robotScope(user, 'robot.details');
       const scoped = (col: string, extra?: (w: Where) => void) => {
         const w = new Where();
         app.perms.applyRobotScope(w, scope, col);
@@ -25,7 +27,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
       // Records (missions, events, messages): never those made while another customer owned the robot.
       const scopedData = (col: string, time: string, extra?: (w: Where) => void) => {
         const w = new Where();
-        app.perms.applyDataScope(w, scope, col, time);
+        app.perms.applyDataScope(w, detailScope, col, time);
         extra?.(w);
         return w;
       };
@@ -56,8 +58,8 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
          ${rw.toSql()} ORDER BY r.robot_id`,
         rw.params,
       );
-      const by_status: Record<RobotStatus, number> = { online: 0, stale: 0, offline: 0 };
-      for (const r of robots.rows) by_status[r.status]++;
+      const byStatus: Record<RobotStatus, number> = { online: 0, stale: 0, offline: 0 };
+      for (const r of robots.rows) byStatus[r.status]++;
 
       const ew = scopedData('e.robot_id', 'e.ts', (w) => w.add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'));
       const unacked = (
@@ -90,9 +92,11 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
       const imw = scopedData('i.robot_id', 'i.received_at', (w) => w.add("i.received_at > now() - interval '24 hours'"));
       const msgs = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ingested_messages i ${imw.toSql()}`, imw.params)).rows[0].n;
 
+      // Customer users see robot positions only with the location feature (0021).
+      const hideLocation = !!user.client && !user.client.features.has(CLIENT_FEATURES.robotsLocation);
       return {
         robots_total: robots.rows.length,
-        by_status,
+        by_status: byStatus,
         unacked_critical_events: unacked.critical,
         unacked_events: unacked.total,
         robots_with_fault: robots.rows.filter((r) => r.faults?.length).map((r) => ({ robot_id: r.robot_id, devices: r.faults! })),
@@ -100,13 +104,13 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
         recent_missions: recentMissions.rows.map((r) => ({ ...r, started_at: iso(r.started_at), ended_at: iso(r.ended_at) })),
         recent_events: recentEvents.rows.map(toEvent),
         messages_last_24h: msgs,
-        warranty_expiring: robots.rows.filter((r) => r.warranty_end).map((r) => ({ robot_id: r.robot_id, warranty_end: r.warranty_end! })),
+        warranty_expiring: robots.rows.filter((r) => r.warranty_end && app.perms.holdsAnywhere(user, 'robot.details')).map((r) => ({ robot_id: r.robot_id, warranty_end: r.warranty_end! })),
         fleet: robots.rows.map((r) => ({
           robot_id: r.robot_id,
           product_name: r.product_name,
           status: r.status,
-          lat: r.lat,
-          lon: r.lon,
+          lat: hideLocation ? null : r.lat,
+          lon: hideLocation ? null : r.lon,
           battery_pct: r.battery_pct,
           last_seen_at: iso(r.last_seen_at),
           faults: r.faults ?? [],

@@ -19,7 +19,7 @@ export const CHANGE_CHANNEL = 'pms_changes';
 export function startRealtime(httpServer: HttpServer, app: AppContext, log: FastifyBaseLogger): { close: () => Promise<void> } {
   const io = new Server(httpServer, {
     path: '/socket.io',
-    cors: { origin: app.cfg.adminOrigins, credentials: true },
+    cors: { origin: [...app.cfg.adminOrigins, ...app.cfg.clientOrigins], credentials: true },
     serveClient: false,
   });
 

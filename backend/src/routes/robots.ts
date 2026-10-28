@@ -1,4 +1,5 @@
 import { registerRobot, withTransaction, type Queryable } from '../db';
+import { CLIENT_FEATURES } from '../shared';
 import type {
   ConnectivityDto,
   DispatchWarrantyDto,
@@ -225,7 +226,11 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Current live state with computed status',
     tag,
     access: { can: 'robot.read', target: robotParam() },
-    handler: ({ params }) => robots.live(params.robotId),
+    handler: async ({ params, user }) => {
+      const live = await robots.live(params.robotId);
+      // Customer users see where the robot is only with the location feature (0021).
+      return user.client && !user.client.features.has(CLIENT_FEATURES.robotsLocation) ? { ...live, position: null } : live;
+    },
   });
 
   // ── ownership (row 2) ────────────────────────────────────────────────────
@@ -243,11 +248,11 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/ownership',
     summary: 'Ownership history (newest first). Organization users see only their own organization’s periods',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     handler: async ({ params, user }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
       const rows = await ownershipRows(params.robotId, db);
-      const scope = app.perms.robotScope(user, 'robot.read');
+      const scope = app.perms.robotScope(user, 'robot.details');
       // Other organizations' names and periods are not theirs to see.
       return scope.all ? rows : rows.filter((r) => r.company_id === user.companyId || scope.companyIds.includes(r.company_id));
     },
@@ -280,7 +285,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/software',
     summary: 'Current software/firmware and version history',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     handler: async ({ params }): Promise<SoftwareDto> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
       return softwareDto(params.robotId, db);
@@ -363,7 +368,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/connectivity',
     summary: 'Network addresses, tunnel, cameras (no secrets) + IPs last reported by the robot',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     handler: async ({ params }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
       return connectivityDto(params.robotId, db);
@@ -443,7 +448,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/dispatch',
     summary: 'Dispatch date and warranty (with computed warranty status)',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     handler: async ({ params }) => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
       return dispatchDto(params.robotId, db);

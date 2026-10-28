@@ -1,6 +1,6 @@
 /**
  * Video / sensor archive for the admin panel. Access, per recording:
- *   view      robot.read on the robot, AND the recording was not made while another customer organization
+ *   view      robot.details on the robot, AND the recording was not made while another customer organization
  *             owned the robot. Video plays (HLS); LiDAR / IMU show as previews.
  *   download  data.download: MP4 / .ts video, session.json, upload log.
  *   sensors   data.sensors: LiDAR / IMU are shown at all (previews); without it they are hidden (Admin only).
@@ -76,12 +76,12 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
   const { archive, perms } = app;
 
   /**
-   * Second gate after the declared robot.read on the recording's robot: the recording must not belong to
+   * Second gate after the declared robot.details on the recording's robot: the recording must not belong to
    * another customer's ownership period. Answers 404 (not 403): other organizations' data does not exist for them.
    */
   const visibleSession = async (user: AuthUser, id: string, allowDeleted = false): Promise<{ robotId: string; at: Date }> => {
     const owner = await archive.sessionOwner(id, allowDeleted);
-    if (!owner || !(await perms.canSeeData(user, 'robot.read', owner.robotId, owner.at))) throw notFound('recording');
+    if (!owner || !(await perms.canSeeData(user, 'robot.details', owner.robotId, owner.at))) throw notFound('recording');
     return owner;
   };
   /** Recording lists for roles that do not see sensor data: no LiDAR / IMU / GPS / encoder details. */
@@ -113,11 +113,11 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/archive/sessions',
     summary: 'Recorded sessions (video + sensors) the user may see, newest first',
     tag,
-    access: { can: 'robot.read', target: anyScope() },
+    access: { can: 'robot.details', target: anyScope() },
     query: listQuery,
     handler: async ({ query: q, user }): Promise<ArchiveSessionListDto> => {
-      const list = await archive.listSessions({ ...q, include_sim: q.include_sim ?? false, include_deleted: (q.include_deleted ?? false) && perms.holdsAnywhere(user, 'data.delete') }, (w) =>
-        perms.applyDataScope(w, perms.robotScope(user, 'robot.read'), 's.robot_id', SESSION_TIME),
+      const list = await archive.listSessions({ ...q, includeSim: q.include_sim ?? false, includeDeleted: (q.include_deleted ?? false) && perms.holdsAnywhere(user, 'data.delete') }, (w) =>
+        perms.applyDataScope(w, perms.robotScope(user, 'robot.details'), 's.robot_id', SESSION_TIME),
       );
       return { ...list, items: list.items.map((s) => maskSensors(user, s)) };
     },
@@ -128,12 +128,12 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/archive',
     summary: 'One robot’s recorded sessions (those the user may see) and its upload link (heartbeat, backlog, alerts)',
     tag,
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: z.object({ include_deleted: optionalBool }),
     handler: async ({ params, query, user }): Promise<RobotArchiveDto> => {
       await app.robots.assertExists(params.robotId, { allowDeleted: true });
       const withDeleted = (query.include_deleted ?? false) && (await perms.can(user, 'data.delete', { type: 'robot', id: params.robotId }));
-      const a = await archive.robotArchive(params.robotId, (w) => perms.applyDataScope(w, perms.robotScope(user, 'robot.read'), 's.robot_id', SESSION_TIME), withDeleted);
+      const a = await archive.robotArchive(params.robotId, (w) => perms.applyDataScope(w, perms.robotScope(user, 'robot.details'), 's.robot_id', SESSION_TIME), withDeleted);
       return { ...a, sessions: a.sessions.map((s) => maskSensors(user, s)) };
     },
   });
@@ -143,7 +143,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/archive/sessions/:id',
     summary: 'One recording: summary, streams (video / LiDAR / IMU / metadata, missing ones included), cameras, files and what the user may do',
     tag,
-    access: { can: 'robot.read', target: sessionRobot },
+    access: { can: 'robot.details', target: sessionRobot },
     handler: async ({ params, user, req }): Promise<ArchiveSessionDetailDto> => {
       const probe = await archive.sessionOwner(params.id, true);
       const access = probe ? await accessFor(user, probe.robotId) : { sensors: false, download: false, download_restricted: false, delete: false };
@@ -177,7 +177,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/archive/sessions/:id/files/*',
     summary: 'Streams one file of a recording (Range supported). ?download=1 needs data.download; raw LiDAR / IMU always need data.download_restricted',
     tag,
-    access: { can: 'robot.read', target: sessionRobot },
+    access: { can: 'robot.details', target: sessionRobot },
     query: z.object({ download: optionalBool }),
     handler: async ({ params, query, req, reply, user }) => {
       const owner = await visibleSession(user, params.id);
@@ -211,7 +211,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/archive/sessions/:id/cameras/:camera/playlist.m3u8',
     summary: 'HLS VOD playlist over one camera’s .ts segments (for the synced web player)',
     tag,
-    access: { can: 'robot.read', target: sessionRobot },
+    access: { can: 'robot.details', target: sessionRobot },
     handler: async ({ params, reply, user }) => {
       await visibleSession(user, params.id);
       if (!isCameraName(params.camera)) throw badRequest('invalid camera name');
@@ -279,7 +279,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     summary:
       'Data dump: one zip of up to 200 recordings. include = video, imu, gps, lidar, encoder, meta (default: everything you may download); cameras limits video. Folders: <robot>/<session>/…',
     tag,
-    access: { can: 'robot.read', target: anyScope() },
+    access: { can: 'robot.details', target: anyScope() },
     query: z.object({
       sessions: z.string().min(1).max(200 * 40),
       include: z.string().max(200).optional(),

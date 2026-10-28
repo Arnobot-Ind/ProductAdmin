@@ -24,7 +24,7 @@ import type {
   LidarPreviewDto,
   RobotArchiveDto,
 } from '../../shared';
-import { classify, COMPLETE_FILE, parseSessionKey, SESSION_FILE, sessionPrefix, sessionsPrefix, sortCameras, type ClassifiedFile } from './keys';
+import { classify, COMPLETE_FILE, parseDvrKey, parseSessionKey, SESSION_FILE, sessionPrefix, sessionsPrefix, sortCameras, type ClassifiedFile } from './keys';
 import { Mp4Builder } from './mp4';
 import { SESSION_SELECT, summarize, videoSegmentSec, type SessionRow } from './summary';
 import { imuPreview, lidarUnavailable, parseLidarChunk, PreviewCache, readAll, SensorFormatError, type LidarChunk } from './sensors';
@@ -60,8 +60,8 @@ export interface SessionListFilter {
   product?: string;
   q?: string;
   status?: ArchiveSessionStatus;
-  include_sim?: boolean;
-  include_deleted?: boolean;
+  includeSim?: boolean;
+  includeDeleted?: boolean;
   page: number;
   limit: number;
 }
@@ -85,13 +85,19 @@ export interface CameraSegment {
 
 /**
  * Camera chunks in time order with their durations (for the HLS playlist, time sync and MP4 export).
- * A gap longer than a segment means recording paused; keep the nominal length then.
+ * A gap longer than a segment means recording paused; keep the nominal length then. The last chunk ends with the
+ * session (endedAt, when known): a 20 s recording is one short chunk, not a nominal 60 s one.
  */
-export function cameraSegments(files: { object_key: string; name: string; size_bytes: number; chunk_start: Date | null }[], segmentSec: number): CameraSegment[] {
+export function cameraSegments(
+  files: { object_key: string; name: string; size_bytes: number; chunk_start: Date | null }[],
+  segmentSec: number,
+  endedAt: string | null = null,
+): CameraSegment[] {
   const chunks = files.filter((f) => f.chunk_start).sort((a, b) => a.chunk_start!.getTime() - b.chunk_start!.getTime());
+  const end = endedAt ? Date.parse(endedAt) : NaN;
   return chunks.map((f, i) => {
     const start = f.chunk_start!.getTime();
-    const next = chunks[i + 1]?.chunk_start?.getTime();
+    const next = chunks[i + 1]?.chunk_start?.getTime() ?? (end > start ? end : undefined);
     const gap = next !== undefined ? (next - start) / 1000 : segmentSec;
     const duration = gap > 0 && gap <= segmentSec * 1.5 ? gap : segmentSec;
     return { key: f.object_key, name: f.name, size: Number(f.size_bytes), start, duration };
@@ -289,8 +295,8 @@ export class ArchiveService {
     scope(w);
     if (filter.robot) w.add('s.robot_id = ?', filter.robot);
     if (filter.product) w.add('p.code = ?', filter.product);
-    if (!filter.include_sim) w.add('NOT s.sim');
-    if (!filter.include_deleted) w.add('s.deleted_at IS NULL');
+    if (!filter.includeSim) w.add('NOT s.sim');
+    if (!filter.includeDeleted) w.add('s.deleted_at IS NULL');
     if (filter.q) {
       const like = `%${filter.q}%`;
       w.add('(s.session_id ILIKE ? OR s.robot_id ILIKE ? OR t.name ILIKE ? OR r.serial_number ILIKE ?)', like, like, like, like);
@@ -382,7 +388,7 @@ export class ArchiveService {
     const segSec = videoSegmentSec(row.manifest, this.cfg);
     const base = `${API_ARCHIVE_BASE}/${id}`;
     const cameras: ArchiveCameraDto[] = sortCameras(new Set(files.flatMap((f) => (f.camera ? [f.camera] : [])))).map((name) => {
-      const segs = cameraSegments(files.filter((f) => f.kind === 'camera' && f.camera === name), segSec);
+      const segs = cameraSegments(files.filter((f) => f.kind === 'camera' && f.camera === name), segSec, session.ended_at);
       return {
         name,
         segments: segs.map((s) => ({ start_ms: s.start, duration_s: s.duration })),
@@ -534,7 +540,8 @@ export class ArchiveService {
         [id, camera],
       )
     ).rows;
-    return { session: summarize(row, this.cfg), segments: cameraSegments(files, videoSegmentSec(row.manifest, this.cfg)) };
+    const session = summarize(row, this.cfg);
+    return { session, segments: cameraSegments(files, videoSegmentSec(row.manifest, this.cfg), session.ended_at) };
   }
 
   // ── re-index ──────────────────────────────────────────────────────────────
@@ -552,10 +559,15 @@ export class ArchiveService {
       )
     ).rows.map((r) => r.robot_id);
     const known = new Set(robots);
-    const ignored = only ? [] : (await this.storage.listPrefixes('')).map((p) => p.replace(/\/$/, '')).filter((p) => !known.has(p));
+    // Folders indexed under another robot (ARCHIVE_ROBOT_ALIASES) and DVR copies (ARCHIVE_DVR_SOURCES) are not "ignored".
+    const aliasesOf = (robotId: string) => [...this.cfg.robotAliases].filter(([, to]) => to === robotId).map(([from]) => from);
+    const handled = new Set([...known, ...robots.flatMap(aliasesOf), ...this.cfg.dvrSources.map((d) => d.prefix.split('/')[0])]);
+    const ignored = only ? [] : (await this.storage.listPrefixes('')).map((p) => p.replace(/\/$/, '')).filter((p) => !handled.has(p));
     const report: ArchiveReindexDto['robots'] = [];
     for (const robotId of robots) {
       const line = { robot_id: robotId, sessions: 0, skipped: 0, files: 0, rejected: 0 };
+      // The robot's own folder, plus folders uploaded under another name that belong to it.
+      for (const folder of [robotId, ...aliasesOf(robotId)])
       for (const sim of [false, true]) {
         const done = new Set(
           full
@@ -564,13 +576,13 @@ export class ArchiveService {
                 (r) => r.session_id,
               ),
         );
-        const sessionIds = (await this.storage.listPrefixes(sessionsPrefix(robotId, sim))).map((p) => p.replace(/\/$/, '').split('/').pop() ?? '');
+        const sessionIds = (await this.storage.listPrefixes(sessionsPrefix(folder, sim))).map((p) => p.replace(/\/$/, '').split('/').pop() ?? '');
         for (const sessionId of sessionIds) {
           if (done.has(sessionId)) {
             line.skipped++;
             continue;
           }
-          const prefix = sessionPrefix(robotId, sim, sessionId);
+          const prefix = sessionPrefix(folder, sim, sessionId);
           const objects = await this.storage.listObjects(prefix);
           if (!objects.length) continue;
           let manifest: Record<string, unknown> | null = null;
@@ -585,7 +597,7 @@ export class ArchiveService {
           for (const o of objects) {
             const k = parseSessionKey(o.key);
             const file = k ? classify(k.name, this.cfg.robotUtcOffsetMin) : null;
-            if (!k || !file || k.robotId !== robotId || k.sessionId !== sessionId) {
+            if (!k || !file || k.robotId !== folder || k.sessionId !== sessionId) {
               line.rejected++;
               continue;
             }
@@ -598,9 +610,53 @@ export class ArchiveService {
           line.sessions++;
         }
       }
+      await this.indexDvr(robotId, line);
       report.push(line);
     }
     return { robots: report, ignored_prefixes: ignored };
+  }
+
+  /**
+   * DVR footage copied straight into the bucket (ARCHIVE_DVR_SOURCES): every …/Video/<cam>/<YYYY-MM-DD>/<HH-MM-SS>.ts
+   * under the source folder becomes a camera segment of the robot's "dvr-<YYYYMMDD>" recording. Files stay where they
+   * are; only keys not indexed yet are added, so a sync costs one listing and new footage shows up by itself.
+   */
+  private async indexDvr(robotId: string, line: ArchiveReindexDto['robots'][number]): Promise<void> {
+    for (const src of this.cfg.dvrSources.filter((d) => d.robotId === robotId)) {
+      const objects = await this.storage.listObjects(src.prefix);
+      const indexed = new Set(
+        (await this.db.query<{ object_key: string }>('SELECT object_key FROM archive_files WHERE starts_with(object_key, $1)', [src.prefix])).rows.map((r) => r.object_key),
+      );
+      const items: RecordItem[] = [];
+      for (const o of objects) {
+        if (indexed.has(o.key)) continue;
+        const d = parseDvrKey(o.key, this.cfg.robotUtcOffsetMin);
+        if (!d) continue;
+        items.push({
+          key: o.key,
+          robotId,
+          sim: false,
+          sessionId: `dvr-${d.day}`,
+          file: { name: d.name, kind: 'camera', camera: d.camera, sensor: null, chunkStart: d.chunkStart },
+          size: o.size,
+          sha256: null,
+          uploadedAt: o.lastModified,
+        });
+      }
+      if (!items.length) continue;
+      for (let i = 0; i < items.length; i += 500) await this.record(items.slice(i, i + 500), false);
+      const days = [...new Set(items.map((it) => it.sessionId))];
+      // A DVR day is a closed recording: first segment → last segment + one segment length.
+      await this.db.query(
+        `UPDATE archive_sessions s SET started_at = f.first, ended_at = f.last + make_interval(secs => $3::int), status = 'closed', complete = true,
+                manifest = coalesce(s.manifest, jsonb_build_object('source', 'dvr', 'prefix', $4::text))
+         FROM (SELECT session_ref, min(chunk_start) AS first, max(chunk_start) AS last FROM archive_files GROUP BY session_ref) f
+         WHERE f.session_ref = s.id AND s.robot_id = $1 AND NOT s.sim AND s.session_id = ANY($2::text[])`,
+        [robotId, days, this.cfg.videoSegmentSec, src.prefix],
+      );
+      line.files += items.length;
+      line.sessions += days.length;
+    }
   }
 
   async stats(): Promise<{ sessions: number; files: number; bytes: number; last_upload_at: string | null }> {

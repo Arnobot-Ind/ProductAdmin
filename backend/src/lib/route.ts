@@ -4,6 +4,7 @@
  *   1. session authentication (unless `public`),
  *   2. Zod validation of query and body (multipart is streamed to a temp file) — signed-in users only,
  *   3. can(user, action, target) for the declared permission; the target may depend on the body,
+ *   4. for customer users, the declared client-app feature(s) (0021; Arnobot staff are not feature-limited),
  * and only then calls the handler. Undeclared access is impossible: `access` is required.
  * The same registry feeds the generated OpenAPI document.
  */
@@ -11,7 +12,7 @@ import type { Queryable } from '../db';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AppContext } from '../context';
-import { SESSION_COOKIE, type AuthUser } from '../services/auth.service';
+import { sessionCookieName, type AuthUser } from '../services/auth.service';
 import type { Target } from '../services/permissions.service';
 import { ApiError, forbidden, notFound, unauthenticated } from './errors';
 import { readMultipart, type UploadedFile } from './multipart';
@@ -19,7 +20,8 @@ import { assertRobotId, assertUuid, parseWith } from './validation';
 
 export type TargetResolver = ((req: FastifyRequest, db: Queryable, body: unknown) => Target | Promise<Target>) & { describe: string };
 
-export type Access = 'public' | 'signed_in' | { can: string; target: TargetResolver };
+/** `can` may list several permissions: holding any one of them on the target is enough. */
+export type Access = 'public' | 'signed_in' | { can: string | string[]; target: TargetResolver };
 
 export interface HandlerCtx<B, Q> {
   req: FastifyRequest;
@@ -39,6 +41,8 @@ export interface RouteDef<B = unknown, Q = unknown> {
   summary: string;
   tag: string;
   access: Access;
+  /** Client-app feature key(s) a customer user must ALL hold (MeDto.client.features). Ignored for Arnobot staff. */
+  feature?: string | string[];
   body?: z.ZodType<B>;
   query?: z.ZodType<Q>;
   /** multipart/form-data with one `file` field; text fields are validated with `body`. */
@@ -90,6 +94,26 @@ export const robotFromBody = (field = 'robot_id') =>
  * A second permission a handler needs only in some cases (e.g. `?download=1` on a file it may already view).
  * Same rule as the declared access: denied → 403 and an `access.denied` audit entry.
  */
+/**
+ * A customer user must hold every listed client-app feature; Arnobot staff always pass. Denied → 403 and an
+ * `access.denied` audit entry, like a missing permission.
+ */
+export function assertFeature(app: AppContext, req: FastifyRequest, user: AuthUser, feature: string | string[], robotId: string | null = null): void {
+  if (!user.client) return;
+  const missing = (typeof feature === 'string' ? [feature] : feature).filter((k) => !user.client!.features.has(k));
+  if (!missing.length) return;
+  app.audit.note({
+    action: 'access.denied',
+    outcome: 'denied',
+    actor: user,
+    target: robotId ? { type: 'robot', id: robotId } : null,
+    robotId,
+    detail: { feature: missing.join(' + '), method: req.method, path: req.routeOptions.url },
+    req,
+  });
+  throw forbidden(`requires ${missing.join(' and ')}`);
+}
+
 export async function assertCan(app: AppContext, req: FastifyRequest, user: AuthUser, action: string, target: Target): Promise<void> {
   if (await app.perms.can(user, action, target)) return;
   app.audit.note({
@@ -113,7 +137,7 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
     handler: async (req, reply) => {
       let user: AuthUser | null = null;
       if (def.access !== 'public') {
-        user = await app.auth.userFromToken(req.cookies[SESSION_COOKIE]);
+        user = await app.auth.userFromToken(req.cookies[sessionCookieName(req.headers)]);
         if (!user) throw unauthenticated();
         // Signed in with a temporary password: nothing else works until it is changed.
         if (user.mustChangePassword && !def.allowWithTemporaryPassword) {
@@ -134,18 +158,25 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
         const body = def.body ? parseWith(def.body, rawBody ?? {}, 'request body') : (undefined as B);
         if (user && typeof def.access === 'object') {
           const target = await def.access.target(req, app.db, body);
-          if (!(await app.perms.can(user, def.access.can, target))) {
+          const needed = typeof def.access.can === 'string' ? [def.access.can] : def.access.can;
+          let allowed = false;
+          for (const action of needed) if (!allowed) allowed = await app.perms.can(user, action, target);
+          if (!allowed) {
             app.audit.note({
               action: 'access.denied',
               outcome: 'denied',
               actor: user,
               target: target.type === 'robot' || target.type === 'company' ? { type: target.type, id: target.id } : null,
               robotId: target.type === 'robot' ? target.id : null,
-              detail: { permission: def.access.can, method: def.method, path: def.path },
+              detail: { permission: needed.join(' | '), method: def.method, path: def.path },
               req,
             });
-            throw forbidden(`requires ${def.access.can}`);
+            throw forbidden(`requires ${needed.join(' or ')}`);
           }
+        }
+        if (user && def.feature) {
+          const robotId = (req.params as Record<string, string> | undefined)?.robotId ?? null;
+          assertFeature(app, req, user, def.feature, robotId);
         }
         const result = await def.handler({
           req,
@@ -157,8 +188,11 @@ export function route<B = unknown, Q = unknown>(fastify: FastifyInstance, app: A
           file,
           app,
         });
-        // A handler that called reply.send() itself (e.g. a stream still flowing) returns the reply.
-        if (reply.sent || result === reply) return reply;
+        // A handler that called reply.send() itself (e.g. a file stream) returns the reply, but the reply is
+        // thenable: the await above waits for the response and yields undefined, and after a client hang-up
+        // mid-stream reply.sent stays false. Sending a 204 then hit ERR_HTTP_HEADERS_SENT and crashed the
+        // server, so judge by the connection instead.
+        if (reply.sent || reply.raw.headersSent || req.raw.socket?.destroyed) return reply;
         if (result === undefined) return reply.code(def.status ?? 204).send();
         return reply.code(def.status ?? 200).send(result);
       } finally {

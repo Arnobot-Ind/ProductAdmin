@@ -4,7 +4,11 @@
  * Secrets NEVER appear in any of these types (CLAUDE.md rule 11).
  */
 import type {
+  ClientCredentialKind,
+  ClientStatus,
   CredentialKind,
+  DetectionKind,
+  DetectionStatus,
   DocumentType,
   EventSeverity,
   EventType,
@@ -14,6 +18,7 @@ import type {
   ReleaseComponent,
   RobotStatus,
   ScopeType,
+  SoftwareKind,
 } from './constants';
 import type { GeoLineString } from './messages';
 
@@ -51,6 +56,19 @@ export interface MeDto {
   /** Signed in with a temporary password: the panel sends them to change it first. */
   must_change_password: boolean;
   grants: GrantDto[];
+  /** Customer users: client status and effective client-app features. null for Arnobot staff. */
+  client: MeClientDto | null;
+}
+export interface MeClientDto {
+  status: ClientStatus;
+  /** Effective feature keys (the user's ∩ the organization's, plus always-on ones). */
+  features: string[];
+  /** The organization's feature keys: the most a Manager can give one of its users. */
+  organization_features: string[];
+  /** Data older than this many days is hidden; null = all history. */
+  data_history_days: number | null;
+  /** No data recorded before this IST day (YYYY-MM-DD) is shown; null = no start date. */
+  data_from: string | null;
 }
 export interface UserDto {
   id: string;
@@ -68,6 +86,8 @@ export interface UserDto {
   created_at: string;
   deleted_at: string | null;
   grants: GrantDto[];
+  /** Customer users: their own client-app feature keys (effective = these ∩ the organization's). null for Arnobot staff. */
+  features: string[] | null;
 }
 export interface RoleDto {
   id: string;
@@ -116,6 +136,8 @@ export interface OrganizationDto {
   user_count: number;
   created_at: string;
   deleted_at: string | null;
+  /** Customer organizations: client status and contract end (no profile yet = active). null for Arnobot. */
+  client: { status: ClientStatus; client_code: string | null; contract_end: string | null; software_count: number } | null;
 }
 export interface OrganizationRobotDto {
   robot_id: string;
@@ -127,6 +149,131 @@ export interface OrganizationRobotDto {
 export interface OrganizationDetailDto extends OrganizationDto {
   robots: OrganizationRobotDto[];
   users: UserDto[];
+  /** Customer organizations only (null for Arnobot): the client profile (defaults when none was saved yet). */
+  profile: ClientProfileDto | null;
+  /** Customer organizations: the client-app features it has (active company_features keys). */
+  features: string[];
+}
+
+// ── client admin (0021) ─────────────────────────────────────────────────────
+export interface UserRefDto {
+  id: string;
+  name: string;
+  email: string;
+}
+export interface ClientProfileDto {
+  company_id: string;
+  client_code: string | null;
+  status: ClientStatus;
+  legal_name: string | null;
+  industry: string | null;
+  phone: string | null;
+  address: string | null;
+  gstin: string | null;
+  billing_email: string | null;
+  account_manager: UserRefDto | null;
+  /** YYYY-MM-DD */
+  contract_start: string | null;
+  contract_end: string | null;
+  data_history_days: number | null;
+  /** Customers see no data recorded before this IST day (YYYY-MM-DD); null = no start date. */
+  data_from: string | null;
+  /** null = no profile saved yet (the defaults are shown). */
+  updated_at: string | null;
+}
+export interface ClientFeatureDto {
+  key: string;
+  area: string;
+  name: string;
+  description: string;
+  kind: 'view' | 'export';
+  /** Everyone has it; cannot be removed. */
+  always_on: boolean;
+  /** Part of a new organization's starting set. */
+  is_default: boolean;
+  /** Keys that must be granted with this one. */
+  requires: string[];
+  sort_order: number;
+}
+export interface SoftwareProductDto {
+  id: string;
+  code: string;
+  name: string;
+  kind: SoftwareKind;
+  description: string | null;
+  latest_version: string | null;
+  /** Active installs across all clients. */
+  install_count: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+export type LicenceState = 'none' | 'valid' | 'expiring' | 'expired';
+export interface SoftwareInstallDto {
+  id: string;
+  company_id: string;
+  software: { id: string; code: string; name: string; kind: SoftwareKind; latest_version: string | null };
+  robot_id: string | null;
+  version: string;
+  /** The catalogue's latest version differs from the installed one. */
+  update_available: boolean;
+  host_label: string | null;
+  seats: number | null;
+  /** YYYY-MM-DD */
+  installed_at: string | null;
+  licence_valid_until: string | null;
+  /** expiring = within 30 days. */
+  licence_state: LicenceState;
+  /** Arnobot-only; never sent to the client app. */
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+/** What the client app shows: an install without Arnobot's notes. */
+export type ClientSoftwareDto = Omit<SoftwareInstallDto, 'notes' | 'company_id'>;
+export interface ClientCredentialDto {
+  id: string;
+  company_id: string;
+  kind: ClientCredentialKind;
+  label: string;
+  username: string | null;
+  url: string | null;
+  robot_id: string | null;
+  notes: string | null;
+  key_version: number;
+  created_at: string;
+  created_by_name: string | null;
+  rotated_from_id: string | null;
+  revoked_at: string | null;
+  revoke_reason: string | null;
+}
+export interface ClientCredentialRevealDto {
+  id: string;
+  kind: ClientCredentialKind;
+  label: string;
+  username: string | null;
+  secret: string;
+}
+/** A customer user's access, as their Manager or Arnobot sets it (PUT /users/:id/access). */
+export interface UserAccessDto {
+  user_id: string;
+  /** Manager or Viewer (null = no role yet: the user sees nothing). */
+  role_key: string | null;
+  /** all = every robot the organization owns, now and later; otherwise the chosen robots. */
+  robots: 'all' | string[];
+  /** The user's own feature keys. */
+  features: string[];
+  /** What the user ends up with: (features ∩ the organization's) ∪ always-on. */
+  effective_features: string[];
+}
+/** An event as the client app shows it: no raw payload, no acknowledging staff member. */
+export interface ClientEventDto {
+  id: string;
+  robot_id: string;
+  ts: string;
+  type: EventType;
+  severity: EventSeverity;
+  code: string | null;
+  message: string;
 }
 
 // ── audit log ───────────────────────────────────────────────────────────────
@@ -221,6 +368,8 @@ export interface RobotListItemDto extends MissionSummaryDto {
   battery_pct: number | null;
   health: DeviceHealthDto;
   current_mission_id: string | null;
+  /** Name the GCS gave the current mission; null until a mission message or report names it. */
+  current_mission_name: string | null;
   /** Lifetime odometer (m) reported by the robot. total_distance_m is mission driving only. */
   odometer_m: number | null;
   sw_ver: string | null;
@@ -782,6 +931,193 @@ export interface ArchiveReindexDto {
   ignored_prefixes: string[];
 }
 
+// ── day-wise reports (patrol report, distance by day) ──────────────────────
+/** One instant span [from, to) as ISO strings. */
+export interface TimeSpanDto {
+  from: string;
+  to: string;
+}
+/** A point of the cleaned patrol track. est = position estimated (no reliable GNSS fix at that moment). */
+export interface ReportPathPointDto {
+  t: string;
+  lat: number;
+  lon: number;
+  est: boolean;
+}
+export interface ReportHourDto {
+  from: string;
+  to: string;
+  /** Person-detection events in the hour. */
+  events: number;
+  online_min: number;
+  moving_s: number;
+  distance_m: number;
+}
+/**
+ * Everything the patrol / night-surveillance report shows for one robot and one IST window, computed by the
+ * server from what the robot sends on its own (1 Hz GPS + wheel speed, 30 s live status with the odometer).
+ * Person detections are NOT part of it: the robot does not send them to the portal.
+ */
+export interface DayReportDto {
+  robot_id: string;
+  robot_name: string;
+  product_name: string;
+  owner_company: string | null;
+  /** IST calendar day the window starts on (YYYY-MM-DD) and the window itself. */
+  date: string;
+  from: string;
+  to: string;
+  night: boolean;
+  /** Part of the window was left out because another customer owned the robot then. */
+  clipped: boolean;
+  /** Where: the name(s) of the missions run in the window (site label for now), null without missions. */
+  site: string | null;
+  /** Person detection, as the robot reports it (type 'detection' messages + live.detection_enabled). */
+  detection: ReportDetectionDto;
+  summary: {
+    /** Headline distance: odometer when the robot reported one in the window, otherwise wheel speed × time. */
+    distance_m: number;
+    distance_source: 'odometer' | 'wheel_speed' | 'none';
+    online_s: number;
+    moving_s: number;
+    peak_mps: number | null;
+    avg_moving_mps: number | null;
+    /** Share of positioned samples with a reliable GNSS fix; null without positions. */
+    gps_reliable_pct: number | null;
+    median_sats: number | null;
+    battery_start_pct: number | null;
+    battery_end_pct: number | null;
+    battery_min_pct: number | null;
+  };
+  hours: ReportHourDto[];
+  /** One entry per minute of the window: 0 no data, 1 online (parked), 2 patrolling (> 0.2 m/s). */
+  activity: number[];
+  path: ReportPathPointDto[];
+  /** Positions left out of the map (no fix, or physically impossible jumps). */
+  path_hidden: number;
+  longest_online: TimeSpanDto | null;
+  offline_gaps: TimeSpanDto[];
+  longest_legs: TimeSpanDto[];
+  /** Missions started in the window (name, times, result, distance). */
+  missions: { mission_id: string; name: string | null; started_at: string | null; ended_at: string | null; result: MissionState; distance_m: number | null }[];
+}
+/** One person-detection event the robot logged (YOLO on board), with its snapshot when uploaded. */
+export interface DetectionDto {
+  id: string;
+  detected_at: string;
+  camera: string;
+  /** Direction the camera faces (Front / Rear / Left / Right), when the robot says. */
+  facing: string | null;
+  human_count: number;
+  confidence: number;
+  lat: number | null;
+  lon: number | null;
+  mission_name: string | null;
+  /** Same-origin API URL of the snapshot JPEG (auth + permission checked), null when none was uploaded. */
+  image_url: string | null;
+}
+export interface ReportDetectionDto {
+  /** The robot has ever sent detections or a detection on/off state; false = this robot does not report them. */
+  available: boolean;
+  /** When detection was switched on in the window (from live.detection_enabled); empty = unknown or off. */
+  enabled_spans: TimeSpanDto[];
+  events: number;
+  persons: number;
+  by_camera: { camera: string; facing: string | null; events: number; persons: number; peak_confidence: number; first_seen: string; last_seen: string }[];
+  /** Every event in the window, oldest first (at most 5000). */
+  log: DetectionDto[];
+  /** Up to 15 events with a snapshot, spread evenly over the window, for the evidence grid. */
+  evidence: DetectionDto[];
+}
+/** GET /robots/:robotId/reports/calendar?month=YYYY-MM: one entry per IST day of the month (the reports calendar). */
+export interface ReportCalendarDayDto {
+  date: string;
+  missions: number;
+  completed: number;
+  aborted: number;
+  failed: number;
+  /** Minutes the robot was online that day (a patrol log exists when > 0). */
+  online_min: number;
+  driven_m: number;
+}
+/** Distance by IST day (the customer "odometry" view and its CSV). */
+export interface DailyDistanceDto {
+  date: string;
+  /** Odometer difference over the day; null when the robot reported no odometer that day. */
+  odometer_m: number | null;
+  /** Wheel speed × time over moving samples (gaps over 10 s skipped). */
+  wheel_m: number;
+  moving_s: number;
+  online_s: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  odometer_end_m: number | null;
+}
+
+/** Mission counts and totals over a period (client portal). */
+export interface MissionStatsDto {
+  total: number;
+  completed: number;
+  aborted: number;
+  failed: number;
+  in_progress: number;
+  /** Sum of mission distance (m) and duration (s). */
+  distance_m: number;
+  duration_s: number;
+}
+/** A mission as the client portal shows it: name, times, result. No paths, files or GCS report. */
+export interface ClientMissionDto {
+  mission_id: string;
+  name: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_s: number | null;
+  distance_m: number | null;
+  result: MissionState;
+  end_reason: string | null;
+  distance_planned_m: number | null;
+  waypoints_total: number | null;
+  waypoints_reached: number | null;
+}
+/** GET /robots/:robotId/reports/missions/:missionId: what the Mission Report PDF needs (no paths, files or raw GCS report). */
+export interface ClientMissionReportDto extends ClientMissionDto {
+  robot_id: string;
+  waypoints: MissionWaypointDto[] | null;
+  /** The driven path as [lat, lon] points (thinned to at most 4000), as the GCS report map draws it; null when none was sent. */
+  path: [number, number][] | null;
+}
+/** GET /robots/:robotId/reports/missions: stats over the filter + one page of missions (newest first). */
+export interface ClientMissionsDto {
+  robot_id: string;
+  from: string | null;
+  to: string | null;
+  stats: MissionStatsDto;
+  items: ClientMissionDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+/** GET /reports/fleet: the client dashboard for every robot the user may see, over IST days [from, to]. */
+export interface FleetReportDto {
+  from: string;
+  to: string;
+  totals: MissionStatsDto & { robots: number; online: number; driven_m: number; moving_s: number };
+  robots: {
+    robot_id: string;
+    product_name: string;
+    status: RobotStatus;
+    last_seen_at: string | null;
+    battery_pct: number | null;
+    current_mission_name: string | null;
+    missions: MissionStatsDto;
+    /** Driven distance (odometer, else wheel speed) and time moving over the period. */
+    driven_m: number;
+    moving_s: number;
+  }[];
+  /** One row per IST day of the period, all robots together. */
+  daily: { date: string; missions: number; completed: number; aborted: number; failed: number; distance_m: number; driven_m: number }[];
+}
+
 // ── system status (Settings page) ──────────────────────────────────────────
 export interface SystemStatusDto {
   checked_at: string;
@@ -814,3 +1150,50 @@ export type RealtimeChange =
   | { kind: 'software'; robot_id: string }
   | { kind: 'telemetry'; robot_id: string }
   | { kind: 'archive'; robot_id: string; session_id: string };
+
+// ── camera detections (0022) ────────────────────────────────────────────────
+/** A detector's bounding box, in pixels of the snapshot image. */
+export interface DetectionBoxDto {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  conf: number | null;
+}
+/** One camera detection with its snapshot. */
+export interface DetectionItemDto {
+  id: string;
+  robot_id: string;
+  detected_at: string;
+  /** The robot's clock was not synced on that run: the time is approximate. */
+  time_estimated: boolean;
+  kind: DetectionKind;
+  /** 'tiger', 'smoke', 'tree'…; null for people. */
+  label: string | null;
+  /** Everything seen in the frame, label → count (when the detector reported several). */
+  labels: Record<string, number> | null;
+  camera: string;
+  /** People / objects in the frame. */
+  count: number;
+  confidence: number | null;
+  boxes: DetectionBoxDto[];
+  lat: number | null;
+  lon: number | null;
+  mission_id: string | null;
+  mission_name: string | null;
+  /** Same-origin API URL of the snapshot JPEG (auth + permission checked); null when none was saved. */
+  image_url: string | null;
+  /** Arnobot staff only (absent in the client app): 'rejected' = marked a false positive. */
+  status?: DetectionStatus;
+  /** Arnobot staff only: where the record came from (GCS dump / offline run). */
+  source?: string;
+}
+/** GET /robots/:robotId/detections (admin) · /robots/:robotId/client/detections (client app). */
+export interface DetectionListDto extends Paginated<DetectionItemDto> {
+  /** Detections per kind in the period, before the kind / camera filter (for the filter chips). */
+  counts: { kind: DetectionKind; count: number }[];
+  /** Cameras that have detections in the period. */
+  cameras: string[];
+  /** First and last detection of the robot the user may see (any period): where the data is. */
+  available: { first: string; last: string } | null;
+}

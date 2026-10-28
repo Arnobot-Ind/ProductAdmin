@@ -1,10 +1,10 @@
 import type { InviteInfoDto, MeDto } from '../shared';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { ApiError, unauthenticated } from '../lib/errors';
 import { route } from '../lib/route';
-import { SESSION_COOKIE } from '../services/auth.service';
+import { sessionCookieName } from '../services/auth.service';
 
 const loginBody = z.object({ email: z.string().trim().email().max(320), password: z.string().min(1).max(256) });
 const changePasswordBody = z.object({ current_password: z.string().min(1).max(256), new_password: z.string().min(1).max(256) });
@@ -13,8 +13,11 @@ const inviteToken = z.string().trim().min(20).max(200);
 export function authRoutes(f: FastifyInstance, app: AppContext): void {
   const tag = 'Auth';
 
-  const startSession = async (reply: FastifyReply, token: string, expiresAt: Date): Promise<MeDto> => {
-    reply.setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: expiresAt });
+  const startSession = async (req: FastifyRequest, reply: FastifyReply, token: string, expiresAt: Date): Promise<MeDto> => {
+    const name = sessionCookieName(req.headers);
+    // A host-only cookie from before COOKIE_DOMAIN was set would shadow the new one: drop it.
+    if (app.cfg.cookieDomain) reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+    reply.setCookie(name, token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: expiresAt, domain: app.cfg.cookieDomain });
     const user = await app.auth.userFromToken(token);
     if (!user) throw unauthenticated();
     return app.auth.toMe(user);
@@ -36,7 +39,7 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
         app.audit.note({ action: 'auth.login_failed', outcome: 'failure', actorEmail: body.email.toLowerCase(), detail: { reason: code }, req });
         throw err;
       }
-      const me = await startSession(reply, session.token, session.expiresAt);
+      const me = await startSession(req, reply, session.token, session.expiresAt);
       app.audit.note({
         action: 'auth.login',
         actor: { id: me.id, email: me.email },
@@ -58,7 +61,9 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
     handler: async ({ user, req, reply }) => {
       await app.auth.logout(user.sessionId);
       app.audit.note({ action: 'auth.logout', actor: user, companyId: user.companyId, req });
-      reply.clearCookie(SESSION_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+      const name = sessionCookieName(req.headers);
+      reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+      if (app.cfg.cookieDomain) reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure, domain: app.cfg.cookieDomain });
     },
   });
 
@@ -69,7 +74,20 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: 'signed_in',
     allowWithTemporaryPassword: true,
-    handler: ({ user }): MeDto => app.auth.toMe(user),
+    handler: async ({ user, req, reply }): Promise<MeDto> => {
+      // Sessions started before COOKIE_DOMAIN was set carry a host-only cookie that api.arnobot.in (live updates)
+      // never receives: re-issue it for the domain, same token and expiry, so nobody has to sign in again.
+      if (app.cfg.cookieDomain) {
+        const name = sessionCookieName(req.headers);
+        const token = req.cookies[name];
+        const row = token ? (await app.db.query<{ expires_at: Date }>('SELECT expires_at FROM sessions WHERE id = $1', [user.sessionId])).rows[0] : undefined;
+        if (token && row) {
+          reply.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: app.cfg.cookieSecure });
+          reply.setCookie(name, token, { httpOnly: true, secure: app.cfg.cookieSecure, sameSite: 'lax', path: '/', expires: row.expires_at, domain: app.cfg.cookieDomain });
+        }
+      }
+      return app.auth.toMe(user);
+    },
   });
 
   route(f, app, {
@@ -111,7 +129,7 @@ export function authRoutes(f: FastifyInstance, app: AppContext): void {
     handler: async ({ body, req, reply }): Promise<MeDto> => {
       const { email } = await app.auth.acceptInvite(body.token, body.password);
       const session = await app.auth.login(email, body.password, req.ip, req.headers['user-agent']);
-      const me = await startSession(reply, session.token, session.expiresAt);
+      const me = await startSession(req, reply, session.token, session.expiresAt);
       app.audit.note({ action: 'auth.invite_accepted', actor: { id: me.id, email: me.email }, target: { type: 'user', id: me.id }, companyId: me.organization.id, req });
       return me;
     },

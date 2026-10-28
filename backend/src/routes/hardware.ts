@@ -115,7 +115,7 @@ export function hardwareRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/hardware',
     summary: 'Hardware fitted: current parts (?current=true) or full history',
     tag: 'Hardware',
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: z.object({ current: optionalBool }),
     handler: async ({ params, query }): Promise<HardwarePartDto[]> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
@@ -203,7 +203,7 @@ export function hardwareRoutes(f: FastifyInstance, app: AppContext): void {
     path: '/robots/:robotId/maintenance',
     summary: 'Repair log (one entry per repair)',
     tag: 'Maintenance',
-    access: { can: 'robot.read', target: robotParam() },
+    access: { can: 'robot.details', target: robotParam() },
     query: z.object(includeDeleted),
     handler: async ({ params, query }): Promise<MaintenanceDto[]> => {
       await robots.assertExists(params.robotId, { allowDeleted: true });
