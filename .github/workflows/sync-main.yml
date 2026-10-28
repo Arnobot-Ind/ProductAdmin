@@ -1,0 +1,67 @@
+# Keeps main as the combined copy of the part branches. Work and deploys happen on the part branches
+# (backend, frontend, client, storage); each one holds only its own folder. This copies every branch's folder
+# into main (frontend also brings amplify.yml) and commits when something changed. Never edit those folders on
+# main: the next sync overwrites them.
+#
+# A push to a part branch runs that branch's workflows, not main's, so this checks on a schedule instead.
+# Actions → "Sync main from part branches" → Run workflow syncs straight away.
+name: Sync main from part branches
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Copy each part branch's folder into main
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for b in backend frontend client storage; do
+            if ! git ls-remote --exit-code --heads origin "$b" >/dev/null; then
+              echo "::warning::branch $b not found, skipped"
+              continue
+            fi
+            git fetch -q origin "$b"
+            paths="$b"
+            [ "$b" = frontend ] && paths="frontend amplify.yml"
+            git rm -r -q --ignore-unmatch $paths
+            git checkout FETCH_HEAD -- $paths
+            git add -A $paths
+            if git diff --cached --quiet; then
+              echo "$b: up to date"
+            else
+              sha=$(git rev-parse --short FETCH_HEAD)
+              git commit -q -m "Sync $b/ from the $b branch ($sha)"
+              echo "$b: synced from $sha"
+            fi
+          done
+
+      - name: Push
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+            echo "Nothing to push"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase -q origin main
+          done
+          exit 1
