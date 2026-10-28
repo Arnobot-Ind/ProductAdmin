@@ -41,7 +41,10 @@ jobs:
           # A key pasted from Windows carries \r line ends, which ssh refuses ("error in libcrypto").
           printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
           if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
-            echo "::error::EC2_SSH_KEY is not a readable private key. Paste the whole .pem file, including the -----BEGIN ...----- and -----END ...----- lines."
+            # Only the key's shape (never its contents) to tell what was pasted.
+            first=$(head -n1 ~/.ssh/deploy_key | cut -c1-40); last=$(tail -n1 ~/.ssh/deploy_key | cut -c1-40)
+            case "$first" in -----BEGIN*|PuTTY-User-Key-File*|ssh-rsa*|ssh-ed25519*|ecdsa-*) ;; *) first="(not a key header)"; last="(hidden)";; esac
+            echo "::error::EC2_SSH_KEY is not a readable private key. Paste the whole .pem file, including the -----BEGIN ...----- and -----END ...----- lines. Got: first line '$first', last line '$last', $(wc -l < ~/.ssh/deploy_key) lines."
             exit 1
           fi
           echo "$HOST_KEY" > ~/.ssh/known_hosts
