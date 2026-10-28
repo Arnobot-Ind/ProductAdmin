@@ -24,8 +24,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        {/* Brand fonts (Syne display, DM Sans body). System fonts are the fallback when offline. */}
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300..600&family=Syne:wght@500..800&display=swap" />
+        {/* Ubuntu for headings and body text. System fonts are the fallback when offline. */}
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap" />
       </head>
       <body>
         <Providers>{children}</Providers>

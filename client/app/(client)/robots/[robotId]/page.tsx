@@ -77,15 +77,16 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
         / <span aria-current="page">{name}</span>
       </nav>
 
-      <header className="flex flex-col gap-2">
+      <header className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">{name}</h1>
+          <h1 className="text-3xl font-bold">{name}</h1>
           <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
         </div>
-        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        {/* The four things people check first, as large tiles. */}
+        <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Fact label="Model">{robot.product_name}</Fact>
-          <Fact label="Last seen">{robot.last_seen_at ? fmtRelative(robot.last_seen_at) : 'Never'}</Fact>
           <Fact label="Battery">{pct(live.data?.battery.pct ?? robot.battery_pct)}</Fact>
+          <Fact label="Last seen">{robot.last_seen_at ? fmtRelative(robot.last_seen_at) : 'Never'}</Fact>
           <Fact label="Current mission">{robot.current_mission_id ? (robot.current_mission_name ?? robot.current_mission_id) : 'None'}</Fact>
         </dl>
       </header>
@@ -109,6 +110,9 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
                 </Card>
               )}
               {has(CLIENT_FEATURES.missionsView) && <RobotMissionsOverview robotId={robot.robot_id} onAllMissions={() => go('missions')} />}
+              {!location && !has(CLIENT_FEATURES.missionsView) && !(has(CLIENT_FEATURES.softwareView) && robotSoftware.length > 0) && (
+                <EmptyState title="Nothing more to show here yet" description="Location, missions and software appear here once they are turned on for your account. Ask your Arnobot contact if you need them." />
+              )}
               {has(CLIENT_FEATURES.softwareView) && robotSoftware.length > 0 && (
                 <Card title="Software on this robot" bodyClassName="p-0">
                   <SoftwareTable items={robotSoftware} showRobot={false} />
@@ -129,9 +133,9 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex gap-1.5">
-      <dt className="text-muted">{label}</dt>
-      <dd>{children}</dd>
+    <div className="min-w-0 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="mt-1 truncate text-xl font-semibold">{children}</dd>
     </div>
   );
 }

@@ -51,17 +51,17 @@ export function PortalShell({ children }: { children: ReactNode }) {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2">
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
+      <header className="app-bar sticky top-0 z-40 border-b border-border bg-surface shadow-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
           {/* Brand + organization */}
           <Link href="/" className="flex min-w-0 shrink-0 items-center gap-3" aria-label={`${me.organization.name} dashboard`}>
-            <BrandMark compact />
+            <BrandMark compact onDark />
             <span className="hidden h-8 w-px bg-border sm:block" aria-hidden />
             <span className="hidden min-w-0 flex-col leading-tight sm:flex">
               <span className="max-w-[13rem] truncate text-sm font-semibold text-fg" title={me.organization.name}>
                 {me.organization.name}
               </span>
-              <span className="text-[0.625rem] font-semibold tracking-[0.18em] text-muted uppercase">Client Admin</span>
+              <span className="text-xs font-medium text-muted">Client portal</span>
             </span>
           </Link>
 
@@ -73,7 +73,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 href={n.href}
                 aria-current={n.active ? 'page' : undefined}
                 className={cn(
-                  'relative inline-flex items-center gap-2 px-3 text-sm transition-colors',
+                  'relative inline-flex items-center gap-2 px-4 text-base transition-colors',
                   'after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full',
                   n.active ? 'font-semibold text-accent-text after:bg-accent' : 'text-muted hover:text-fg after:bg-transparent hover:after:bg-border',
                 )}
@@ -107,7 +107,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
               <Avatar name={me.name} email={me.email} size="sm" />
               <span className="flex max-w-[11rem] flex-col leading-tight">
                 <span className="truncate text-sm font-semibold text-fg">{me.name}</span>
-                {role && <span className="truncate text-[11px] text-muted">{role}</span>}
+                {role && <span className="truncate text-xs text-muted">{role}</span>}
               </span>
             </Link>
             <span className="mx-1 hidden h-6 w-px bg-border lg:block" aria-hidden />

@@ -142,7 +142,7 @@ function MonthCalendar(props: {
         </button>
         <span className="text-sm font-semibold">
           {title}
-          {loading && <span className="ml-2 text-[11px] font-normal text-muted">loading…</span>}
+          {loading && <span className="ml-2 text-xs font-normal text-muted">loading…</span>}
         </span>
         <button type="button" onClick={onNext} disabled={!canNext} className={navBtn} aria-label="Next month" title="Next month">
           <ChevronRight className="size-3.5" aria-hidden />
@@ -150,7 +150,7 @@ function MonthCalendar(props: {
       </div>
       <div className="grid grid-cols-7 gap-1" aria-hidden>
         {WEEKDAYS.map((w) => (
-          <div key={w} className="text-center text-[11px] tracking-wide text-muted uppercase">
+          <div key={w} className="text-center text-sm text-muted">
             {w}
           </div>
         ))}
@@ -191,7 +191,7 @@ function MonthCalendar(props: {
               {missions > 0 && (
                 <span
                   className={cn(
-                    'absolute top-0.5 right-0.5 min-w-3.5 rounded-full px-1 text-center text-[10px] leading-tight font-bold',
+                    'absolute top-0.5 right-0.5 min-w-3.5 rounded-full px-1 text-center text-xs leading-tight font-bold',
                     isSel ? 'bg-accent-fg text-accent' : 'bg-accent text-accent-fg',
                   )}
                 >
@@ -209,9 +209,9 @@ function MonthCalendar(props: {
           );
         })}
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[11px] text-muted">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-flex min-w-3.5 justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-fg">3</span> missions
+          <span className="inline-flex min-w-3.5 justify-center rounded-full bg-accent px-1 text-xs font-bold text-accent-fg">3</span> missions
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-accent" /> logged
@@ -330,9 +330,9 @@ function MissionRow({ m, active, onSelect }: { m: ClientMissionDto; active: bool
         <div className="flex items-center gap-1.5">
           {ok ? <CheckCircle2 className="size-3.5 shrink-0 text-ok" aria-hidden /> : <XCircle className="size-3.5 shrink-0 text-fault" aria-hidden />}
           <span className="truncate text-sm font-semibold">{m.name || 'Mission'}</span>
-          <span className={cn('ml-auto text-[11px] uppercase', ok ? 'text-ok' : 'text-fault')}>{m.result === 'in_progress' ? 'in progress' : m.result}</span>
+          <span className={cn('ml-auto text-xs uppercase', ok ? 'text-ok' : 'text-fault')}>{m.result === 'in_progress' ? 'in progress' : m.result}</span>
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-muted tabular-nums">
+        <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted tabular-nums">
           <span>{istHm(m.started_at)} IST</span>
           <span>· {fmtDistance(m.distance_m)}</span>
           <span>· {fmtDuration(m.duration_s)}</span>
@@ -366,7 +366,7 @@ function MissionDetail({ robot, missionId }: { robot: RobotDetailDto; missionId:
     <section aria-label={`Mission ${m.name ?? ''}`} className="overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
         <span className="text-sm font-semibold">{m.name || 'Mission'}</span>
-        <span className={cn('rounded-full px-2 py-0.5 text-[11px] uppercase', ok ? 'bg-ok/15 text-ok' : 'bg-fault/15 text-fault')}>
+        <span className={cn('rounded-full px-2 py-0.5 text-xs uppercase', ok ? 'bg-ok/15 text-ok' : 'bg-fault/15 text-fault')}>
           {m.result === 'in_progress' ? 'in progress' : m.result}
         </span>
         <Stat icon={<Route className="size-3" />} label="Covered" value={`${fmtDistance(m.distance_m)} / ${fmtDistance(m.distance_planned_m)}`} />
@@ -379,7 +379,7 @@ function MissionDetail({ robot, missionId }: { robot: RobotDetailDto; missionId:
             aria-pressed={showTrack}
             title={showTrack ? 'Hide the actual driven path' : 'Show the actual driven path'}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold',
+              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold',
               showTrack ? 'border-[#FF9F0A] bg-[#FF9F0A]/15 text-[#b86e00] dark:text-[#FF9F0A]' : 'border-border text-muted',
             )}
           >
@@ -412,8 +412,8 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
       <span className="text-muted" aria-hidden>
         {icon}
       </span>
-      <span className="text-[11px] tracking-wide text-muted uppercase">{label}</span>
-      <span className="font-mono text-[11px] font-semibold">{value}</span>
+      <span className="text-sm text-muted">{label}</span>
+      <span className="font-mono text-xs font-semibold">{value}</span>
     </span>
   );
 }
@@ -508,7 +508,7 @@ function ReportBody({ r }: { r: DayReportDto }) {
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {tiles.map(([label, value]) => (
           <div key={label} className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-            <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</p>
+            <p className="text-sm font-semibold text-muted">{label}</p>
             <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
           </div>
         ))}
@@ -553,7 +553,7 @@ function CoverageSummary({ r }: { r: DayReportDto }) {
       <dl className="grid grid-cols-2 divide-border rounded-lg border border-border text-sm sm:grid-cols-4 sm:divide-x">
         {items.map(([label, value, sub]) => (
           <div key={label} className="px-3 py-2">
-            <dt className="text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</dt>
+            <dt className="text-sm font-semibold text-muted">{label}</dt>
             <dd className="mt-0.5 font-semibold tabular-nums">
               {value}
               {sub && <span className="ml-1.5 text-xs font-normal text-muted">{sub}</span>}
@@ -595,7 +595,7 @@ function ActivityBar({ r }: { r: DayReportDto }) {
           <span key={i} className="h-full" style={{ width: `${100 / mins}%`, background: colors[a] ?? colors[0] }} />
         ))}
       </div>
-      <div className="relative mt-1 h-4 text-[10px] text-muted">
+      <div className="relative mt-1 h-4 text-xs text-muted">
         {ticks.map((m) => (
           <span key={m} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${(m / mins) * 100}%` }}>
             {istHm(startMs + m * 60_000)}

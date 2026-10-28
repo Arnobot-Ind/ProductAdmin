@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Suspense, useEffect, type ReactNode } from 'react';
 import { BrandMark } from '@/components/common/brand';
@@ -46,14 +45,6 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
 
   return (
     <MeProvider me={me.data}>
-      {me.data.organization.kind === 'internal' && (
-        <div className="bg-accent-soft px-4 py-1.5 text-center text-xs text-accent-text">
-          Arnobot staff preview of the client view.{' '}
-          <Link href={process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3000'} className="font-semibold underline">
-            Back to the admin panel
-          </Link>
-        </div>
-      )}
       <PortalShell>
         <Suspense fallback={<LoadingBlock rows={8} />}>{children}</Suspense>
       </PortalShell>

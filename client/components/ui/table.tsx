@@ -76,7 +76,7 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => {
-                  const cls = cn(dense ? 'px-3 py-1.5' : 'px-3 py-2.5', alignClass(c.align), c.className, c.sticky && 'sticky left-0 z-[1] bg-surface shadow-[1px_0_0_var(--border)]');
+                  const cls = cn(dense ? 'px-4 py-2' : 'px-4 py-3', alignClass(c.align), c.className, c.sticky && 'sticky left-0 z-[1] bg-surface shadow-[1px_0_0_var(--border)]');
                   return c.rowHeader ? (
                     <th key={c.key} scope="row" className={cn(cls, 'font-medium')}>
                       {c.cell(row)}
@@ -104,7 +104,7 @@ function HeaderCell<T>({ column, sort, onSort }: { column: Column<T>; sort?: Sor
   const active = sort && column.sortKey && sort.key === column.sortKey;
   const ariaSort: ThHTMLAttributes<HTMLTableCellElement>['aria-sort'] = active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : column.sortKey ? 'none' : undefined;
   const cls = cn(
-    'px-3 py-2.5 text-xs font-semibold tracking-wide text-muted uppercase',
+    'px-4 py-3 text-sm font-semibold text-muted',
     alignClass(column.align),
     column.className,
     column.sticky && 'sticky left-0 z-[2] bg-surface-2 shadow-[1px_0_0_var(--border)]',
@@ -121,7 +121,7 @@ function HeaderCell<T>({ column, sort, onSort }: { column: Column<T>; sort?: Sor
     <th scope="col" aria-sort={ariaSort} className={cls}>
       <button
         type="button"
-        className="inline-flex items-center gap-1 uppercase hover:text-fg"
+        className="inline-flex items-center gap-1 hover:text-fg"
         onClick={() => onSort({ key: column.sortKey!, dir: active && sort!.dir === 'asc' ? 'desc' : 'asc' })}
       >
         {column.header}

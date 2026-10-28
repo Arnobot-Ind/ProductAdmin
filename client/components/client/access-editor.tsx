@@ -108,7 +108,7 @@ export function AccessEditor({ value, onChange, organizationFeatures }: { value:
         </div>
         {areas.map((area) => (
           <div key={area}>
-            <p className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">{area}</p>
+            <p className="mb-1 text-sm font-semibold text-muted">{area}</p>
             <div className="flex flex-col gap-1.5">
               {features
                 .filter((f) => f.area === area)
@@ -129,7 +129,7 @@ export function AccessEditor({ value, onChange, organizationFeatures }: { value:
                         <span className="flex flex-col">
                           <span className={cn('font-medium', f.kind === 'export' && 'inline-flex items-center gap-1.5')}>
                             {f.name}
-                            {f.kind === 'export' && <span className="rounded bg-surface-2 px-1 text-[10px] font-semibold text-muted uppercase">download</span>}
+                            {f.kind === 'export' && <span className="rounded bg-surface-2 px-1 text-sm font-semibold text-muted">download</span>}
                           </span>
                           <span className="text-xs text-muted">{f.description}</span>
                         </span>
