@@ -20,6 +20,7 @@ import { useCanAnywhere } from '@/lib/auth';
 import { fmtDuration, fmtRelative } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
+import { BesideBack } from '@/components/ui/back-button';
 
 export default function VideoPage() {
   const { id } = useParams<{ id: string }>();
@@ -66,21 +67,33 @@ function VideoView({ d }: { d: ArchiveSessionDetailDto }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
-          <Link href="/robots" className="hover:underline">
-            Robots
-          </Link>{' '}
-          /{' '}
-          <Link href={`/robots/${session.robot_id}`} className="font-mono hover:underline">
-            {session.robot_id}
-          </Link>{' '}
-          /{' '}
-          <Link href={`/robots/${session.robot_id}?tab=videos`} className="hover:underline">
-            Videos
-          </Link>{' '}
-          / <span aria-current="page">{session.session_id}</span>
-        </nav>
+      <BesideBack
+        above={
+          <nav aria-label="Breadcrumb" className="text-sm text-muted">
+            <Link href="/robots" className="hover:underline">
+              Robots
+            </Link>{' '}
+            /{' '}
+            <Link href={`/robots/${session.robot_id}`} className="font-mono hover:underline">
+              {session.robot_id}
+            </Link>{' '}
+            /{' '}
+            <Link href={`/robots/${session.robot_id}?tab=videos`} className="hover:underline">
+              Videos
+            </Link>{' '}
+            / <span aria-current="page">{session.session_id}</span>
+          </nav>
+        }
+        below={
+          <p className="mt-1 text-sm text-muted">
+            <Link href={`/robots/${session.robot_id}`} className="font-mono text-accent-text hover:underline">
+              {session.robot_id}
+            </Link>{' '}
+            · {session.product_name}
+            {session.trip && <> · {session.trip}</>}
+          </p>
+        }
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-mono text-xl font-bold break-all sm:text-2xl">{session.session_id}</h1>
@@ -107,14 +120,7 @@ function VideoView({ d }: { d: ArchiveSessionDetailDto }) {
             )}
           </div>
         </div>
-        <p className="mt-1 text-sm text-muted">
-          <Link href={`/robots/${session.robot_id}`} className="font-mono text-accent-text hover:underline">
-            {session.robot_id}
-          </Link>{' '}
-          · {session.product_name}
-          {session.trip && <> · {session.trip}</>}
-        </p>
-      </div>
+      </BesideBack>
 
       {d.deleted_at && (
         <InlineAlert tone="fault" title="This recording is deleted">

@@ -36,6 +36,7 @@ import { SoftwareTab } from './_tabs/software';
 import { TelemetryTab } from './_tabs/telemetry';
 import { VideosTab } from './_tabs/videos';
 import { DataActivityBadge } from '@/components/archive/badges';
+import { BesideBack } from '@/components/ui/back-button';
 
 /**
  * The robot record in five sections, each with a few views (?tab= keeps the view's id, so old links still work).
@@ -141,21 +142,25 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted">
-        <Link href="/robots" className="hover:underline">
-          Robots
-        </Link>{' '}
-        / <span aria-current="page">{robot.robot_id}</span>
-      </nav>
-
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 basis-80">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-mono text-3xl font-bold">{robot.robot_id}</h1>
-            <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
-            <DataActivityBadge lastSeenAt={robot.last_seen_at} lastUploadAt={robot.last_upload_at} sendingData={robot.sending_data} recording={robot.recording} />
-            {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
-          </div>
+          <BesideBack
+            above={
+              <nav aria-label="Breadcrumb" className="text-sm text-muted">
+                <Link href="/robots" className="hover:underline">
+                  Robots
+                </Link>{' '}
+                / <span aria-current="page">{robot.robot_id}</span>
+              </nav>
+            }
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-mono text-3xl font-bold">{robot.robot_id}</h1>
+              <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
+              <DataActivityBadge lastSeenAt={robot.last_seen_at} lastUploadAt={robot.last_upload_at} sendingData={robot.sending_data} recording={robot.recording} />
+              {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
+            </div>
+          </BesideBack>
           <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-5">
             <div className="min-w-0">
               <dt className="text-sm text-muted">Product</dt>

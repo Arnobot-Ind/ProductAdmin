@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { fmtBytes, fmtDistance, fmtDuration, humanize } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
+import { BesideBack } from '@/components/ui/back-button';
 
 export default function MissionDetailPage() {
   const { robotId, missionId } = useParams<{ robotId: string; missionId: string }>();
@@ -60,19 +61,21 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
-        <Link href="/robots" className="hover:underline">
-          Robots
-        </Link>{' '}
-        /{' '}
-        <Link href={`/robots/${m.robot_id}`} className="font-mono hover:underline">
-          {m.robot_id}
-        </Link>{' '}
-        /{' '}
-        <Link href={`/robots/${m.robot_id}?tab=missions`} className="hover:underline">
-          Missions
-        </Link>
-      </nav>
+      <BesideBack>
+        <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
+          <Link href="/robots" className="hover:underline">
+            Robots
+          </Link>{' '}
+          /{' '}
+          <Link href={`/robots/${m.robot_id}`} className="font-mono hover:underline">
+            {m.robot_id}
+          </Link>{' '}
+          /{' '}
+          <Link href={`/robots/${m.robot_id}?tab=missions`} className="hover:underline">
+            Missions
+          </Link>
+        </nav>
+      </BesideBack>
       <PageHeader eyebrow="Mission report" title={m.name ?? <span className="font-mono">{m.mission_id}</span>} description={m.name ? <span className="font-mono">{m.mission_id}</span> : undefined} actions={
           <>
             <MissionResultBadge result={m.result} />

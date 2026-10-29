@@ -20,6 +20,7 @@ import { useCan } from '@/lib/auth';
 import { fmtDistance } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 import { usePartTypes } from '@/lib/queries';
+import { BesideBack } from '@/components/ui/back-button';
 
 type ProductDetail = ProductDto & { revisions: HardwareRevisionDto[] };
 interface ComponentRow {
@@ -78,12 +79,14 @@ function ProductView({ p }: { p: ProductDetail }) {
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
-        <Link href="/products" className="hover:underline">
-          Products
-        </Link>{' '}
-        / <span aria-current="page">{p.name}</span>
-      </nav>
+      <BesideBack>
+        <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
+          <Link href="/products" className="hover:underline">
+            Products
+          </Link>{' '}
+          / <span aria-current="page">{p.name}</span>
+        </nav>
+      </BesideBack>
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-3">

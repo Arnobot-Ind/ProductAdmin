@@ -37,6 +37,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useCan, useCanAnywhere, useMe } from '@/lib/auth';
+import { ShellBack } from '@/components/ui/back-button';
 import { cn } from '@/lib/cn';
 import { useRealtime } from '@/lib/realtime';
 import { useTheme } from '@/lib/theme';
@@ -210,13 +211,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <>
               <span className="hidden h-9 w-px bg-current opacity-30 md:block" aria-hidden />
               {/* Same size and style as "PMS / Product Admin" beside the logo. */}
-              <span className="hidden items-center gap-2 text-sm font-semibold tracking-[0.16em] text-muted uppercase md:inline-flex">
-                <current.Icon className="size-4" aria-hidden />
-                {current.label}
+              <span className="hidden min-w-0 items-center gap-2 text-sm font-semibold tracking-[0.16em] text-muted uppercase md:inline-flex">
+                <current.Icon className="size-4 shrink-0" aria-hidden />
+                <span className="truncate">{current.label}</span>
               </span>
             </>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <span
               className={cn('hidden items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium sm:inline-flex', connected ? 'border-ok/40 text-ok' : 'border-warn/40 text-warn')}
               title={connected ? 'Receiving live updates' : 'Live connection down: refreshing every 15 s'}
@@ -227,9 +228,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button type="button" onClick={toggle} className="rounded-md p-2 hover:bg-surface-2" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               {theme === 'dark' ? <Sun className="size-5" aria-hidden /> : <Moon className="size-5" aria-hidden />}
             </button>
-            <span className="hidden text-right text-sm leading-tight lg:block">
-              <span className="block font-semibold text-fg">{me.name}</span>
-              <span className="block text-muted">
+            <span className="hidden max-w-80 min-w-0 text-right text-sm leading-tight xl:block">
+              <span className="block truncate font-semibold text-fg">{me.name}</span>
+              <span className="block truncate text-muted">
                 {me.email}{me.organization && <> · {me.organization.name}</>}
               </span>
             </span>
@@ -253,9 +254,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {menu !== 'closed' && <AppMenu groups={groups} pathname={pathname} closing={menu === 'closing'} onClose={closeMenu} />}
 
-      <main id="main" tabIndex={-1} className={cn('mx-auto w-full px-4 py-8 outline-none sm:px-6 lg:px-8', pageWidth(pathname))}>
-        {children}
-      </main>
+      <div className="relative">
+        {/* Back under the logo (same left edge); page headings stay level with it and move right only if they would touch it. */}
+        <ShellBack className="top-8 left-4 sm:left-6 lg:left-8" />
+        <main id="main" tabIndex={-1} className={cn('mx-auto w-full px-4 py-8 outline-none sm:px-6 lg:px-8', pageWidth(pathname))}>
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
