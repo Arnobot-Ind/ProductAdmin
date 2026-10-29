@@ -47,7 +47,7 @@ const pct = (v: number | null | undefined) => (v === null || v === undefined ? '
 export default function PortalRobotPage() {
   const { robotId } = useParams<{ robotId: string }>();
   useDocumentTitle(robotId.toUpperCase());
-  const robot = useQuery({ queryKey: ['robot', robotId, 'detail'], queryFn: () => api.get<RobotDetailDto>(`/robots/${robotId}`), refetchInterval: 30_000 });
+  const robot = useQuery({ queryKey: ['robot', robotId, 'detail'], queryFn: () => api.get<RobotDetailDto>(`/robots/${robotId}`), refetchInterval: 60_000 });
   return <QueryView query={robot} rows={8}>{(r) => <RobotView robot={r} />}</QueryView>;
 }
 

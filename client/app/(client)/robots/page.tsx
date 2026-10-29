@@ -31,7 +31,7 @@ export default function PortalRobotsPage() {
   const q = useQuery({
     queryKey: ['portal', 'robots'],
     queryFn: () => api.get<Paginated<RobotListItemDto>>('/robots', { limit: 200 }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
   const all = q.data?.items ?? [];
   const term = search.trim().toLowerCase();

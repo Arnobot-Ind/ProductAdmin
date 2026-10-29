@@ -47,7 +47,7 @@ function useMissions(robotId: string, q: MissionQuery) {
     queryKey: ['robot', robotId, 'client-missions', q],
     queryFn: () => api.get<ClientMissionsDto>(`/robots/${robotId}/reports/missions`, { ...q }),
     placeholderData: keepPreviousData,
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
   });
 }
 
