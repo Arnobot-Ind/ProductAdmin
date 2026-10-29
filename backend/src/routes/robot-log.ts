@@ -5,7 +5,7 @@ import { forbidden } from '../lib/errors';
 import { robotParam, route } from '../lib/route';
 import { Where } from '../lib/sql';
 import { isoDateTime, optionalBool, pageQuery } from '../lib/validation';
-import { ROBOT_LOG_KINDS, type RobotLogDto, type RobotLogKind } from '../shared';
+import { ROBOT_LOG_KINDS, type RobotActivityDayDto, type RobotLogDto, type RobotLogKind } from '../shared';
 
 /**
  * One SELECT per log source, all with the same columns, so they can be merged into a single timeline.
@@ -119,6 +119,71 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
         counts,
         available: allowed,
       };
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/activity/calendar',
+    summary: "One robot's activity per IST day of a month: recordings, missions, events, people detections and log entries (calendar of the Recordings and Logs tabs)",
+    tag: 'Robots',
+    access: { can: 'robot.details', target: robotParam() },
+    query: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') }),
+    handler: async ({ params, query, user }): Promise<RobotActivityDayDto[]> => {
+      if (!(await app.perms.can(user, 'robot.details', { type: 'platform' }))) throw forbidden('the activity calendar is for Arnobot staff');
+      await app.robots.assertExists(params.robotId, { allowDeleted: true });
+      const [y, m] = query.month.split('-').map(Number);
+      const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+      const range = [params.robotId, `${query.month}-01T00:00:00+05:30`, `${next}-01T00:00:00+05:30`];
+      const DAY = (col: string) => `(${col} AT TIME ZONE 'Asia/Kolkata')::date::text`;
+      // One grouped query per source, each on its own (robot, time) index.
+      // Log entries per day: the same sources and permissions as the Logs tab (raw robot messages left out).
+      const logKinds: RobotLogKind[] = [];
+      for (const k of ROBOT_LOG_KINDS) {
+        const need = EXTRA_PERMISSION[k];
+        if (k !== 'message' && (!need || (await app.perms.can(user, need, { type: 'robot', id: params.robotId })))) logKinds.push(k);
+      }
+      const logUnion = logKinds.map((k) => `SELECT x.ts::timestamptz AS ts, x.level::text AS level FROM (${SOURCES[k]}) AS x(ts, kind, level, title, body, ref, actor)`).join(' UNION ALL ');
+      const [rec, mis, ev, det, log] = await Promise.all([
+        db.query<{ d: string; n: number; bytes: string }>(
+          `SELECT ${DAY('coalesce(s.started_at, s.created_at)')} AS d, count(*)::int AS n,
+                  coalesce(sum((SELECT sum(f.size_bytes) FROM archive_files f WHERE f.session_ref = s.id)), 0)::bigint AS bytes
+           FROM archive_sessions s WHERE s.robot_id = $1 AND s.deleted_at IS NULL AND coalesce(s.started_at, s.created_at) >= $2 AND coalesce(s.started_at, s.created_at) < $3 GROUP BY 1`,
+          range,
+        ),
+        db.query<{ d: string; n: number; bad: number }>(
+          `SELECT ${DAY('coalesce(m.started_at, m.created_at)')} AS d, count(*)::int AS n, count(*) FILTER (WHERE m.result IN ('failed', 'aborted'))::int AS bad
+           FROM missions m WHERE m.robot_id = $1 AND coalesce(m.started_at, m.created_at) >= $2 AND coalesce(m.started_at, m.created_at) < $3 GROUP BY 1`,
+          range,
+        ),
+        db.query<{ d: string; n: number; crit: number }>(
+          `SELECT ${DAY('e.ts')} AS d, count(*)::int AS n, count(*) FILTER (WHERE e.severity = 'critical')::int AS crit
+           FROM events e WHERE e.robot_id = $1 AND e.ts >= $2 AND e.ts < $3 GROUP BY 1`,
+          range,
+        ),
+        db.query<{ d: string; n: number }>(
+          `SELECT ${DAY('d.detected_at')} AS d, count(*)::int AS n
+           FROM detections d WHERE d.robot_id = $1 AND d.kind = 'human' AND d.status = 'confirmed' AND d.detected_at >= $2 AND d.detected_at < $3 GROUP BY 1`,
+          range,
+        ),
+        db.query<{ d: string; n: number; warn: number }>(
+          `SELECT ${DAY('l.ts')} AS d, count(*)::int AS n, count(*) FILTER (WHERE l.level IN ('warning', 'critical', 'fault', 'error'))::int AS warn
+           FROM (${logUnion}) l WHERE l.ts >= $2 AND l.ts < $3 GROUP BY 1`,
+          range,
+        ),
+      ]);
+      const days = new Map<string, RobotActivityDayDto>();
+      const day = (d: string) => {
+        let row = days.get(d);
+        if (!row) days.set(d, (row = { date: d, recordings: 0, recording_bytes: 0, missions: 0, missions_bad: 0, events: 0, events_critical: 0, detections: 0, log: 0, log_warnings: 0 }));
+        return row;
+      };
+      for (const r of rec.rows) Object.assign(day(r.d), { recordings: r.n, recording_bytes: Number(r.bytes) });
+      for (const r of mis.rows) Object.assign(day(r.d), { missions: r.n, missions_bad: r.bad });
+      for (const r of ev.rows) Object.assign(day(r.d), { events: r.n, events_critical: r.crit });
+      for (const r of det.rows) day(r.d).detections = r.n;
+      for (const r of log.rows) Object.assign(day(r.d), { log: r.n, log_warnings: r.warn });
+      return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
     },
   });
 }

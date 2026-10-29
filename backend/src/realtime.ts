@@ -9,6 +9,9 @@ import { SESSION_COOKIE, type AuthUser } from './services/auth.service';
 
 export const CHANGE_CHANNEL = 'pms_changes';
 
+/** Shortest gap between two pushes of the same kind for the same robot (kinds not listed: no limit). */
+const THROTTLE_MS: Partial<Record<RealtimeChange['kind'], number>> = { live: 5_000, telemetry: 10_000, seen: 30_000, archive: 5_000 };
+
 /**
  * Live push to the admin panel. The ingest pipeline calls pg_notify('pms_changes', …) inside its transaction
  * (delivered only on COMMIT, so rolled-back data is never announced, and it works across several backend
@@ -48,6 +51,34 @@ export function startRealtime(httpServer: HttpServer, app: AppContext, log: Fast
     }
   }, 60_000);
 
+  // Every robot message announces itself, and each announcement makes every open browser refetch lists and
+  // the dashboard. High-rate kinds are sent at most once per window per robot (first at once, the latest at the
+  // window's end); events, missions and software changes always go out at once.
+  const windows = new Map<string, { timer: NodeJS.Timeout; pending: RealtimeChange | null }>();
+  function throttled(change: RealtimeChange): void {
+    const ms = THROTTLE_MS[change.kind] ?? 0;
+    if (!ms) return void fanOut(change);
+    const key = `${change.kind}:${change.robot_id}`;
+    const open = windows.get(key);
+    if (open) {
+      open.pending = change;
+      return;
+    }
+    void fanOut(change);
+    const close = () => {
+      const w = windows.get(key);
+      if (w?.pending) {
+        void fanOut(w.pending);
+        w.pending = null;
+        w.timer = setTimeout(close, ms);
+        w.timer.unref();
+      } else windows.delete(key);
+    };
+    const timer = setTimeout(close, ms);
+    timer.unref();
+    windows.set(key, { timer, pending: null });
+  }
+
   async function fanOut(change: RealtimeChange): Promise<void> {
     io.to('fleet').emit('change', change);
     for (const [, socket] of io.sockets.sockets) {
@@ -64,7 +95,7 @@ export function startRealtime(httpServer: HttpServer, app: AppContext, log: Fast
     listener.on('notification', (msg) => {
       if (msg.channel !== CHANGE_CHANNEL || !msg.payload) return;
       try {
-        void fanOut(JSON.parse(msg.payload) as RealtimeChange);
+        throttled(JSON.parse(msg.payload) as RealtimeChange);
       } catch {
         log.warn('bad realtime payload');
       }
@@ -87,6 +118,7 @@ export function startRealtime(httpServer: HttpServer, app: AppContext, log: Fast
     close: async () => {
       stopped = true;
       clearInterval(sweep);
+      for (const w of windows.values()) clearTimeout(w.timer);
       await new Promise<void>((resolve) => io.close(() => resolve()));
       await listener?.end().catch(() => undefined);
     },

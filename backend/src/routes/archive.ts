@@ -197,9 +197,12 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
           req,
         });
       }
+      const downloadName = query.download || restricted ? name.split('/').pop() : undefined;
+      // Access is checked (and the download audited) above; the bytes then come straight from the bucket.
+      if (archive.cfg.directPlayback) return reply.header('Cache-Control', 'no-store').redirect(await archive.storage.presignGet(file.key, 300, downloadName), 302);
       try {
         const obj = await archive.storage.get(file.key, req.headers.range);
-        return sendObject(reply, obj, contentTypeFor(name), query.download || restricted ? name.split('/').pop() : undefined);
+        return sendObject(reply, obj, contentTypeFor(name), downloadName);
       } catch (err) {
         return storageError(err, reply);
       }
@@ -218,11 +221,16 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
       const { segments } = await archive.cameraTrack(params.id, params.camera);
       if (!segments.length) throw notFound('video for this camera');
       const base = `/api/v1/archive/sessions/${params.id}/files/`;
+      // Direct playback: each segment is a signed bucket link (hours, so a paused player can resume), so the player
+      // fetches video from S3 without a request to this server per segment.
+      const urls = await Promise.all(
+        segments.map((s) => (archive.cfg.directPlayback ? archive.storage.presignGet(s.key, 6 * 3600) : Promise.resolve(base + s.name.split('/').map(encodeURIComponent).join('/')))),
+      );
       // EXT-X-DISCONTINUITY per chunk: the DVR may reset timestamps per file; this keeps hls.js from mis-placing segments.
       const lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-PLAYLIST-TYPE:VOD', `#EXT-X-TARGETDURATION:${Math.ceil(Math.max(...segments.map((s) => s.duration)))}`, '#EXT-X-MEDIA-SEQUENCE:0'];
       segments.forEach((s, i) => {
         if (i > 0) lines.push('#EXT-X-DISCONTINUITY');
-        lines.push(`#EXT-X-PROGRAM-DATE-TIME:${new Date(s.start).toISOString()}`, `#EXTINF:${s.duration.toFixed(3)},`, base + s.name.split('/').map(encodeURIComponent).join('/'));
+        lines.push(`#EXT-X-PROGRAM-DATE-TIME:${new Date(s.start).toISOString()}`, `#EXTINF:${s.duration.toFixed(3)},`, urls[i]);
       });
       lines.push('#EXT-X-ENDLIST', '');
       return reply.header('Content-Type', 'application/vnd.apple.mpegurl').header('Cache-Control', 'no-store').send(lines.join('\n'));

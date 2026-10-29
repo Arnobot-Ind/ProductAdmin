@@ -69,9 +69,12 @@ function dayRange(from?: string, to?: string): { start: Date | null; end: Date |
  * distance by day. Both need only robot.read, so customer users get them; both are clipped to the time the user
  * may see (never data recorded while another customer owned the robot).
  */
+const DISTANCE_CACHE_MS = 5 * 60_000;
+
 export function reportRoutes(f: FastifyInstance, app: AppContext): void {
   const { db, robots } = app;
   const tag = 'Reports';
+  const distanceCache = new Map<string, { value: Promise<DailyDistanceDto[]>; until: number }>();
 
   /** [from, to) intersected with the periods the user may see. */
   async function visibleSpans(user: AuthUser, robotId: string, from: Date, to: Date): Promise<{ from: Date; to: Date }[]> {
@@ -332,83 +335,102 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.read', target: anyScope() },
     query: z.object({ from: isoDate, to: isoDate }),
     handler: async ({ query, user }): Promise<FleetReportDto> => {
-      const range = dayRange(query.from, query.to);
-      const start = range.start!;
-      const end = range.end!;
-      if (end.getTime() - start.getTime() > MAX_DAYS * 86_400_000) throw badRequest(`at most ${MAX_DAYS} days at a time`);
-      const rw = app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'r.robot_id').add('r.deleted_at IS NULL');
-      const robotRows = (
-        await db.query<{ robot_id: string; product_name: string; status: RobotStatus; last_seen_at: Date | null; battery_pct: number | null; current_mission_name: string | null }>(
-          `SELECT r.robot_id, p.name AS product_name, s.status, ls.last_seen_at, ls.battery_pct,
-                  (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name
-           FROM robots r JOIN products p ON p.id = r.product_id JOIN v_robot_status s ON s.robot_id = r.robot_id
-           LEFT JOIN live_state ls ON ls.robot_id = r.robot_id ${rw.toSql()} ORDER BY r.robot_id`,
-          rw.params,
-        )
-      ).rows;
-
-      const mw = missionWhere(user, null, start, end);
-      const perRobot = new Map(
-        (await db.query(`SELECT m.robot_id, ${STATS_SELECT} FROM missions m ${mw.toSql()} GROUP BY m.robot_id`, mw.params)).rows.map((r) => [r.robot_id as string, toStats(r)]),
-      );
-      const dw = missionWhere(user, null, start, end);
-      const perDay = (await db.query(`SELECT (${MISSION_TIME} AT TIME ZONE 'Asia/Kolkata')::date::text AS d, ${STATS_SELECT} FROM missions m ${dw.toSql()} GROUP BY 1`, dw.params)).rows;
-
-      const daily = new Map<string, FleetReportDto['daily'][number]>();
-      for (let t = start.getTime(); t < end.getTime(); t += 86_400_000) {
-        const d = istDate(new Date(t));
-        daily.set(d, { date: d, missions: 0, completed: 0, aborted: 0, failed: 0, distance_m: 0, driven_m: 0 });
-      }
-      for (const r of perDay) {
-        const row = daily.get(r.d as string);
-        if (!row) continue;
-        const st = toStats(r);
-        Object.assign(row, { missions: st.total, completed: st.completed, aborted: st.aborted, failed: st.failed, distance_m: st.distance_m });
-      }
-
-      const robotsOut: FleetReportDto['robots'] = [];
-      for (const r of robotRows) {
-        let driven = 0;
-        let moving = 0;
-        for (const d of await dailyDistance(user, r.robot_id, start, end)) {
-          const m = d.odometer_m ?? d.wheel_m;
-          driven += m;
-          moving += d.moving_s;
-          const row = daily.get(d.date);
-          if (row) row.driven_m += m;
-        }
-        robotsOut.push({
-          robot_id: r.robot_id,
-          product_name: r.product_name,
-          status: r.status,
-          last_seen_at: iso(r.last_seen_at),
-          battery_pct: r.battery_pct,
-          current_mission_name: r.current_mission_name,
-          missions: perRobot.get(r.robot_id) ?? toStats(undefined),
-          driven_m: driven,
-          moving_s: moving,
-        });
-      }
-      const sum = (k: keyof MissionStatsDto) => robotsOut.reduce((n, r) => n + r.missions[k], 0);
-      return {
-        from: query.from,
-        to: query.to,
-        totals: {
-          total: sum('total'),
-          completed: sum('completed'),
-          aborted: sum('aborted'),
-          failed: sum('failed'),
-          in_progress: sum('in_progress'),
-          distance_m: sum('distance_m'),
-          duration_s: sum('duration_s'),
-          robots: robotsOut.length,
-          online: robotsOut.filter((r) => r.status === 'online').length,
-          driven_m: robotsOut.reduce((n, r) => n + r.driven_m, 0),
-          moving_s: robotsOut.reduce((n, r) => n + r.moving_s, 0),
-        },
-        robots: robotsOut,
-        daily: [...daily.values()],
-      };
+      return fleetReport(query, user);
     },
   });
+
+  /**
+   * dailyDistance for the fleet report, kept a few minutes per user, robot and range: dashboards ask for the same
+   * 30 days every few minutes and each answer scans every robot's telemetry. Robot status and missions stay live.
+   */
+  function fleetDistance(user: AuthUser, robotId: string, start: Date, end: Date): Promise<DailyDistanceDto[]> {
+    const key = `${user.id}|${robotId}|${start.toISOString()}|${end.toISOString()}`;
+    const hit = distanceCache.get(key);
+    if (hit && hit.until > Date.now()) return hit.value;
+    if (distanceCache.size >= 2000) distanceCache.clear();
+    const value = dailyDistance(user, robotId, start, end);
+    distanceCache.set(key, { value, until: Date.now() + DISTANCE_CACHE_MS });
+    value.catch(() => distanceCache.delete(key));
+    return value;
+  }
+
+  async function fleetReport(query: { from: string; to: string }, user: AuthUser): Promise<FleetReportDto> {
+    const range = dayRange(query.from, query.to);
+    const start = range.start!;
+    const end = range.end!;
+    if (end.getTime() - start.getTime() > MAX_DAYS * 86_400_000) throw badRequest(`at most ${MAX_DAYS} days at a time`);
+    const rw = app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'r.robot_id').add('r.deleted_at IS NULL');
+    const robotRows = (
+      await db.query<{ robot_id: string; product_name: string; status: RobotStatus; last_seen_at: Date | null; battery_pct: number | null; current_mission_name: string | null }>(
+        `SELECT r.robot_id, p.name AS product_name, s.status, ls.last_seen_at, ls.battery_pct,
+                (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name
+         FROM robots r JOIN products p ON p.id = r.product_id JOIN v_robot_status s ON s.robot_id = r.robot_id
+         LEFT JOIN live_state ls ON ls.robot_id = r.robot_id ${rw.toSql()} ORDER BY r.robot_id`,
+        rw.params,
+      )
+    ).rows;
+
+    const mw = missionWhere(user, null, start, end);
+    const perRobot = new Map(
+      (await db.query(`SELECT m.robot_id, ${STATS_SELECT} FROM missions m ${mw.toSql()} GROUP BY m.robot_id`, mw.params)).rows.map((r) => [r.robot_id as string, toStats(r)]),
+    );
+    const dw = missionWhere(user, null, start, end);
+    const perDay = (await db.query(`SELECT (${MISSION_TIME} AT TIME ZONE 'Asia/Kolkata')::date::text AS d, ${STATS_SELECT} FROM missions m ${dw.toSql()} GROUP BY 1`, dw.params)).rows;
+
+    const daily = new Map<string, FleetReportDto['daily'][number]>();
+    for (let t = start.getTime(); t < end.getTime(); t += 86_400_000) {
+      const d = istDate(new Date(t));
+      daily.set(d, { date: d, missions: 0, completed: 0, aborted: 0, failed: 0, distance_m: 0, driven_m: 0 });
+    }
+    for (const r of perDay) {
+      const row = daily.get(r.d as string);
+      if (!row) continue;
+      const st = toStats(r);
+      Object.assign(row, { missions: st.total, completed: st.completed, aborted: st.aborted, failed: st.failed, distance_m: st.distance_m });
+    }
+
+    const robotsOut: FleetReportDto['robots'] = [];
+    for (const r of robotRows) {
+      let driven = 0;
+      let moving = 0;
+      for (const d of await fleetDistance(user, r.robot_id, start, end)) {
+        const m = d.odometer_m ?? d.wheel_m;
+        driven += m;
+        moving += d.moving_s;
+        const row = daily.get(d.date);
+        if (row) row.driven_m += m;
+      }
+      robotsOut.push({
+        robot_id: r.robot_id,
+        product_name: r.product_name,
+        status: r.status,
+        last_seen_at: iso(r.last_seen_at),
+        battery_pct: r.battery_pct,
+        current_mission_name: r.current_mission_name,
+        missions: perRobot.get(r.robot_id) ?? toStats(undefined),
+        driven_m: driven,
+        moving_s: moving,
+      });
+    }
+    const sum = (k: keyof MissionStatsDto) => robotsOut.reduce((n, r) => n + r.missions[k], 0);
+    return {
+      from: query.from,
+      to: query.to,
+      totals: {
+        total: sum('total'),
+        completed: sum('completed'),
+        aborted: sum('aborted'),
+        failed: sum('failed'),
+        in_progress: sum('in_progress'),
+        distance_m: sum('distance_m'),
+        duration_s: sum('duration_s'),
+        robots: robotsOut.length,
+        online: robotsOut.filter((r) => r.status === 'online').length,
+        driven_m: robotsOut.reduce((n, r) => n + r.driven_m, 0),
+        moving_s: robotsOut.reduce((n, r) => n + r.moving_s, 0),
+      },
+      robots: robotsOut,
+      daily: [...daily.values()],
+    };
+  }
 }

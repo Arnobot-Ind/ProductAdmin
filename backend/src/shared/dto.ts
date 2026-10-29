@@ -1218,6 +1218,23 @@ export interface RobotLogEntryDto {
   /** Who did it, when known (audit entries), or "acknowledged" for events. */
   actor: string | null;
 }
+/** One IST day of a robot's activity calendar (Recordings tabs): what was recorded and what happened that day. */
+export interface RobotActivityDayDto {
+  date: string;
+  recordings: number;
+  recording_bytes: number;
+  missions: number;
+  /** Failed or aborted missions. */
+  missions_bad: number;
+  events: number;
+  events_critical: number;
+  /** Confirmed people detections. */
+  detections: number;
+  /** Activity log entries the user may see (raw robot messages not counted), and how many are warnings or worse. */
+  log: number;
+  log_warnings: number;
+}
+
 export interface RobotLogDto extends Paginated<RobotLogEntryDto> {
   /** Entries per kind for the current date / text filters. */
   counts: Partial<Record<RobotLogKind, number>>;

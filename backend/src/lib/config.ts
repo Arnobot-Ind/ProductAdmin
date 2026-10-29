@@ -65,6 +65,9 @@ export interface ApiConfig {
     /** DVR footage copied straight into the bucket (…/Video/<cam>/<YYYY-MM-DD>/<HH-MM-SS>.ts), indexed as one recording
      *  per robot and day (ARCHIVE_DVR_SOURCES=saibya02=adani-trails/). */
     dvrSources: { robotId: string; prefix: string }[];
+    /** Browsers fetch video segments and files straight from the bucket (short-lived signed links) instead of
+     *  through this server: no egress or CPU here. Needs a CORS rule on the bucket for the panel's origins. */
+    directPlayback: boolean;
   };
 }
 
@@ -161,6 +164,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       syncMinutes: env.ARCHIVE_SYNC_MINUTES === '0' ? 0 : positive(env.ARCHIVE_SYNC_MINUTES, 10),
       robotAliases: new Map(pairs(env.ARCHIVE_ROBOT_ALIASES)),
       dvrSources: pairs(env.ARCHIVE_DVR_SOURCES).map(([robotId, prefix]) => ({ robotId, prefix: prefix.endsWith('/') ? prefix : `${prefix}/` })),
+      directPlayback: env.ARCHIVE_DIRECT_PLAYBACK === 'true',
     },
   };
 }
