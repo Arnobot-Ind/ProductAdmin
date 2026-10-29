@@ -49,7 +49,7 @@ export default function RobotsPage() {
   };
 
   // Fleet counts for the status chips (same scope as the list).
-  const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 30_000 });
+  const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 300_000 });
   const products = useQuery({ queryKey: ['products', 'all'], queryFn: () => api.get<ProductDto[]>('/products'), enabled: can('catalog.read'), staleTime: 300_000 });
   const robots = useQuery({
     queryKey: ['robots', { q, product, status, includeDeleted, page, sortParam }],

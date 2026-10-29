@@ -5,6 +5,8 @@ const apiInternal = (process.env.API_INTERNAL_URL || 'http://localhost:4000').re
 const appRoot = __dirname;
 const wsOrigin = new URL(process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000');
 const isDev = process.env.NODE_ENV !== 'production';
+// The video bucket: with ARCHIVE_DIRECT_PLAYBACK on the backend, the player loads recordings straight from it.
+const mediaOrigin = process.env.NEXT_PUBLIC_ARCHIVE_MEDIA_ORIGIN || 'https://arnobot-saibya-data.s3.ap-south-1.amazonaws.com';
 
 // Allow-list CSP. Inline scripts are needed for Next.js hydration + the no-flash theme script
 // (nonce-based CSP via middleware is a listed improvement). Only the origins the panel really uses.
@@ -13,10 +15,10 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com https://server.arcgisonline.com",
-  `connect-src 'self' ${wsOrigin.origin} ${wsOrigin.origin.replace(/^http/, 'ws')} https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com`,
+  `img-src 'self' data: blob: ${mediaOrigin} https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com https://server.arcgisonline.com`,
+  `connect-src 'self' ${mediaOrigin} ${wsOrigin.origin} ${wsOrigin.origin.replace(/^http/, 'ws')} https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com`,
   "worker-src 'self' blob:",
-  "media-src 'self' blob:",
+  `media-src 'self' blob: ${mediaOrigin}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

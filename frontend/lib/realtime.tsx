@@ -67,7 +67,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     socket.on('change', (change: RealtimeChange) => {
       // Coalesce bursts (a backlog upload can push hundreds of changes) into one refetch per key.
       for (const k of keysFor(change)) pending.current.set(JSON.stringify(k), k);
-      if (timer.current === null) timer.current = window.setTimeout(flush, 400);
+      if (timer.current === null) timer.current = window.setTimeout(flush, 1_000);
     });
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);

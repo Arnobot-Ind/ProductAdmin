@@ -46,17 +46,25 @@ const nextDay = (d: string) => new Date(new Date(`${d}T12:00:00Z`).getTime() + 8
 /**
  * Logs: everything that happened to this robot in one timeline, newest first — events, missions, hardware fitted
  * and removed, repairs, software reports, owner changes, documents, and (with the permission) audit entries and
- * raw robot messages. Filter by type, text and date. Times are IST.
+ * raw robot messages. Filter by type, text and date (or pick a day on the calendar beside it). Times are IST.
  */
-export function RobotLogTab({ robotId }: { robotId: string }) {
+export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day?: string | null; onClearDay?: () => void }) {
   const poll = useLivePoll();
   const [hidden, setHidden] = useState<Set<RobotLogKind>>(new Set());
   const [messages, setMessages] = useState(false);
   const [text, setText] = useState('');
   const q = useDebounced(text.trim(), 350);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  // The calendar's day fills From and To (still editable here); clearing the day clears them.
+  const [from, setFrom] = useState(day ?? '');
+  const [to, setTo] = useState(day ?? '');
   const [page, setPage] = useState(1);
+  const [shownDay, setShownDay] = useState(day);
+  if (shownDay !== day) {
+    setShownDay(day);
+    setFrom(day ?? '');
+    setTo(day ?? '');
+    setPage(1);
+  }
   const limit = 50;
 
   const query = useQuery({
@@ -75,7 +83,7 @@ export function RobotLogTab({ robotId }: { robotId: string }) {
       return api.get<RobotLogDto>(`/robots/${robotId}/log`, params);
     },
     placeholderData: keepPreviousData,
-    refetchInterval: page === 1 ? poll || 30_000 : false,
+    refetchInterval: page === 1 ? poll || 120_000 : false,
   });
 
   const toggle = (k: RobotLogKind) => {
@@ -175,6 +183,7 @@ export function RobotLogTab({ robotId }: { robotId: string }) {
                 setFrom('');
                 setTo('');
                 setPage(1);
+                onClearDay?.();
               }}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-accent-text hover:underline"
             >

@@ -12,7 +12,7 @@ export function Providers({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 10_000,
+            staleTime: 30_000,
             refetchOnWindowFocus: true,
             // Don't retry client errors (401/403/404/400): they won't fix themselves.
             retry: (count, err) => !(err instanceof ApiError && err.status >= 400 && err.status < 500) && count < 2,

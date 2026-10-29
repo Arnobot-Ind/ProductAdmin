@@ -51,7 +51,7 @@ export default function VideosPage() {
     queryFn: () =>
       api.get<ArchiveSessionListDto>('/archive/sessions', { q, product, robot, status, include_sim: includeSim, include_deleted: includeDeleted, page, limit: LIMIT }),
     placeholderData: keepPreviousData,
-    refetchInterval: poll === false ? 60_000 : poll,
+    refetchInterval: poll === false ? 300_000 : poll,
   });
   const reindex = useMutation({
     mutationFn: () => api.post<ArchiveReindexDto>('/archive/reindex', {}),
