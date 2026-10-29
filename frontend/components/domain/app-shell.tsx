@@ -202,10 +202,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         Skip to main content
       </a>
 
-      <header className="app-bar sticky top-0 z-30 border-b border-border bg-surface shadow-md">
+      <header className="sticky top-0 z-30 border-b border-border bg-surface shadow-sm">
         <div className="flex h-16 w-full items-center gap-4 px-4 sm:px-6 lg:px-8">
           <Link href="/" aria-label="Arnobot PMS home" className="shrink-0">
-            <BrandMark onDark />
+            <BrandMark />
           </Link>
           {current && (
             <>
@@ -304,7 +304,7 @@ function AppMenu({ groups, pathname, closing, onClose }: { groups: NavGroup[]; p
       aria-modal="true"
       aria-label="App menu"
       onClick={(e) => !(e.target as Element).closest('a, button, input, label') && onClose()}
-      className={cn('fixed inset-0 z-50 overflow-y-auto bg-[#0b0f19]/90 text-white backdrop-blur-md', closing ? 'animate-app-menu-out' : 'animate-app-menu-in')}
+      className={cn('fixed inset-0 z-50 overflow-y-auto bg-[#0b1430]/90 text-white backdrop-blur-md', closing ? 'animate-app-menu-out' : 'animate-app-menu-in')}
     >
       <button
         type="button"
@@ -342,7 +342,7 @@ function AppMenu({ groups, pathname, closing, onClose }: { groups: NavGroup[]; p
                   >
                     <g.Icon className="size-8" aria-hidden />
                   </span>
-                  <span className={cn('text-sm leading-tight font-medium', selected ? 'text-[#a7bce3]' : 'text-white/75 group-hover:text-white')}>{g.section}</span>
+                  <span className={cn('text-sm leading-tight font-medium', selected ? 'text-[#8fb0ff]' : 'text-white/75 group-hover:text-white')}>{g.section}</span>
                 </button>
               </li>
             );
@@ -379,7 +379,7 @@ function AppMenu({ groups, pathname, closing, onClose }: { groups: NavGroup[]; p
                       aria-current={active ? 'page' : undefined}
                       className={cn('flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-white/10', active && 'bg-white/10')}
                     >
-                      <ArrowUpRight className="mt-0.5 size-5 shrink-0 text-[#a7bce3]" aria-hidden />
+                      <ArrowUpRight className="mt-0.5 size-5 shrink-0 text-[#8fb0ff]" aria-hidden />
                       <span className="min-w-0">
                         <span className="block text-lg font-medium text-white">{i.label}</span>
                         <span className="block text-sm text-white/60">

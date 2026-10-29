@@ -242,7 +242,8 @@ export function DistancePerDayChart({ rows, note }: { rows: DistanceDay[]; note?
 // ── part-to-whole: one horizontal stacked bar ──────────────────────────────
 
 /** One bar split into parts (e.g. robots online / stale / offline), with a legend that carries the numbers. */
-export function ShareBar({ parts, label }: { parts: { label: string; value: number; color: string }[]; label: string }) {
+/** `large`: bigger legend text, for a headline bar (the dashboard band). */
+export function ShareBar({ parts, label, large }: { parts: { label: string; value: number; color: string }[]; label: string; large?: boolean }) {
   const [hover, setHover] = useState<string | null>(null);
   const total = parts.reduce((s, p) => s + p.value, 0);
   const shown = parts.filter((p) => p.value > 0);
@@ -270,7 +271,7 @@ export function ShareBar({ parts, label }: { parts: { label: string; value: numb
           ))
         )}
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
+      <div className={cn('mt-3 flex flex-wrap gap-x-5 gap-y-1 text-muted', large ? 'text-base' : 'text-sm')}>
         <Legend items={parts.map((p) => ({ label: p.label, color: p.color, value: p.value }))} />
       </div>
     </div>

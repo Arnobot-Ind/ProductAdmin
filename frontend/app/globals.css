@@ -11,17 +11,19 @@
  */
 :root,
 [data-theme='light'] {
+  --backdrop-lines: rgb(36 60 120 / 0.10);
+  --backdrop-glow: rgb(36 83 214 / 0.10);
   /* Light grey page (rgb 219, 219, 219), white cards, deep slate text, Arnobot brand blue for actions. */
   --bg: #dbdbdb; /* rgb(219, 219, 219) */
   --surface: #ffffff;
-  --surface-2: #f3f6fb;
-  --border: #dbe2ee;
+  --surface-2: #f3f6fc;
+  --border: #d8e0ee;
   --text: #0f172a;
-  --text-muted: #526079;
-  --accent: #38559d;
+  --text-muted: #4f5d78;
+  --accent: #2453d6;
   --accent-fg: #ffffff;
-  --accent-soft: #e6ecf8;
-  --accent-text: #2d4582;
+  --accent-soft: #e8eefc;
+  --accent-text: #1d44b5;
   --ok: #15803d;
   --ok-bg: #dcfce7;
   --warn: #92400e;
@@ -30,7 +32,7 @@
   --fault-bg: #fee2e2;
   --offline: #4b5563;
   --offline-bg: #e5e7eb;
-  --focus: #38559d;
+  --focus: #2453d6;
   --map-planned: #b45309;
   --map-actual: #1d4ed8;
   color-scheme: light;
@@ -53,6 +55,8 @@
 }
 
 [data-theme='dark'] {
+  --backdrop-lines: rgb(125 162 255 / 0.10);
+  --backdrop-glow: rgb(125 162 255 / 0.08);
   /* rgb(13, 13, 13) page; cards one step lighter so they stand out; near-white text. */
   --bg: #0d0d0d;
   --surface: #1a1a1a;
@@ -60,10 +64,10 @@
   --border: #303030;
   --text: #f2f2f2;
   --text-muted: #bdbdbd;
-  --accent: #a7bce3;
-  --accent-fg: #0a0a0a;
-  --accent-soft: #1f2a40;
-  --accent-text: #b9cbee;
+  --accent: #7da2ff;
+  --accent-fg: #0a1433;
+  --accent-soft: #1a2747;
+  --accent-text: #a9c1ff;
   --ok: #4ade80;
   --ok-bg: #12301d;
   --warn: #fbbf24;
@@ -72,7 +76,7 @@
   --fault-bg: #3a1717;
   --offline: #c4c4c4;
   --offline-bg: #2a2a2a;
-  --focus: #a7bce3;
+  --focus: #7da2ff;
   --map-planned: #fbbf24;
   --map-actual: #60a5fa;
   color-scheme: dark;
@@ -117,23 +121,24 @@
 }
 
 /*
- * App bar (header): deep brand navy in both themes, with light text and steel-blue accents. Its own token values,
- * so everything inside it (logo, Live badge, buttons) reads correctly on the navy.
+ * Bands (dashboard hero, robot summary): a pale-blue panel in light mode, a deep blue one in dark mode. Their own
+ * token values, so text, borders, meters and buttons inside read correctly on them.
  */
-.app-bar {
-  --surface: #13213f;
-  --surface-2: #1d2d52;
-  --border: #23345c;
-  --text: #f4f6fb;
-  --text-muted: #b6c3df;
-  --accent: #a7bce3;
-  --accent-fg: #0b1430;
-  --accent-soft: #24375f;
-  --accent-text: #c7d5f2;
-  --ok: #4ade80;
-  --warn: #fbbf24;
-  --focus: #a7bce3;
+.band {
+  --surface: #eef3ff;
+  --surface-2: #e2eafc;
+  --border: #cfdaf5;
+  --text-muted: #4a5878;
+  --band-dot: rgb(36 83 214 / 0.16);
   color: var(--text);
+}
+[data-theme='dark'] .band {
+  --surface: #141c30;
+  --surface-2: #1c2742;
+  --border: #27345a;
+  --text: #f2f4fa;
+  --text-muted: #b3bfd9;
+  --band-dot: rgb(255 255 255 / 0.08);
 }
 
 @theme inline {
@@ -171,6 +176,8 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100dvh;
+    /* Its own stacking context, so the backdrop below sits over the page colour and under everything else. */
+    isolation: isolate;
     font-size: 1rem;
     line-height: 1.6;
   }
@@ -231,4 +238,33 @@
 }
 .pms-map-popup .maplibregl-popup-tip {
   display: none;
+}
+
+/*
+ * Page backdrop: faint topographic contour lines (the ground the robots patrol) and a soft teal glow in two corners.
+ * Fixed behind the content and only seen in the gaps between cards; the lines are an SVG mask coloured by the theme.
+ */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background: var(--backdrop-lines);
+  -webkit-mask: url('/bg/contours.svg') center / cover no-repeat;
+  mask: url('/bg/contours.svg') center / cover no-repeat;
+}
+body::after {
+  background:
+    radial-gradient(42rem 30rem at 100% 0%, var(--backdrop-glow), transparent 70%),
+    radial-gradient(36rem 28rem at 0% 100%, var(--backdrop-glow), transparent 70%);
+}
+@media print {
+  body::before,
+  body::after {
+    display: none;
+  }
 }

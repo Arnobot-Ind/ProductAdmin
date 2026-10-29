@@ -37,6 +37,8 @@ import { TelemetryTab } from './_tabs/telemetry';
 import { VideosTab } from './_tabs/videos';
 import { DataActivityBadge } from '@/components/archive/badges';
 import { BesideBack } from '@/components/ui/back-button';
+import { Band, BandFact, BandMeter } from '@/components/ui/band';
+import { fmtDistance } from '@/lib/format';
 
 /**
  * The robot record in five sections, each with a few views (?tab= keeps the view's id, so old links still work).
@@ -161,28 +163,18 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
             </div>
           </BesideBack>
-          <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-5">
-            <div className="min-w-0">
-              <dt className="text-sm text-muted">Product</dt>
-              <dd className="mt-0.5 font-semibold">{robot.product_name}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-muted">Revision</dt>
-              <dd className="mt-0.5 font-semibold">{robot.hardware_revision ?? 'Not set'}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-muted">Serial</dt>
-              <dd className="mt-0.5">
-                <Mono>{robot.serial_number}</Mono>
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-muted">Owner</dt>
-              <dd className="mt-0.5 font-semibold">{robot.owner_company ?? '—'}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-muted">Current mission</dt>
-              <dd className="mt-0.5 font-semibold">
+          {/* The robot's headline facts on the brand band (as on the dashboard). */}
+          <Band label={`${robot.robot_id} summary`} className="mt-4">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 p-5 sm:grid-cols-3 sm:p-6 xl:grid-cols-5">
+              <BandFact label="Product">{robot.product_name}</BandFact>
+              <BandFact label="Revision">{robot.hardware_revision ?? 'Not set'}</BandFact>
+              <BandFact label="Serial">
+                <span className="font-mono">{robot.serial_number}</span>
+              </BandFact>
+              <BandFact label="Owner">
+                <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
+              </BandFact>
+              <BandFact label="Current mission">
                 {robot.current_mission_id ? (
                   <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
                     {robot.current_mission_name ?? robot.current_mission_id}
@@ -190,9 +182,21 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                 ) : (
                   'None'
                 )}
-              </dd>
-            </div>
-          </dl>
+              </BandFact>
+            </dl>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 border-t border-border px-5 py-4 sm:grid-cols-3 sm:px-6">
+              <div className="min-w-0">
+                <dt className="text-base text-muted">Battery</dt>
+                <dd className="mt-2">
+                  <BandMeter pct={robot.battery_pct} />
+                </dd>
+              </div>
+              <BandFact label="Software">
+                <span className="font-mono">{robot.sw_ver ?? 'Not reported'}</span>
+              </BandFact>
+              <BandFact label="Lifetime distance">{robot.odometer_m !== null ? fmtDistance(robot.odometer_m) : 'Not reported'}</BandFact>
+            </dl>
+          </Band>
         </div>
         <div className="flex flex-wrap gap-2 empty:hidden">
           {can('robot.write') && !robot.deleted_at && (
