@@ -10,6 +10,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useMe, useSignOut } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useDocumentTitle } from '@/lib/hooks';
+import { BesideBack } from '@/components/ui/back-button';
 
 const MIN_PASSWORD = 10;
 
@@ -30,26 +31,28 @@ export default function PortalAccountPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Who is signed in */}
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:flex-row sm:items-center sm:p-6">
-        <span className="inline-flex size-16 shrink-0 items-center justify-center rounded-full bg-accent text-xl font-semibold text-accent-fg" aria-hidden>
-          {initials(me.name, me.email)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-bold">{me.name}</h1>
-          <p className="mt-0.5 truncate text-sm text-muted">{me.email}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {roles.map((r) => (
-              <Badge key={r} tone="accent">
-                {r}
-              </Badge>
-            ))}
-            <span className="text-sm text-muted">{me.organization.name}</span>
+      <BesideBack>
+        <section className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:flex-row sm:items-center sm:p-6">
+          <span className="inline-flex size-16 shrink-0 items-center justify-center rounded-full bg-accent text-xl font-semibold text-accent-fg" aria-hidden>
+            {initials(me.name, me.email)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-bold">{me.name}</h1>
+            <p className="mt-0.5 truncate text-sm text-muted">{me.email}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {roles.map((r) => (
+                <Badge key={r} tone="accent">
+                  {r}
+                </Badge>
+              ))}
+              <span className="text-sm text-muted">{me.organization.name}</span>
+            </div>
           </div>
-        </div>
-        <Button onClick={signOut} loading={signingOut} icon={<LogOut className="size-4" aria-hidden />} className="self-start sm:self-center">
-          {signingOut ? 'Signing out…' : 'Sign out'}
-        </Button>
-      </section>
+          <Button onClick={signOut} loading={signingOut} icon={<LogOut className="size-4" aria-hidden />} className="self-start sm:self-center">
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </Button>
+        </section>
+      </BesideBack>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <Card title="Profile">

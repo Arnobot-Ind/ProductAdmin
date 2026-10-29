@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import { useFeature } from '@/lib/auth';
 import { fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
+import { BesideBack } from '@/components/ui/back-button';
 
 // Leaflet is client-only.
 const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
@@ -70,18 +71,22 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <nav aria-label="Breadcrumb" className="text-sm text-muted">
-        <Link href="/robots" className="hover:underline">
-          Robots
-        </Link>{' '}
-        / <span aria-current="page">{name}</span>
-      </nav>
-
       <header className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-bold">{name}</h1>
-          <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
-        </div>
+        <BesideBack
+          above={
+            <nav aria-label="Breadcrumb" className="text-sm text-muted">
+              <Link href="/robots" className="hover:underline">
+                Robots
+              </Link>{' '}
+              / <span aria-current="page">{name}</span>
+            </nav>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-bold">{name}</h1>
+            <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
+          </div>
+        </BesideBack>
         {/* The four things people check first, as large tiles. */}
         <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Fact label="Model">{robot.product_name}</Fact>
