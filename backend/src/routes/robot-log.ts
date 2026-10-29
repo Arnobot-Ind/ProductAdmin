@@ -5,13 +5,15 @@ import { forbidden } from '../lib/errors';
 import { robotParam, route } from '../lib/route';
 import { Where } from '../lib/sql';
 import { isoDateTime, optionalBool, pageQuery } from '../lib/validation';
-import { ROBOT_LOG_KINDS, type RobotActivityDayDto, type RobotLogDto, type RobotLogKind } from '../shared';
+import { LOG_LEVEL_GROUPS, ROBOT_LOG_KINDS, type LogLevelGroup, type RobotActivityDayDto, type RobotLogDto, type RobotLogKind } from '../shared';
 
 /**
  * One SELECT per log source, all with the same columns, so they can be merged into a single timeline.
  * `$1` is always the robot ID. Every branch is filtered by robot inside, so each source uses its own index.
  */
 const SOURCES: Record<RobotLogKind, string> = {
+  note: `SELECT n.created_at, 'note', 'info', CASE WHEN n.pinned THEN 'Pinned note' ELSE 'Note' END, n.body, n.id::text, u.name
+         FROM robot_notes n LEFT JOIN users u ON u.id = n.created_by WHERE n.robot_id = $1 AND n.deleted_at IS NULL`,
   event: `SELECT e.ts AS ts, 'event' AS kind, e.severity AS level, coalesce(e.code, e.type) AS title, e.message AS body,
                  e.id::text AS ref, CASE WHEN e.acknowledged_at IS NOT NULL THEN 'acknowledged' END AS actor
           FROM events e WHERE e.robot_id = $1`,
@@ -27,7 +29,13 @@ const SOURCES: Record<RobotLogKind, string> = {
              UNION ALL
              SELECT h.removed_at::timestamptz, 'hardware', 'warning', 'Removed ' || pt.name || coalesce(' ' || h.slot, ''),
                     concat_ws(' · ', h.model, 'SN ' || h.serial_number, h.removal_reason), h.id::text, NULL
-             FROM hardware_fitted h JOIN part_types pt ON pt.id = h.part_type_id WHERE h.robot_id = $1 AND h.removed_at IS NOT NULL`,
+             FROM hardware_fitted h JOIN part_types pt ON pt.id = h.part_type_id WHERE h.robot_id = $1 AND h.removed_at IS NOT NULL
+             UNION ALL
+             SELECT ra.fitted_at, 'hardware', 'info', 'Attachment fitted: ' || a.name || coalesce(' ' || ah.name, ''), concat_ws(' · ', 'SN ' || ra.serial_number, ra.notes), ra.id::text, NULL
+             FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id LEFT JOIN hardware_revisions ah ON ah.id = ra.hardware_revision_id WHERE ra.robot_id = $1
+             UNION ALL
+             SELECT ra.removed_at, 'hardware', 'warning', 'Attachment removed: ' || a.name || coalesce(' ' || ah.name, ''), concat_ws(' · ', 'SN ' || ra.serial_number, ra.removal_note), ra.id::text, NULL
+             FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id LEFT JOIN hardware_revisions ah ON ah.id = ra.hardware_revision_id WHERE ra.robot_id = $1 AND ra.removed_at IS NOT NULL`,
   maintenance: `SELECT ml.repaired_at::timestamptz, 'maintenance', 'info', 'Repair',
                        concat_ws(' · ', ml.description, 'removed SN ' || ml.part_removed_serial, 'fitted SN ' || ml.part_fitted_serial, 'by ' || ml.repaired_by),
                        ml.id::text, NULL
@@ -56,6 +64,13 @@ const kindsParam = z
   .optional()
   .transform((v) => (v ? v.split(',').filter((k): k is RobotLogKind => (ROBOT_LOG_KINDS as readonly string[]).includes(k)) : undefined));
 
+const levelsParam = z
+  .string()
+  .optional()
+  .transform((v) => (v ? v.split(',').filter((k): k is LogLevelGroup => k in LOG_LEVEL_GROUPS) : undefined));
+/** Severity group of a log entry's level, in SQL (critical / warning / info). */
+const LEVEL_GROUP_SQL = `CASE WHEN l.level IN (${LOG_LEVEL_GROUPS.critical.map((x) => `'${x}'`).join(', ')}) THEN 'critical' WHEN l.level = 'warning' THEN 'warning' ELSE 'info' END`;
+
 /** A robot's activity log: everything that happened to it, newest first, from every log table (admin panel). */
 export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
   const { db } = app;
@@ -66,7 +81,7 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
     summary: "One robot's activity log: events, missions, hardware, repairs, software, ownership, documents, audit and robot messages merged newest first",
     tag: 'Robots',
     access: { can: 'robot.details', target: robotParam() },
-    query: z.object({ ...pageQuery, kinds: kindsParam, q: z.string().trim().max(200).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), include_messages: optionalBool }),
+    query: z.object({ ...pageQuery, kinds: kindsParam, levels: levelsParam, q: z.string().trim().max(200).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), include_messages: optionalBool }),
     handler: async ({ params, query, user }): Promise<RobotLogDto> => {
       // Staff view: a customer user's scope would also need their ownership window applied to every source.
       if (!(await app.perms.can(user, 'robot.details', { type: 'platform' }))) throw forbidden('the activity log is for Arnobot staff');
@@ -101,9 +116,18 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
         : [];
       const counts = Object.fromEntries(available.map((k) => [k, countRows.find((r) => r.kind === k)?.n ?? 0])) as Partial<Record<RobotLogKind, number>>;
 
-      if (!kinds.length) return { items: [], total: 0, page: query.page, limit: query.limit, counts, available: allowed };
+      const noLevels: Record<LogLevelGroup, number> = { critical: 0, warning: 0, info: 0 };
+      if (!kinds.length) return { items: [], total: 0, page: query.page, limit: query.limit, counts, available: allowed, level_counts: noLevels };
+      // Counts per severity group for the chosen kinds (the severity filter itself not applied).
+      const lw = filters(new Where([params.robotId]));
+      const levelRows = (
+        await db.query<{ g: LogLevelGroup; n: number }>(`SELECT ${LEVEL_GROUP_SQL} AS g, count(*)::int AS n FROM (${union(kinds)}) AS l(ts, kind, level, title, body, ref, actor) ${lw.toSql()} GROUP BY 1`, lw.params)
+      ).rows;
+      const levelCounts = { ...noLevels, ...Object.fromEntries(levelRows.map((r) => [r.g, r.n])) };
+      const levels = query.levels?.length ? query.levels : null;
       const w = filters(new Where([params.robotId]));
-      const total = kinds.reduce((s, k) => s + (counts[k] ?? 0), 0);
+      if (levels) w.add(`${LEVEL_GROUP_SQL} = ANY(?)`, levels);
+      const total = levels ? levels.reduce((s, g) => s + levelCounts[g], 0) : kinds.reduce((s, k) => s + (counts[k] ?? 0), 0);
       const p = [...w.params, query.limit, (query.page - 1) * query.limit];
       const rows = (
         await db.query<{ ts: Date; kind: RobotLogKind; level: string; title: string; body: string | null; ref: string; actor: string | null }>(
@@ -118,6 +142,7 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
         limit: query.limit,
         counts,
         available: allowed,
+        level_counts: levelCounts,
       };
     },
   });

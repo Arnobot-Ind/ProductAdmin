@@ -1,12 +1,12 @@
 import { addIngestKey, createIngestClient, withTransaction, type Queryable } from '../db';
-import type { IngestClientDto, IngestKeyIssuedDto, IngestLogItemDto, IngestRejectionDto, Paginated } from '../shared';
+import type { IngestCalendarDayDto, IngestClientDto, IngestKeyIssuedDto, IngestLogItemDto, IngestRejectionDto, IngestSummaryDto, Paginated } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
-import { assertUuid, nullableText, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
+import { assertUuid, istMonthBounds, isoDateTime, monthSchema, nullableText, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
 
 const CLIENT_SELECT = `
 SELECT c.id, c.name, c.kind, c.notes, c.created_at, c.revoked_at,
@@ -164,12 +164,14 @@ export function ingestAdminRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Accepted robot messages (newest first)',
     tag,
     access: { can: 'ingest.read', target: anyScope() },
-    query: z.object({ robot: robotIdSchema.optional(), type: z.string().max(20).optional(), ...pageQuery }),
+    query: z.object({ robot: robotIdSchema.optional(), type: z.string().max(20).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), ...pageQuery }),
     handler: ({ query, user }): Promise<Paginated<IngestLogItemDto>> => {
       const w = new Where();
       app.perms.applyRobotScope(w, app.perms.robotScope(user, 'ingest.read'), 'm.robot_id');
       if (query.robot) w.add('m.robot_id = ?', query.robot);
       if (query.type) w.add('m.type = ?', query.type);
+      if (query.from) w.add('m.received_at >= ?', query.from);
+      if (query.to) w.add('m.received_at < ?', query.to);
       return paginate(
         db,
         `SELECT m.msg_id, m.robot_id, m.type, m.v, m.ts, m.received_at, m.transport, c.name AS client_name
@@ -209,17 +211,70 @@ export function ingestAdminRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Rejected messages with the reason (kept for diagnosis)',
     tag,
     access: { can: 'ingest.read', target: platform() },
-    query: z.object({ ...pageQuery }),
-    handler: ({ query }): Promise<Paginated<IngestRejectionDto>> =>
-      paginate(
+    query: z.object({ robot: robotIdSchema.optional(), error: z.string().max(100).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), ...pageQuery }),
+    handler: ({ query }): Promise<Paginated<IngestRejectionDto>> => {
+      const w = new Where();
+      if (query.robot) w.add('r.robot_id = ?', query.robot);
+      if (query.error) w.add('r.error = ?', query.error);
+      if (query.from) w.add('r.received_at >= ?', query.from);
+      if (query.to) w.add('r.received_at < ?', query.to);
+      return paginate(
         db,
         `SELECT r.id, r.received_at, r.msg_id, r.robot_id, r.type, r.error, r.details, c.name AS client_name, r.raw
          FROM ingest_rejections r LEFT JOIN ingest_clients c ON c.id = r.client_id`,
-        new Where(),
+        w,
         'r.received_at DESC, r.id DESC',
         query.page,
         query.limit,
         (r: Record<string, unknown>) => ({ ...r, received_at: iso(r.received_at as Date) }),
-      ) as Promise<Paginated<IngestRejectionDto>>,
+      ) as Promise<Paginated<IngestRejectionDto>>;
+    },
+  });
+
+  // Accepted vs rejected at a glance. Rejections are platform-wide (they may name no known robot), so both
+  // need ingest.read on the platform.
+  route(f, app, {
+    method: 'GET',
+    path: '/ingest/summary',
+    summary: 'Accepted and rejected messages in the last 24 h, accepted per type, rejected per error over 7 days',
+    tag,
+    access: { can: 'ingest.read', target: platform() },
+    handler: async (): Promise<IngestSummaryDto> => {
+      const acc = (
+        await db.query<{ n: number; last: Date | null }>("SELECT count(*) FILTER (WHERE received_at > now() - interval '24 hours')::int AS n, max(received_at) AS last FROM ingested_messages")
+      ).rows[0];
+      const rej = (
+        await db.query<{ n: number; last: Date | null }>("SELECT count(*) FILTER (WHERE received_at > now() - interval '24 hours')::int AS n, max(received_at) AS last FROM ingest_rejections")
+      ).rows[0];
+      const byType = await db.query<{ type: string; n: number }>(
+        "SELECT type, count(*)::int AS n FROM ingested_messages WHERE received_at > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC",
+      );
+      const byError = await db.query<{ error: string; n: number }>(
+        "SELECT error, count(*)::int AS n FROM ingest_rejections WHERE received_at > now() - interval '7 days' GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
+      );
+      return { accepted_24h: acc.n, rejected_24h: rej.n, last_accepted_at: iso(acc.last), last_rejected_at: iso(rej.last), by_type_24h: byType.rows, rejected_by_error_7d: byError.rows };
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/ingest/calendar',
+    summary: 'Accepted and rejected messages per IST day of a month',
+    tag,
+    access: { can: 'ingest.read', target: platform() },
+    query: z.object({ month: monthSchema }),
+    handler: async ({ query }): Promise<IngestCalendarDayDto[]> => {
+      const { from, to } = istMonthBounds(query.month);
+      const day = "(received_at AT TIME ZONE 'Asia/Kolkata')::date::text";
+      const rows = await db.query<{ date: string; accepted: number; rejected: number }>(
+        `SELECT date, sum(a)::int AS accepted, sum(r)::int AS rejected FROM (
+           SELECT ${day} AS date, count(*) AS a, 0 AS r FROM ingested_messages WHERE received_at >= $1 AND received_at < $2 GROUP BY 1
+           UNION ALL
+           SELECT ${day}, 0, count(*) FROM ingest_rejections WHERE received_at >= $1 AND received_at < $2 GROUP BY 1
+         ) x GROUP BY date ORDER BY date`,
+        [from, to],
+      );
+      return rows.rows;
+    },
   });
 }

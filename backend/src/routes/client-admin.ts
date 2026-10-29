@@ -13,7 +13,7 @@ import type { AppContext } from '../context';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, route } from '../lib/route';
 import { iso } from '../lib/sql';
-import { assertUuid, includeDeleted, isoDate, nullableText, optionalBool, robotIdSchema, uuidSchema } from '../lib/validation';
+import { assertUuid, commitIdField, includeDeleted, isoDate, nullableText, optionalBool, repoUrlField, robotIdSchema, uuidSchema } from '../lib/validation';
 import { clientProfile, featureCatalogue, INSTALL_SELECT, setCompanyFeatures, toInstall } from '../services/client-admin';
 
 const nullableDate = z.preprocess((v) => (v === '' ? null : v), isoDate.nullable());
@@ -42,6 +42,8 @@ const productBody = z.object({
   kind: z.enum(SOFTWARE_KINDS),
   description: nullableText(2000).optional(),
   latest_version: nullableText(64).optional(),
+  repo_url: repoUrlField.optional(),
+  commit_id: commitIdField.optional(),
 });
 const installBody = z.object({
   software_id: uuidSchema,
@@ -77,7 +79,7 @@ const toCred = (r: Record<string, unknown>): ClientCredentialDto => ({
 });
 
 const PRODUCT_SELECT = `
-SELECT s.id, s.code, s.name, s.kind, s.description, s.latest_version, s.created_at, s.deleted_at,
+SELECT s.id, s.code, s.name, s.kind, s.description, s.latest_version, s.repo_url, s.commit_id, s.created_at, s.deleted_at,
        (SELECT count(*)::int FROM software_installs i WHERE i.software_id = s.id AND i.deleted_at IS NULL) AS install_count
 FROM software_products s`;
 const toProduct = (r: Record<string, unknown>): SoftwareProductDto => ({
@@ -219,12 +221,14 @@ export function clientAdminRoutes(f: FastifyInstance, app: AppContext): void {
       withTransaction(db, async (tx) => {
         if ((await tx.query('SELECT 1 FROM software_products WHERE code = $1', [body.code])).rowCount) throw conflict(`software code ${body.code} is already used`);
         const id = (
-          await tx.query<{ id: string }>('INSERT INTO software_products (code, name, kind, description, latest_version, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id', [
+          await tx.query<{ id: string }>('INSERT INTO software_products (code, name, kind, description, latest_version, repo_url, commit_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', [
             body.code,
             body.name,
             body.kind,
             body.description ?? null,
             body.latest_version ?? null,
+            body.repo_url ?? null,
+            body.commit_id ?? null,
             user.id,
           ])
         ).rows[0].id;

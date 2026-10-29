@@ -16,10 +16,12 @@ async function main(): Promise<void> {
   ctx.runtime.mqttConnected = () => (mqttClient ? mqttClient.connected : null);
 
   const archiveSync = startArchiveSync(ctx, app.log);
+  const dailyStats = startDailyStats(ctx, app.log);
 
   const shutdown = async (signal: string) => {
     app.log.info(`${signal}: shutting down`);
     archiveSync.stop();
+    dailyStats.stop();
     mqttClient?.end();
     await realtime.close();
     await app.close();
@@ -59,6 +61,34 @@ function startArchiveSync(ctx: ReturnType<typeof createContext>, log: FastifyBas
     }
   };
   const first = setTimeout(run, 5_000);
+  const timer = setInterval(run, minutes * 60_000);
+  timer.unref();
+  first.unref();
+  return { stop: () => (clearTimeout(first), clearInterval(timer)) };
+}
+
+/**
+ * Keeps the per-robot daily rollup current (fleet reports read it). Every DAILY_STATS_MINUTES (default 10, 0 = off);
+ * never two passes at once; the first pass backfills robots that have none yet.
+ */
+function startDailyStats(ctx: ReturnType<typeof createContext>, log: FastifyBaseLogger): { stop: () => void } {
+  const minutes = Number(process.env.DAILY_STATS_MINUTES ?? 10);
+  if (!minutes) return { stop: () => undefined };
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    const t = Date.now();
+    try {
+      const r = await ctx.dailyStats.refreshAll();
+      log.info({ robots: r.robots, days: r.days, ms: Date.now() - t }, 'daily stats: rollup refreshed');
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, 'daily stats refresh failed; will retry');
+    } finally {
+      running = false;
+    }
+  };
+  const first = setTimeout(run, 10_000);
   const timer = setInterval(run, minutes * 60_000);
   timer.unref();
   first.unref();

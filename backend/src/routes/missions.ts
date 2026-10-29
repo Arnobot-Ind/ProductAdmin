@@ -1,4 +1,4 @@
-import type { MissionDetailDto, MissionFileDto, MissionListItemDto, MissionWaypointDto, Paginated } from '../shared';
+import type { MissionDetailDto, MissionFileDto, MissionListItemDto, MissionPeriodStatsDto, MissionWaypointDto, Paginated } from '../shared';
 import { MISSION_STATES } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -75,6 +75,81 @@ export function missionRoutes(f: FastifyInstance, app: AppContext): void {
     query: listQuery,
     // Organizations never see missions flown while another customer owned the robot.
     handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'm.robot_id', 'coalesce(m.started_at, m.created_at)')),
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/missions/stats',
+    summary: 'Missions over [from, to) (both optional: all time): totals, per robot, and per IST hour, day or month',
+    tag,
+    access: { can: 'robot.details', target: anyScope() },
+    query: z.object({ from: isoDateTime.optional(), to: isoDateTime.optional() }),
+    handler: async ({ query, user }): Promise<MissionPeriodStatsDto> => {
+      const T = 'coalesce(m.started_at, m.created_at)';
+      const scoped = () => {
+        const w = app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'm.robot_id', T);
+        w.add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = m.robot_id AND rr.deleted_at IS NULL)');
+        if (query.from) w.add(`${T} >= ?`, query.from);
+        if (query.to) w.add(`${T} < ?`, query.to);
+        return w;
+      };
+      const COUNTS = `count(*)::int AS total, count(*) FILTER (WHERE m.result = 'completed')::int AS completed,
+        count(*) FILTER (WHERE m.result = 'aborted')::int AS aborted, count(*) FILTER (WHERE m.result = 'failed')::int AS failed,
+        count(*) FILTER (WHERE m.result = 'in_progress' OR m.result IS NULL)::int AS in_progress`;
+      const tw = scoped();
+      const t = (
+        await db.query(
+          `SELECT ${COUNTS}, coalesce(sum(m.distance_m), 0)::float8 AS distance_m, coalesce(sum(m.duration_s), 0)::float8 AS duration_s, min(${T}) AS first, max(${T}) AS last
+           FROM missions m ${tw.toSql()}`,
+          tw.params,
+        )
+      ).rows[0];
+      const rw = scoped();
+      const robots = (
+        await db.query(
+          `SELECT m.robot_id, p.category, ${COUNTS} FROM missions m JOIN robots r ON r.robot_id = m.robot_id JOIN products p ON p.id = r.product_id
+           ${rw.toSql()} GROUP BY m.robot_id, p.category ORDER BY total DESC, m.robot_id LIMIT 50`,
+          rw.params,
+        )
+      ).rows;
+
+      // Bucket size from the period's length (all time: from the first mission).
+      const start = query.from ? new Date(query.from) : t.first ? new Date(t.first) : new Date();
+      const end = query.to ? new Date(query.to) : new Date();
+      const span = end.getTime() - start.getTime();
+      const granularity: MissionPeriodStatsDto['granularity'] = span <= 48 * 3_600_000 ? 'hour' : span <= 92 * 86_400_000 ? 'day' : 'month';
+      const IST = "AT TIME ZONE 'Asia/Kolkata'";
+      const key = granularity === 'hour' ? `to_char(${T} ${IST}, 'YYYY-MM-DD"T"HH24')` : granularity === 'day' ? `to_char(${T} ${IST}, 'YYYY-MM-DD')` : `to_char(${T} ${IST}, 'YYYY-MM')`;
+      const bw = scoped();
+      const rows = (await db.query(`SELECT ${key} AS k, ${COUNTS} FROM missions m ${bw.toSql()} GROUP BY 1`, bw.params)).rows as { k: string; completed: number; aborted: number; failed: number; in_progress: number }[];
+      const found = new Map(rows.map((r) => [r.k, r]));
+      const ist = (d: Date) => new Date(d.getTime() + 19_800_000).toISOString();
+      const keys: string[] = [];
+      if (granularity === 'hour') {
+        for (let x = Math.floor((start.getTime() + 19_800_000) / 3_600_000) * 3_600_000 - 19_800_000; x < end.getTime(); x += 3_600_000) keys.push(ist(new Date(x)).slice(0, 13));
+      } else if (granularity === 'day') {
+        for (let d = ist(start).slice(0, 10); d <= ist(new Date(end.getTime() - 1)).slice(0, 10); d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) keys.push(d);
+      } else {
+        const last = ist(new Date(end.getTime() - 1)).slice(0, 7);
+        for (let mth = ist(start).slice(0, 7); mth <= last; ) {
+          keys.push(mth);
+          const [y, mo] = mth.split('-').map(Number);
+          mth = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+        }
+      }
+      const buckets = keys.map((k) => {
+        const r = found.get(k);
+        return { start: granularity === 'hour' ? `${k}:00:00+05:30` : k, completed: r?.completed ?? 0, aborted: r?.aborted ?? 0, failed: r?.failed ?? 0, in_progress: r?.in_progress ?? 0 };
+      });
+      return {
+        from: query.from ?? null,
+        to: query.to ?? null,
+        totals: { total: t.total, completed: t.completed, aborted: t.aborted, failed: t.failed, in_progress: t.in_progress, distance_m: t.distance_m, duration_s: t.duration_s },
+        robots,
+        granularity,
+        buckets,
+      };
+    },
   });
 
   route(f, app, {

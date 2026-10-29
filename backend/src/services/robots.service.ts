@@ -1,11 +1,19 @@
 import type { Db, Queryable } from '../db';
-import type { HealthLevel, LiveStateDto, RobotDetailDto, RobotListItemDto, RobotStatus } from '../shared';
+import type { EventSeverity, HealthLevel, LiveStateDto, RobotAttachmentRefDto, RobotCategory, RobotDetailDto, RobotListItemDto, RobotStatus } from '../shared';
 import { notFound } from '../lib/errors';
 import { iso, Where } from '../lib/sql';
 
 /** One SELECT for list + detail. Status and mission totals are computed here, never stored (rules 8, §5). */
 export const ROBOT_SELECT = `
-SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name AS product_name,
+SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name AS product_name, p.category, r.nickname, r.description,
+       coalesce((SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'model_number', a.model_number, 'revision_name', ah.name, 'serial_number', ra.serial_number,
+                                                   'cover_photo_id', (SELECT pm.id FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL
+                                                                      ORDER BY pm.created_at LIMIT 1)) ORDER BY a.name)
+                 FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id LEFT JOIN hardware_revisions ah ON ah.id = ra.hardware_revision_id
+                 WHERE ra.robot_id = r.robot_id AND ra.removed_at IS NULL), '[]') AS attachments,
+       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.created_at LIMIT 1) AS product_cover_photo_id,
+       p.description AS product_description, p.repo_url,
+       le.ts AS last_event_ts, le.severity AS last_event_severity, le.code AS last_event_code, le.message AS last_event_message,
        r.hardware_revision_id, hr.name AS hardware_revision, r.running_number, r.notes,
        r.created_at, r.updated_at, r.deleted_at,
        o.company_id AS owner_company_id, c.name AS owner_company, o.valid_from AS owner_since,
@@ -48,6 +56,9 @@ LEFT JOIN LATERAL (
   SELECT count(*)::int AS unacked_critical_events
   FROM events WHERE robot_id = r.robot_id AND severity = 'critical' AND acknowledged_at IS NULL
 ) ev ON true
+LEFT JOIN LATERAL (
+  SELECT ts, severity, code, message FROM events WHERE robot_id = r.robot_id ORDER BY ts DESC LIMIT 1
+) le ON true
 LEFT JOIN archive_robot_link al ON al.robot_id = r.robot_id
 LEFT JOIN LATERAL (
   SELECT count(*)::int AS video_sessions FROM archive_sessions WHERE robot_id = r.robot_id
@@ -68,7 +79,12 @@ export function toRobotListItem(r: RobotRow): RobotListItemDto {
     serial_number: r.serial_number as string,
     product_code: r.product_code as string,
     product_name: r.product_name as string,
+    category: r.category as RobotCategory,
+    nickname: (r.nickname as string | null) ?? null,
+    description: (r.description as string | null) ?? null,
+    attachments: (r.attachments as RobotAttachmentRefDto[] | null) ?? [],
     hardware_revision: (r.hardware_revision as string | null) ?? null,
+    product_cover_photo_id: (r.product_cover_photo_id as string | null) ?? null,
     owner_company: (r.owner_company as string | null) ?? null,
     status: r.status as RobotStatus,
     last_seen_at: iso(r.last_seen_at),
@@ -106,6 +122,11 @@ export function toRobotDetail(r: RobotRow): RobotDetailDto {
   return {
     ...toRobotListItem(r),
     product_id: r.product_id as string,
+    product_description: (r.product_description as string | null) ?? null,
+    repo_url: (r.repo_url as string | null) ?? null,
+    last_event: r.last_event_ts
+      ? { ts: iso(r.last_event_ts as Date)!, severity: r.last_event_severity as EventSeverity, code: (r.last_event_code as string | null) ?? null, message: r.last_event_message as string }
+      : null,
     hardware_revision_id: (r.hardware_revision_id as string | null) ?? null,
     running_number: r.running_number as number,
     notes: (r.notes as string | null) ?? null,
@@ -117,8 +138,14 @@ export function toRobotDetail(r: RobotRow): RobotDetailDto {
 
 export const ROBOT_SORTS: Record<string, string> = {
   robot_id: 'r.product_id, r.running_number',
+  nickname: 'lower(r.nickname)',
   serial_number: 'r.serial_number',
   product: 'p.name, r.running_number',
+  category: 'p.category, p.name, r.running_number',
+  /** How much a robot needs someone (higher first with -problems): critical alerts, device faults, then offline over a day. */
+  problems: `(CASE WHEN coalesce(ev.unacked_critical_events, 0) > 0 THEN 4 ELSE 0 END
+             + CASE WHEN 'fault' IN (ls.health_controller, ls.health_lidar, ls.health_cameras, ls.health_gps) THEN 2 ELSE 0 END
+             + CASE WHEN ls.last_seen_at IS NULL OR now() - ls.last_seen_at > interval '1 day' THEN 1 ELSE 0 END)`,
   status: "CASE WHEN ls.last_seen_at IS NULL THEN 3 WHEN now() - ls.last_seen_at < interval '60 seconds' THEN 1 WHEN now() - ls.last_seen_at <= interval '5 minutes' THEN 2 ELSE 3 END",
   last_seen_at: 'ls.last_seen_at',
   battery_pct: 'ls.battery_pct',

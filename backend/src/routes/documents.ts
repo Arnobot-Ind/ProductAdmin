@@ -14,10 +14,11 @@ const createFields = z
     product_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
     hardware_revision_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
     robot_id: robotIdSchema.optional().or(z.literal('').transform(() => undefined)),
+    attachment_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
     note: optionalText(1000),
   })
-  .refine((v) => [v.product_id, v.hardware_revision_id, v.robot_id].filter(Boolean).length === 1, {
-    message: 'attach the document to exactly one of product_id, hardware_revision_id or robot_id',
+  .refine((v) => [v.product_id, v.hardware_revision_id, v.robot_id, v.attachment_id].filter(Boolean).length === 1, {
+    message: 'attach the document to exactly one of product_id, hardware_revision_id, robot_id or attachment_id',
   });
 const versionFields = z.object({ note: optionalText(1000) });
 
@@ -70,9 +71,18 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
           await app.robots.assertExists(body.robot_id, {}, tx);
           prefix = `robots/${body.robot_id}/docs`;
         } else if (body.hardware_revision_id) {
-          const r = (await tx.query<{ code: string }>('SELECT p.code FROM hardware_revisions h JOIN products p ON p.id = h.product_id WHERE h.id = $1 AND h.deleted_at IS NULL', [body.hardware_revision_id])).rows[0];
+          const r = (
+            await tx.query<{ base: string }>(
+              `SELECT coalesce('products/' || p.code, 'attachments/' || h.attachment_id) AS base FROM hardware_revisions h LEFT JOIN products p ON p.id = h.product_id
+               WHERE h.id = $1 AND h.deleted_at IS NULL`,
+              [body.hardware_revision_id],
+            )
+          ).rows[0];
           if (!r) throw notFound('hardware revision');
-          prefix = `products/${r.code}/revisions/${body.hardware_revision_id}/docs`;
+          prefix = `${r.base}/revisions/${body.hardware_revision_id}/docs`;
+        } else if (body.attachment_id) {
+          if (!(await tx.query('SELECT 1 FROM attachments WHERE id = $1 AND deleted_at IS NULL', [body.attachment_id])).rowCount) throw notFound('attachment');
+          prefix = `attachments/${body.attachment_id}/docs`;
         } else {
           const r = (await tx.query<{ code: string }>('SELECT code FROM products WHERE id = $1 AND deleted_at IS NULL', [body.product_id])).rows[0];
           if (!r) throw notFound('product');
@@ -80,9 +90,9 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
         }
         const docId = (
           await tx.query<{ id: string }>(
-            `INSERT INTO documents (doc_type, title, product_id, hardware_revision_id, robot_id, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [body.doc_type, body.title, body.product_id ?? null, body.hardware_revision_id ?? null, body.robot_id ?? null, user.id],
+            `INSERT INTO documents (doc_type, title, product_id, hardware_revision_id, robot_id, attachment_id, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [body.doc_type, body.title, body.product_id ?? null, body.hardware_revision_id ?? null, body.robot_id ?? null, body.attachment_id ?? null, user.id],
           )
         ).rows[0].id;
         const fileId = await files.store(file, `${prefix}/${docId}/v1`, user.id, tx);

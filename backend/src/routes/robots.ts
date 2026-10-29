@@ -1,5 +1,5 @@
 import { registerRobot, withTransaction, type Queryable } from '../db';
-import { CLIENT_FEATURES } from '../shared';
+import { CLIENT_FEATURES, ROBOT_CATEGORIES } from '../shared';
 import type {
   ConnectivityDto,
   DispatchWarrantyDto,
@@ -17,14 +17,22 @@ import type { AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { anyScope, platform, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
-import { includeDeleted, isoDate, isoDateTime, nullableText, pageQuery, uuidSchema } from '../lib/validation';
+import { includeDeleted, isoDate, isoDateTime, nullableText, optionalBool, pageQuery, uuidSchema } from '../lib/validation';
+import type { AuthUser } from '../services/auth.service';
 import { assignRobot } from '../services/ownership';
 import { ROBOT_SELECT, ROBOT_SORTS, toRobotListItem } from '../services/robots.service';
 
 const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
   product: z.string().max(50).optional(),
+  category: z.enum(ROBOT_CATEGORIES).optional(),
+  /** Current owner (organization id). */
+  owner: uuidSchema.optional(),
+  /** Has this attachment fitted now. */
+  attachment: uuidSchema.optional(),
   status: z.enum(['online', 'stale', 'offline']).optional(),
+  /** Only robots that need someone: an unacknowledged critical event, a device fault, or offline for over a day. */
+  problems: optionalBool,
   sort: z.string().regex(/^-?[a-z_]+$/).optional(),
   ...includeDeleted,
   ...pageQuery,
@@ -34,6 +42,15 @@ const registerBody = z.object({
   product_id: uuidSchema,
   hardware_revision_id: uuidSchema.nullable().optional(),
   notes: nullableText(2000).optional(),
+  nickname: nullableText(60).optional(),
+  description: nullableText(500).optional(),
+  /**
+   * Attachments fitted from the start, each with its revision and the unit's serial number when known. Required, so
+   * the person registering decides it: an empty list means the robot has no attachment.
+   */
+  attachments: z
+    .array(z.object({ attachment_id: uuidSchema, hardware_revision_id: uuidSchema.nullable().optional(), serial_number: nullableText(100).optional() }))
+    .max(30),
   /** Owner from the start; omitted = Arnobot. A customer owner needs ownership.write as well as robot.write. */
   company_id: uuidSchema.nullable().optional(),
 });
@@ -41,6 +58,8 @@ const patchBody = z
   .object({
     hardware_revision_id: uuidSchema.nullable().optional(),
     notes: nullableText(2000).optional(),
+    nickname: nullableText(60).optional(),
+    description: nullableText(500).optional(),
   })
   .strict();
 const softwareBody = z.object({
@@ -110,24 +129,80 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.read', target: anyScope() },
     query: listQuery,
     handler: ({ query: q, user }): Promise<Paginated<RobotListItemDto>> => {
-      const w = new Where();
-      app.perms.applyRobotScope(w, app.perms.robotScope(user, 'robot.read'), 'r.robot_id');
-      if (!q.include_deleted) w.add('r.deleted_at IS NULL');
-      if (q.product) w.add('p.code = ?', q.product);
-      if (q.q) w.add('(r.robot_id ILIKE ? OR r.serial_number ILIKE ? OR r.notes ILIKE ?)', `%${q.q}%`, `%${q.q}%`, `%${q.q}%`);
-      if (q.status) {
-        w.add(
-          `(CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
-                 WHEN now() - ls.last_seen_at < interval '60 seconds' THEN 'online'
-                 WHEN now() - ls.last_seen_at <= interval '5 minutes' THEN 'stale' ELSE 'offline' END) = ?`,
-          q.status,
-        );
-      }
-      const desc = q.sort?.startsWith('-');
-      const col = ROBOT_SORTS[q.sort?.replace(/^-/, '') ?? 'robot_id'] ?? ROBOT_SORTS.robot_id;
-      return paginate(db, ROBOT_SELECT, w, `${col} ${desc ? 'DESC' : 'ASC'} NULLS LAST, r.robot_id`, q.page, q.limit, toRobotListItem) as Promise<
-        Paginated<RobotListItemDto>
-      >;
+      const { w, order } = listWhere(q, user);
+      return paginate(db, ROBOT_SELECT, w, order, q.page, q.limit, toRobotListItem) as Promise<Paginated<RobotListItemDto>>;
+    },
+  });
+
+  /** The robots list's filters and sort, shared by the list and its CSV export. */
+  function listWhere(q: z.infer<typeof listQuery>, user: AuthUser): { w: Where; order: string } {
+    const w = new Where();
+    app.perms.applyRobotScope(w, app.perms.robotScope(user, 'robot.read'), 'r.robot_id');
+    if (!q.include_deleted) w.add('r.deleted_at IS NULL');
+    if (q.product) w.add('p.code = ?', q.product);
+    if (q.category) w.add('p.category = ?', q.category);
+    if (q.owner) w.add('o.company_id = ?', q.owner);
+    if (q.q) {
+      const like = w.param(`%${q.q.replace(/[\\%_]/g, '\\$&')}%`);
+      w.add(
+        `(r.robot_id ILIKE ${like} OR r.serial_number ILIKE ${like} OR r.nickname ILIKE ${like} OR r.description ILIKE ${like} OR r.notes ILIKE ${like} OR c.name ILIKE ${like}
+          OR EXISTS (SELECT 1 FROM robot_attachments qa JOIN attachments qx ON qx.id = qa.attachment_id WHERE qa.robot_id = r.robot_id AND qa.removed_at IS NULL AND qx.name ILIKE ${like}))`,
+      );
+    }
+    if (q.attachment) w.add('EXISTS (SELECT 1 FROM robot_attachments fa WHERE fa.robot_id = r.robot_id AND fa.removed_at IS NULL AND fa.attachment_id = ?)', q.attachment);
+    if (q.status) {
+      w.add(
+        `(CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
+               WHEN now() - ls.last_seen_at < interval '60 seconds' THEN 'online'
+               WHEN now() - ls.last_seen_at <= interval '5 minutes' THEN 'stale' ELSE 'offline' END) = ?`,
+        q.status,
+      );
+    }
+    if (q.problems) w.add(`${ROBOT_SORTS.problems} > 0`);
+    const desc = q.sort?.startsWith('-');
+    const col = ROBOT_SORTS[q.sort?.replace(/^-/, '') ?? 'robot_id'] ?? ROBOT_SORTS.robot_id;
+    return { w, order: `${col} ${desc ? 'DESC' : 'ASC'} NULLS LAST, r.robot_id` };
+  }
+
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/export.csv',
+    summary: 'The filtered robots list as CSV (at most 10 000 rows), for spreadsheets and records (Arnobot staff)',
+    tag,
+    access: { can: 'robot.details', target: anyScope() },
+    query: listQuery.omit({ page: true, limit: true }),
+    handler: async ({ query, user, reply }) => {
+      const { w, order } = listWhere({ ...query, page: 1, limit: 1 }, user);
+      const rows = (await db.query(`${ROBOT_SELECT} ${w.toSql()} ORDER BY ${order} LIMIT 10000`, w.params)).rows.map(toRobotListItem);
+      const cols: [string, (r: RobotListItemDto) => unknown][] = [
+        ['robot_id', (r) => r.robot_id],
+        ['serial_number', (r) => r.serial_number],
+        ['category', (r) => r.category.toUpperCase()],
+        ['nickname', (r) => r.nickname],
+        ['base_model', (r) => r.product_name],
+        ['attachments', (r) => r.attachments.map((a) => a.name).join('; ')],
+        ['description', (r) => r.description],
+        ['owner', (r) => r.owner_company],
+        ['status', (r) => r.status],
+        ['last_seen_at', (r) => r.last_seen_at],
+        ['battery_pct', (r) => r.battery_pct],
+        ['unacked_critical_events', (r) => r.unacked_critical_events],
+        ['missions', (r) => r.total_missions],
+        ['missions_completed', (r) => r.completed],
+        ['odometer_km', (r) => (r.odometer_m === null ? null : (r.odometer_m / 1000).toFixed(2))],
+        ['software', (r) => r.sw_ver],
+        ['firmware', (r) => r.fw_ver],
+        ['registered_at', (r) => r.created_at],
+      ];
+      const cell = (v: unknown) => {
+        const t = v === null || v === undefined ? '' : String(v);
+        return `"${(/^[=+\-@\t\r]/.test(t) ? `'${t}` : t).replace(/"/g, '""')}"`;
+      };
+      const csv = [cols.map((c) => c[0]).join(','), ...rows.map((r) => cols.map(([, get]) => cell(get(r))).join(','))].join('\r\n');
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="robots-${new Date().toISOString().slice(0, 10)}.csv"`)
+        .send(`\ufeff${csv}`);
     },
   });
 
@@ -155,6 +230,29 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
           companyId: owner?.id ?? null,
           createdBy: user.id,
         });
+        if (body.nickname || body.description) {
+          await tx.query('UPDATE robots SET nickname = $2, description = $3 WHERE robot_id = $1', [reg.robotId, body.nickname ?? null, body.description ?? null]);
+        }
+        if (new Set(body.attachments.map((a) => a.attachment_id)).size < body.attachments.length) throw badRequest('the same attachment is listed twice');
+        for (const a of body.attachments) {
+          const att = (
+            await tx.query<{ name: string; category: string | null }>('SELECT name, category FROM attachments WHERE id = $1 AND deleted_at IS NULL', [a.attachment_id])
+          ).rows[0];
+          if (!att) throw badRequest('unknown attachment');
+          const category = (await tx.query<{ category: string }>('SELECT p.category FROM robots r JOIN products p ON p.id = r.product_id WHERE r.robot_id = $1', [reg.robotId])).rows[0].category;
+          if (att.category && att.category !== category) throw badRequest(`${att.name} fits ${att.category.toUpperCase()}s only`);
+          if (a.hardware_revision_id && !(await tx.query('SELECT 1 FROM hardware_revisions WHERE id = $1 AND attachment_id = $2 AND deleted_at IS NULL', [a.hardware_revision_id, a.attachment_id])).rowCount) {
+            throw badRequest(`that revision is not a revision of ${att.name}`);
+          }
+          await tx.query('INSERT INTO robot_attachments (robot_id, attachment_id, hardware_revision_id, serial_number, fitted_by, notes) VALUES ($1, $2, $3, $4, $5, $6)', [
+            reg.robotId,
+            a.attachment_id,
+            a.hardware_revision_id ?? null,
+            a.serial_number ?? null,
+            user.id,
+            'Fitted at registration',
+          ]);
+        }
         if (owner && owner.kind !== 'internal') {
           await app.audit.record(
             {
@@ -185,7 +283,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
   route(f, app, {
     method: 'PATCH',
     path: '/robots/:robotId',
-    summary: 'Edit hardware revision or notes. Robot ID, serial number and product are permanent.',
+    summary: 'Edit nickname, description, hardware revision or notes. Robot ID, serial number and base model are permanent.',
     tag,
     access: { can: 'robot.write', target: robotParam() },
     body: patchBody,
@@ -203,7 +301,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
         }
         const sets: string[] = [];
         const values: unknown[] = [robotId];
-        for (const k of ['hardware_revision_id', 'notes'] as const) {
+        for (const k of ['hardware_revision_id', 'notes', 'nickname', 'description'] as const) {
           if (body[k] !== undefined) {
             values.push(body[k]);
             sets.push(`${k} = $${values.length}`);

@@ -1,12 +1,13 @@
-import type { ClientMissionDto, ClientMissionReportDto, ReportCalendarDayDto, ClientMissionsDto, DailyDistanceDto, DayReportDto, FleetReportDto, MissionStatsDto, RobotStatus } from '../shared';
+import type { ClientMissionDto, ClientMissionReportDto, ReportCalendarDayDto, ClientMissionsDto, DailyDistanceDto, DayReportDto, FleetHourlyDto, FleetReportDto, MissionStatsDto, RobotCategory, RobotStatus } from '../shared';
 import { CLIENT_FEATURES, MISSION_STATES } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
+import type { Queryable } from '../db';
 import { badRequest, notFound } from '../lib/errors';
 import { anyScope, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
-import { isoDate, pageQuery } from '../lib/validation';
+import { isoDate, isoDateTime, pageQuery } from '../lib/validation';
 import type { AuthUser } from '../services/auth.service';
 import { reportWaypoints } from './missions';
 import { computeDayReport, istDate, istInstant, reportWindow, type BatterySample, type GpsSample, type LiveSample } from '../services/day-report';
@@ -71,6 +72,76 @@ function dayRange(from?: string, to?: string): { start: Date | null; end: Date |
  */
 const DISTANCE_CACHE_MS = 5 * 60_000;
 
+/**
+ * Distance, time moving and time online per IST day of [start, end) for one robot, over the given spans of time
+ * (the parts the caller may see). Used by the reports and by the daily rollup (services/daily-stats).
+ */
+export async function computeDailyDistance(db: Queryable, robotId: string, spans: { from: Date; to: Date }[], start: Date, end: Date): Promise<DailyDistanceDto[]> {
+  const rowsIn = async <T,>(sql: string, id: string, sp: { from: Date; to: Date }[]): Promise<T[]> => {
+    const out: T[] = [];
+    for (const x of sp) out.push(...(await db.query(sql, [id, x.from, x.to])).rows);
+    return out;
+  };
+  const DAY = "(ts AT TIME ZONE 'Asia/Kolkata')::date::text";
+
+  const wheel = await rowsIn<{ d: string; wheel_m: number; moving_s: number }>(
+    `WITH g AS (SELECT ts, speed_mps, extract(epoch FROM ts - lag(ts) OVER (ORDER BY ts)) AS dt
+                FROM telemetry_gps WHERE robot_id = $1 AND ts >= $2 AND ts < $3)
+     SELECT ${DAY} AS d,
+            coalesce(sum(speed_mps * dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0)::float8 AS wheel_m,
+            coalesce(sum(dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0)::float8 AS moving_s
+     FROM g GROUP BY 1`,
+    robotId,
+    spans,
+  );
+  const online = await rowsIn<{ d: string; minutes: number; first: Date; last: Date }>(
+    `SELECT d, count(DISTINCT m)::int AS minutes, min(ts) AS first, max(ts) AS last FROM (
+       SELECT ${DAY} AS d, date_trunc('minute', ts) AS m, ts FROM telemetry_gps WHERE robot_id = $1 AND ts >= $2 AND ts < $3
+       UNION ALL
+       SELECT ${DAY}, date_trunc('minute', ts), ts FROM ingested_messages WHERE robot_id = $1 AND type = 'live' AND ts >= $2 AND ts < $3
+     ) x GROUP BY d`,
+    robotId,
+    spans,
+  );
+  // Odometer increases between consecutive live messages; resets and impossible jumps (> 6 m/s) are skipped.
+  const odo = await rowsIn<{ d: string; odometer_m: number; odo_end: number }>(
+    `WITH o AS (SELECT ts, odometer_m AS odo, lag(odometer_m) OVER (ORDER BY ts) AS po, extract(epoch FROM ts - lag(ts) OVER (ORDER BY ts)) AS dt
+                FROM (${LIVE_SELECT}) l WHERE odometer_m IS NOT NULL)
+     SELECT ${DAY} AS d,
+            coalesce(sum(odo - po) FILTER (WHERE odo - po > 0 AND odo - po <= greatest(dt, 1) * 6), 0)::float8 AS odometer_m,
+            max(odo) AS odo_end
+     FROM o GROUP BY 1`,
+    robotId,
+    spans,
+  );
+
+  const days = new Map<string, DailyDistanceDto>();
+  const day = (d: string) => {
+    let row = days.get(d);
+    if (!row) {
+      row = { date: d, odometer_m: null, wheel_m: 0, moving_s: 0, online_s: 0, first_seen_at: null, last_seen_at: null, odometer_end_m: null };
+      days.set(d, row);
+    }
+    return row;
+  };
+  for (let t = start.getTime(); t < end.getTime(); t += 86_400_000) day(istDate(new Date(t)));
+  for (const r of wheel) Object.assign(day(r.d), { wheel_m: day(r.d).wheel_m + r.wheel_m, moving_s: day(r.d).moving_s + r.moving_s });
+  for (const r of online) {
+    const row = day(r.d);
+    row.online_s += r.minutes * 60;
+    if (!row.first_seen_at || r.first.toISOString() < row.first_seen_at) row.first_seen_at = r.first.toISOString();
+    if (!row.last_seen_at || r.last.toISOString() > row.last_seen_at) row.last_seen_at = r.last.toISOString();
+  }
+  for (const r of odo) {
+    const row = day(r.d);
+    row.odometer_m = (row.odometer_m ?? 0) + r.odometer_m;
+    row.odometer_end_m = Math.max(row.odometer_end_m ?? 0, r.odo_end);
+  }
+  return [...days.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((r) => ({ ...r, wheel_m: Math.round(r.wheel_m), moving_s: Math.round(r.moving_s), odometer_m: r.odometer_m === null ? null : Math.round(r.odometer_m) }));
+}
+
 export function reportRoutes(f: FastifyInstance, app: AppContext): void {
   const { db, robots } = app;
   const tag = 'Reports';
@@ -91,65 +162,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
 
   /** Distance, time moving and time online per IST day of [start, end) for one robot, clipped to what the user may see. */
   async function dailyDistance(user: AuthUser, robotId: string, start: Date, end: Date): Promise<DailyDistanceDto[]> {
-    const spans = await visibleSpans(user, robotId, start, end);
-    const DAY = "(ts AT TIME ZONE 'Asia/Kolkata')::date::text";
-
-    const wheel = await rowsIn<{ d: string; wheel_m: number; moving_s: number }>(
-      `WITH g AS (SELECT ts, speed_mps, extract(epoch FROM ts - lag(ts) OVER (ORDER BY ts)) AS dt
-                  FROM telemetry_gps WHERE robot_id = $1 AND ts >= $2 AND ts < $3)
-       SELECT ${DAY} AS d,
-              coalesce(sum(speed_mps * dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0)::float8 AS wheel_m,
-              coalesce(sum(dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0)::float8 AS moving_s
-       FROM g GROUP BY 1`,
-      robotId,
-      spans,
-    );
-    const online = await rowsIn<{ d: string; minutes: number; first: Date; last: Date }>(
-      `SELECT d, count(DISTINCT m)::int AS minutes, min(ts) AS first, max(ts) AS last FROM (
-         SELECT ${DAY} AS d, date_trunc('minute', ts) AS m, ts FROM telemetry_gps WHERE robot_id = $1 AND ts >= $2 AND ts < $3
-         UNION ALL
-         SELECT ${DAY}, date_trunc('minute', ts), ts FROM ingested_messages WHERE robot_id = $1 AND type = 'live' AND ts >= $2 AND ts < $3
-       ) x GROUP BY d`,
-      robotId,
-      spans,
-    );
-    // Odometer increases between consecutive live messages; resets and impossible jumps (> 6 m/s) are skipped.
-    const odo = await rowsIn<{ d: string; odometer_m: number; odo_end: number }>(
-      `WITH o AS (SELECT ts, odometer_m AS odo, lag(odometer_m) OVER (ORDER BY ts) AS po, extract(epoch FROM ts - lag(ts) OVER (ORDER BY ts)) AS dt
-                  FROM (${LIVE_SELECT}) l WHERE odometer_m IS NOT NULL)
-       SELECT ${DAY} AS d,
-              coalesce(sum(odo - po) FILTER (WHERE odo - po > 0 AND odo - po <= greatest(dt, 1) * 6), 0)::float8 AS odometer_m,
-              max(odo) AS odo_end
-       FROM o GROUP BY 1`,
-      robotId,
-      spans,
-    );
-
-    const days = new Map<string, DailyDistanceDto>();
-    const day = (d: string) => {
-      let row = days.get(d);
-      if (!row) {
-        row = { date: d, odometer_m: null, wheel_m: 0, moving_s: 0, online_s: 0, first_seen_at: null, last_seen_at: null, odometer_end_m: null };
-        days.set(d, row);
-      }
-      return row;
-    };
-    for (let t = start.getTime(); t < end.getTime(); t += 86_400_000) day(istDate(new Date(t)));
-    for (const r of wheel) Object.assign(day(r.d), { wheel_m: day(r.d).wheel_m + r.wheel_m, moving_s: day(r.d).moving_s + r.moving_s });
-    for (const r of online) {
-      const row = day(r.d);
-      row.online_s += r.minutes * 60;
-      if (!row.first_seen_at || r.first.toISOString() < row.first_seen_at) row.first_seen_at = r.first.toISOString();
-      if (!row.last_seen_at || r.last.toISOString() > row.last_seen_at) row.last_seen_at = r.last.toISOString();
-    }
-    for (const r of odo) {
-      const row = day(r.d);
-      row.odometer_m = (row.odometer_m ?? 0) + r.odometer_m;
-      row.odometer_end_m = Math.max(row.odometer_end_m ?? 0, r.odo_end);
-    }
-    return [...days.values()]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((r) => ({ ...r, wheel_m: Math.round(r.wheel_m), moving_s: Math.round(r.moving_s), odometer_m: r.odometer_m === null ? null : Math.round(r.odometer_m) }));
+    return computeDailyDistance(db, robotId, await visibleSpans(user, robotId, start, end), start, end);
   }
 
   route(f, app, {
@@ -329,6 +342,66 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
 
   route(f, app, {
     method: 'GET',
+    path: '/reports/fleet/hourly',
+    summary: 'Distance and time moving per IST hour and robot category over [from, to) (at most 48 h): odometer where reported, else wheel speed (admin dashboard)',
+    tag,
+    access: { can: 'robot.details', target: anyScope() },
+    query: z.object({ from: isoDateTime, to: isoDateTime }),
+    handler: async ({ query, user }): Promise<FleetHourlyDto> => {
+      const start = new Date(query.from);
+      const end = new Date(query.to);
+      if (!(end > start)) throw badRequest('to must be after from');
+      if (end.getTime() - start.getTime() > 48 * 3_600_000) throw badRequest('at most 48 hours at a time');
+      const scope = app.perms.robotScope(user, 'robot.details');
+      // Both sources share one parameter list ($1 = from, $2 = to), each with the user's robot / data scope.
+      const gw = app.perms.applyDataScope(new Where([start, end]), scope, 'g.robot_id', 'g.ts').add('g.ts >= $1').add('g.ts < $2');
+      const ow = app.perms.applyDataScope(new Where(gw.params), scope, 'm.robot_id', 'm.ts').add("m.type = 'live'").add('m.ts >= $1').add('m.ts < $2');
+      const HOUR = (col: string) => `date_trunc('hour', ${col} AT TIME ZONE 'Asia/Kolkata')`;
+      const rows = (
+        await db.query<{ category: RobotCategory; h: string; driven_m: number; moving_s: number }>(
+          `WITH g AS (
+             SELECT g.robot_id, g.ts, g.speed_mps, extract(epoch FROM g.ts - lag(g.ts) OVER (PARTITION BY g.robot_id ORDER BY g.ts)) AS dt
+             FROM telemetry_gps g ${gw.toSql()}
+           ), w AS (
+             SELECT robot_id, ${HOUR('ts')} AS h,
+                    coalesce(sum(speed_mps * dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0) AS wheel_m,
+                    coalesce(sum(dt) FILTER (WHERE speed_mps > 0.05 AND dt > 0 AND dt <= 10), 0) AS moving_s
+             FROM g GROUP BY 1, 2
+           ), o AS (
+             SELECT m.robot_id, m.ts, ${num("m.raw->'payload'->>'odometer_m'")} AS odo FROM ingested_messages m ${ow.toSql()}
+           ), od AS (
+             SELECT robot_id, ts, odo - lag(odo) OVER (PARTITION BY robot_id ORDER BY ts) AS d,
+                    extract(epoch FROM ts - lag(ts) OVER (PARTITION BY robot_id ORDER BY ts)) AS dt
+             FROM o WHERE odo IS NOT NULL
+           ), oh AS (
+             SELECT robot_id, ${HOUR('ts')} AS h, sum(d) FILTER (WHERE d > 0 AND d <= greatest(dt, 1) * 6) AS odo_m FROM od GROUP BY 1, 2
+           )
+           SELECT p.category, to_char(coalesce(w.h, oh.h), 'YYYY-MM-DD"T"HH24') AS h,
+                  sum(coalesce(oh.odo_m, w.wheel_m, 0))::float8 AS driven_m, sum(coalesce(w.moving_s, 0))::float8 AS moving_s
+           FROM w FULL JOIN oh ON oh.robot_id = w.robot_id AND oh.h = w.h
+           JOIN robots r ON r.robot_id = coalesce(w.robot_id, oh.robot_id) AND r.deleted_at IS NULL
+           JOIN products p ON p.id = r.product_id
+           GROUP BY 1, 2`,
+          gw.params,
+        )
+      ).rows;
+      // Every hour of the period, empty ones included.
+      const byHour = new Map<string, FleetHourlyDto['hours'][number]>();
+      const first = new Date(Math.floor((start.getTime() + 19_800_000) / 3_600_000) * 3_600_000 - 19_800_000);
+      for (let t = first.getTime(); t < end.getTime(); t += 3_600_000) {
+        const key = new Date(t + 19_800_000).toISOString().slice(0, 13);
+        byHour.set(key, { hour: `${key}:00:00+05:30`, by_category: { ugv: { driven_m: 0, moving_s: 0 }, uav: { driven_m: 0, moving_s: 0 } } });
+      }
+      for (const r of rows) {
+        const row = byHour.get(r.h);
+        if (row) row.by_category[r.category] = { driven_m: Math.round(r.driven_m), moving_s: Math.round(r.moving_s) };
+      }
+      return { from: start.toISOString(), to: end.toISOString(), hours: [...byHour.values()] };
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
     path: '/reports/fleet',
     summary: `Client dashboard: missions and distance driven per robot and per IST day over [from, to] (at most ${MAX_DAYS} days)`,
     tag,
@@ -361,8 +434,8 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     if (end.getTime() - start.getTime() > MAX_DAYS * 86_400_000) throw badRequest(`at most ${MAX_DAYS} days at a time`);
     const rw = app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'r.robot_id').add('r.deleted_at IS NULL');
     const robotRows = (
-      await db.query<{ robot_id: string; product_name: string; status: RobotStatus; last_seen_at: Date | null; battery_pct: number | null; current_mission_name: string | null }>(
-        `SELECT r.robot_id, p.name AS product_name, s.status, ls.last_seen_at, ls.battery_pct,
+      await db.query<{ robot_id: string; product_name: string; category: RobotCategory; status: RobotStatus; last_seen_at: Date | null; battery_pct: number | null; current_mission_name: string | null }>(
+        `SELECT r.robot_id, p.name AS product_name, p.category, s.status, ls.last_seen_at, ls.battery_pct,
                 (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name
          FROM robots r JOIN products p ON p.id = r.product_id JOIN v_robot_status s ON s.robot_id = r.robot_id
          LEFT JOIN live_state ls ON ls.robot_id = r.robot_id ${rw.toSql()} ORDER BY r.robot_id`,
@@ -380,7 +453,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
     const daily = new Map<string, FleetReportDto['daily'][number]>();
     for (let t = start.getTime(); t < end.getTime(); t += 86_400_000) {
       const d = istDate(new Date(t));
-      daily.set(d, { date: d, missions: 0, completed: 0, aborted: 0, failed: 0, distance_m: 0, driven_m: 0 });
+      daily.set(d, { date: d, missions: 0, completed: 0, aborted: 0, failed: 0, distance_m: 0, driven_m: 0, by_category: { ugv: { driven_m: 0, moving_s: 0 }, uav: { driven_m: 0, moving_s: 0 } } });
     }
     for (const r of perDay) {
       const row = daily.get(r.d as string);
@@ -389,20 +462,39 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
       Object.assign(row, { missions: st.total, completed: st.completed, aborted: st.aborted, failed: st.failed, distance_m: st.distance_m });
     }
 
+    // Arnobot staff see every robot's whole history: read the daily rollup in one query (fast for any fleet size).
+    // Customers see only their ownership periods, so their (few) robots are computed exactly from telemetry.
+    const fromRollup = app.perms.robotScope(user, 'robot.read').all;
+    const rollup = new Map<string, { date: string; odometer_m: number | null; wheel_m: number; moving_s: number }[]>();
+    if (fromRollup && robotRows.length) {
+      const rows = (
+        await db.query<{ robot_id: string; date: string; odometer_m: number | null; wheel_m: number; moving_s: number }>(
+          `SELECT robot_id, day::text AS date, odometer_m, wheel_m, moving_s FROM robot_daily_stats
+           WHERE robot_id = ANY($1) AND day >= $2::date AND day <= $3::date`,
+          [robotRows.map((r) => r.robot_id), istDate(start), istDate(new Date(end.getTime() - 1))],
+        )
+      ).rows;
+      for (const r of rows) rollup.set(r.robot_id, [...(rollup.get(r.robot_id) ?? []), r]);
+    }
     const robotsOut: FleetReportDto['robots'] = [];
     for (const r of robotRows) {
       let driven = 0;
       let moving = 0;
-      for (const d of await fleetDistance(user, r.robot_id, start, end)) {
+      for (const d of fromRollup ? (rollup.get(r.robot_id) ?? []) : await fleetDistance(user, r.robot_id, start, end)) {
         const m = d.odometer_m ?? d.wheel_m;
         driven += m;
         moving += d.moving_s;
         const row = daily.get(d.date);
-        if (row) row.driven_m += m;
+        if (row) {
+          row.driven_m += m;
+          row.by_category[r.category].driven_m += m;
+          row.by_category[r.category].moving_s += d.moving_s;
+        }
       }
       robotsOut.push({
         robot_id: r.robot_id,
         product_name: r.product_name,
+        category: r.category,
         status: r.status,
         last_seen_at: iso(r.last_seen_at),
         battery_pct: r.battery_pct,
