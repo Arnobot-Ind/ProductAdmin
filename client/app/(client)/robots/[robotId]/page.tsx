@@ -20,6 +20,7 @@ import { useFeature } from '@/lib/auth';
 import { fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { BesideBack } from '@/components/ui/back-button';
+import { Band, BandFact, BandMeter } from '@/components/ui/band';
 
 // Leaflet is client-only.
 const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
@@ -38,7 +39,6 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
-const pct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${Math.round(v)} %`);
 
 /**
  * Client view of one robot: Overview (live, location, mission stats, software), Missions, Reports (calendar: mission
@@ -88,12 +88,20 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
           </div>
         </BesideBack>
         {/* The four things people check first, as large tiles. */}
-        <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Fact label="Model">{robot.product_name}</Fact>
-          <Fact label="Battery">{pct(live.data?.battery.pct ?? robot.battery_pct)}</Fact>
-          <Fact label="Last seen">{robot.last_seen_at ? fmtRelative(robot.last_seen_at) : 'Never'}</Fact>
-          <Fact label="Current mission">{robot.current_mission_id ? (robot.current_mission_name ?? robot.current_mission_id) : 'None'}</Fact>
-        </dl>
+        {/* The four things people check first, on the brand band. */}
+        <Band label={`${name} summary`}>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-5 p-5 sm:p-6 lg:grid-cols-4">
+            <BandFact label="Model">{robot.product_name}</BandFact>
+            <div className="min-w-0">
+              <dt className="text-base text-muted">Battery</dt>
+              <dd className="mt-2">
+                <BandMeter pct={live.data?.battery.pct ?? robot.battery_pct} />
+              </dd>
+            </div>
+            <BandFact label="Last seen">{robot.last_seen_at ? fmtRelative(robot.last_seen_at) : 'Never'}</BandFact>
+            <BandFact label="Current mission">{robot.current_mission_id ? (robot.current_mission_name ?? robot.current_mission_id) : 'None'}</BandFact>
+          </dl>
+        </Band>
       </header>
 
       <div>
@@ -132,15 +140,6 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
           {tab === 'events' && <ClientEvents robotId={robot.robot_id} />}
         </TabPanel>
       </div>
-    </div>
-  );
-}
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="mt-1 truncate text-xl font-semibold">{children}</dd>
     </div>
   );
 }

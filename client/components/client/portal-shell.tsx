@@ -48,15 +48,15 @@ export function PortalShell({ children }: { children: ReactNode }) {
   const { signOut, signingOut } = useSignOut();
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg">
+    <div className="flex min-h-dvh flex-col">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2">
         Skip to content
       </a>
-      <header className="app-bar sticky top-0 z-40 border-b border-border bg-surface shadow-md">
+      <header className="sticky top-0 z-40 border-b border-border bg-surface shadow-sm">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
           {/* Brand + organization */}
           <Link href="/" className="flex min-w-0 shrink-0 items-center gap-3" aria-label={`${me.organization.name} dashboard`}>
-            <BrandMark compact onDark />
+            <BrandMark compact />
             <span className="hidden h-8 w-px bg-border sm:block" aria-hidden />
             <span className="hidden min-w-0 flex-col leading-tight sm:flex">
               <span className="max-w-[13rem] truncate text-sm font-semibold text-fg" title={me.organization.name}>
