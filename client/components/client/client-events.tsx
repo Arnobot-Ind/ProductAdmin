@@ -28,7 +28,7 @@ export function ClientEvents({ robotId, robots }: { robotId?: string; robots?: R
     queryKey: ['portal', 'events', robotId ?? robot, type, severity, page],
     queryFn: () => api.get<Paginated<ClientEventDto>>(path, { robot: robotId ? undefined : robot, type, severity, page, limit: LIMIT }),
     placeholderData: keepPreviousData,
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
   });
   const filter = <T,>(set: (v: T) => void) => (v: T) => {
     set(v);

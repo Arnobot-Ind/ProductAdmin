@@ -47,7 +47,7 @@ export default function PortalDashboardPage() {
     queryKey: ['portal', 'fleet', range.from, range.to],
     queryFn: () => api.get<FleetReportDto>('/reports/fleet', range),
     placeholderData: keepPreviousData,
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
   });
 
   return (
