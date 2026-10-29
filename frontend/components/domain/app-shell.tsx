@@ -134,12 +134,13 @@ const PAGE_WIDTHS: [prefix: string, cls: string][] = [
   ['/admin/software', 'max-w-[1760px]'],
   ['/ingest', 'max-w-[1760px]'],
   ['/releases', 'max-w-[1760px]'],
+  // The fleet map uses the whole screen
+  ['/overview/map', 'max-w-none'],
   // Tables, players, charts and maps
   ['/robots', 'max-w-screen-2xl'],
   ['/downloads', 'max-w-screen-2xl'],
   ['/products/', 'max-w-screen-2xl'],
   ['/videos', 'max-w-screen-2xl'],
-  ['/overview/map', 'max-w-screen-2xl'],
   ['/overview/missions', 'max-w-screen-2xl'],
   ['/overview/events', 'max-w-screen-2xl'],
 ];

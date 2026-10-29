@@ -25,12 +25,12 @@ import { useLivePoll } from '@/lib/realtime';
 export function useFleetReport(days = 30) {
   const from = istDay(days - 1);
   const to = istDay();
-  return useQuery({ queryKey: ['fleet-report', from, to], queryFn: () => api.get<FleetReportDto>('/reports/fleet', { from, to }), staleTime: 60_000, refetchInterval: 120_000 });
+  return useQuery({ queryKey: ['fleet-report', from, to], queryFn: () => api.get<FleetReportDto>('/reports/fleet', { from, to }), staleTime: 300_000, refetchInterval: 600_000 });
 }
 
 export function useDashboard() {
   const poll = useLivePoll();
-  return useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 30_000 });
+  return useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 300_000 });
 }
 
 /** Page frame for every dashboard page: title, then the page's one topic. The pages are listed in the 9-dot menu. */
@@ -152,7 +152,7 @@ export function FleetMap({ d, className }: { d: DashboardDto; className?: string
     >
       {placed.length ? (
         <>
-          <GeoMap points={points} className={cn('h-[calc(100dvh-22rem)] min-h-96', className)} ariaLabel={`Fleet map: ${placed.length} robots with a known position`} onPointClick={(id) => router.push(`/robots/${id}`)} />
+          <GeoMap points={points} className={className ?? 'h-[calc(100dvh-22rem)] min-h-96'} ariaLabel={`Fleet map: ${placed.length} robots with a known position`} onPointClick={(id) => router.push(`/robots/${id}`)} />
           <p className="mt-3 text-sm text-muted">
             Last reported position of each robot. Hover a dot for details, click to open the robot.
             {unplaced > 0 && ` ${unplaced} robot${unplaced === 1 ? ' has' : 's have'} not reported a position yet.`}

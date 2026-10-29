@@ -21,6 +21,7 @@ import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 import { ConnectivityTab } from './_tabs/connectivity';
 import { DetectionsTab } from '@/components/domain/detections';
+import { ActivityCalendar, CalendarLayout, type ActivityMetric } from '@/components/domain/activity-calendar';
 import { IngestClientsPanel } from '@/components/domain/ingest-clients';
 import { CredentialsTab } from './_tabs/credentials';
 import { DispatchTab } from './_tabs/dispatch';
@@ -41,6 +42,10 @@ import { DataActivityBadge } from '@/components/archive/badges';
  * Status = what it is doing now; Recordings = what it captured; Hardware / Software = how it is built;
  * Records = paperwork and history; Logs = everything above in one timeline.
  */
+/** Which count the activity calendar shades for each Recordings tab (and Logs), and back. */
+const TAB_METRIC: Record<string, ActivityMetric> = { videos: 'recordings', detections: 'detections', missions: 'missions', events: 'events', log: 'log' };
+const METRIC_TAB: Record<ActivityMetric, string> = { recordings: 'videos', detections: 'detections', missions: 'missions', events: 'events', log: 'log' };
+
 const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; perm?: string }[] }[] = [
   {
     id: 'status',
@@ -116,6 +121,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const tab = sections.some((sec) => sec.tabs.some((t) => t.id === requested)) ? requested : 'overview';
   const section = sections.find((sec) => sec.tabs.some((t) => t.id === tab))!;
   const openTab = (id: string) => setParams({ tab: id === 'overview' ? null : id });
+  /** The activity calendar's day (IST), shared by the Recordings tabs and kept in the URL. */
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? params.get('day') : null;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const qc = useQueryClient();
@@ -142,7 +149,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
       </nav>
 
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-80">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-mono text-3xl font-bold">{robot.robot_id}</h1>
             <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
@@ -230,17 +237,35 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'overview' && <OverviewTab robot={robot} />}
         {tab === 'location' && <LocationTab robot={robot} />}
         {tab === 'health' && <HealthTab robot={robot} />}
-        {tab === 'videos' && <VideosTab robotId={robot.robot_id} />}
-        {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="staff" />}
-        {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
-        {tab === 'missions' && (
-          <div className="flex flex-col gap-6">
-            <MissionStatsCard robot={robot} />
-            <RobotMonthCharts robotId={robot.robot_id} />
-            <RobotMissionsTab robotId={robot.robot_id} />
-          </div>
+        {(section.id === 'recordings' || tab === 'log') && (
+          <CalendarLayout
+            calendar={
+              <ActivityCalendar
+                robotId={robot.robot_id}
+                metric={TAB_METRIC[tab] ?? 'recordings'}
+                day={day}
+                onDay={(d) => setParams({ day: d })}
+                onOpen={(m) => openTab(METRIC_TAB[m])}
+              />
+            }
+          >
+            {tab === 'videos' && <VideosTab robotId={robot.robot_id} day={day} />}
+            {tab === 'detections' && <DetectionsTab robotId={robot.robot_id} audience="staff" day={day} />}
+            {tab === 'missions' &&
+              (day ? (
+                <RobotMissionsTab robotId={robot.robot_id} day={day} />
+              ) : (
+                <div className="flex flex-col gap-6">
+                  <MissionStatsCard robot={robot} />
+                  <RobotMonthCharts robotId={robot.robot_id} />
+                  <RobotMissionsTab robotId={robot.robot_id} />
+                </div>
+              ))}
+            {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} day={day} />}
+            {tab === 'log' && <RobotLogTab robotId={robot.robot_id} day={day} onClearDay={() => setParams({ day: null })} />}
+          </CalendarLayout>
         )}
-        {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} />}
+        {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
         {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
@@ -250,7 +275,6 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
         {tab === 'maintenance' && <MaintenanceTab robotId={robot.robot_id} />}
         {tab === 'ownership' && <OwnershipTab robotId={robot.robot_id} />}
-        {tab === 'log' && <RobotLogTab robotId={robot.robot_id} />}
       </TabPanel>
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />

@@ -22,6 +22,8 @@ export const missionHref = (m: { robot_id: string; mission_id: string }) =>
 
 export interface MissionFilters {
   result?: string;
+  from?: string;
+  to?: string;
   page: number;
 }
 
@@ -34,6 +36,8 @@ export function MissionsTable({ filters, onFilters, robotId }: { filters: Missio
     queryFn: () =>
       api.get<Paginated<MissionListItemDto>>(`/robots/${robotId}/missions`, {
         result: filters.result,
+        from: filters.from,
+        to: filters.to,
         page: filters.page,
         limit: LIMIT,
       }),

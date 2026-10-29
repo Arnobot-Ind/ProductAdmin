@@ -10,9 +10,10 @@ export default function FleetMapPage() {
   return (
     <DashboardPage title="Fleet map">
       {(d) => (
-        <div className="flex flex-col gap-6">
-          <FleetMap d={d} />
-          <Card title="Battery by robot" actions={<span className="text-sm text-muted">Last reported level</span>}>
+        // The map is the page: full width and most of the screen height; battery levels sit beside it on wide screens.
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
+          <FleetMap d={d} className="h-[calc(100dvh-19rem)] min-h-[28rem]" />
+          <Card title="Battery by robot" actions={<span className="text-sm text-muted">Last reported</span>}>
             <RankBars
               rows={d.fleet.filter((r) => r.battery_pct !== null).map((r) => ({ key: r.robot_id, label: r.robot_id, value: r.battery_pct!, display: `${Math.round(r.battery_pct!)} %` }))}
               empty="No robot has reported a battery level yet."

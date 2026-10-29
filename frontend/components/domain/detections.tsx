@@ -63,7 +63,8 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)} 
 const camLabel = (c: string) => c.replace(/^cam(\d+)$/, 'Camera $1');
 const title = (d: DetectionItemDto) => (d.kind === 'human' ? (d.count > 1 ? `${d.count} people` : 'Person') : d.label ? d.label[0].toUpperCase() + d.label.slice(1) : KIND_META[d.kind].label);
 
-export function DetectionsTab({ robotId, audience }: { robotId: string; audience: DetectionAudience }) {
+/** `day` (IST, YYYY-MM-DD, from the activity calendar) replaces the period filter. */
+export function DetectionsTab({ robotId, audience, day }: { robotId: string; audience: DetectionAudience; day?: string | null }) {
   const [period, setPeriod] = useState<PeriodId>('all');
   const [from, setFrom] = useState(istDay(6));
   const [to, setTo] = useState(istDay());
@@ -71,18 +72,18 @@ export function DetectionsTab({ robotId, audience }: { robotId: string; audience
   const [status, setStatus] = useState<'confirmed' | 'rejected' | 'all'>('confirmed');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<number | null>(null);
-  const range = periodRange(period, from, to);
+  const range = day ? { from: dayStart(day), to: dayAfter(day) } : periodRange(period, from, to);
   const path = audience === 'client' ? `/robots/${robotId}/client/detections` : `/robots/${robotId}/detections`;
 
   // Any filter change starts again on page 1.
-  useEffect(() => setPage(1), [period, from, to, camera, status]);
+  useEffect(() => setPage(1), [period, from, to, camera, status, day]);
 
   const q = useQuery({
     queryKey: ['robot', robotId, 'detections', audience, range.from, range.to, camera, status, page],
     queryFn: () =>
       api.get<DetectionListDto>(path, { ...range, kind: SHOWN_KIND, camera: camera || undefined, status: audience === 'staff' ? status : undefined, page, limit: PAGE_SIZE }),
     placeholderData: keepPreviousData,
-    enabled: period !== 'custom' || (!!from && !!to && from <= to),
+    enabled: !!day || period !== 'custom' || (!!from && !!to && from <= to),
   });
   const data = q.data;
   const people = data?.total ?? 0;
@@ -99,6 +100,7 @@ export function DetectionsTab({ robotId, audience }: { robotId: string; audience
         actions={data?.available && <span className="text-xs text-muted">Data from {fmtDay(data.available.first)} to {fmtDay(data.available.last)} · times IST</span>}
       >
         <div className="flex flex-wrap items-end gap-3">
+          {!day && (
           <Field label="Period" className="w-full sm:w-48">
             <Select value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)}>
               {PERIODS.map((p) => (
@@ -108,7 +110,8 @@ export function DetectionsTab({ robotId, audience }: { robotId: string; audience
               ))}
             </Select>
           </Field>
-          {period === 'custom' && (
+          )}
+          {!day && period === 'custom' && (
             <>
               <Field label="From" className="w-[calc(50%-0.375rem)] sm:w-40">
                 <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
@@ -141,7 +144,7 @@ export function DetectionsTab({ robotId, audience }: { robotId: string; audience
 
         {data && (
           <p className="mt-4 text-sm text-muted" aria-live="polite">
-            <span className="font-semibold text-fg tabular-nums">{people.toLocaleString('en-IN')}</span> {people === 1 ? 'detection' : 'detections'} of people in this period
+            <span className="font-semibold text-fg tabular-nums">{people.toLocaleString('en-IN')}</span> {people === 1 ? 'detection' : 'detections'} of people {day ? 'on this day' : 'in this period'}
           </p>
         )}
       </Card>
@@ -160,7 +163,7 @@ export function DetectionsTab({ robotId, audience }: { robotId: string; audience
               : 'This robot has not reported any people detections yet.'
           }
           action={
-            data?.available && (period !== 'all' || camera) ? (
+            !day && data?.available && (period !== 'all' || camera) ? (
               <Button
                 size="sm"
                 onClick={() => {
