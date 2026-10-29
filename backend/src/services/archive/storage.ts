@@ -125,6 +125,15 @@ export class ArchiveStorage {
     }
   }
 
+  /** Short-lived signed link a browser downloads the object from directly (bucket → browser, not through this server). */
+  async presignGet(key: string, expiresIn: number, downloadName?: string): Promise<string> {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.s.bucket, Key: key, ResponseContentDisposition: downloadName ? `attachment; filename="${downloadName.replace(/[^\w.-]/g, '_')}"` : undefined }),
+      { expiresIn },
+    );
+  }
+
   /** Short-lived URL ffmpeg reads the object from (MP4 export streams from S3, no local copy of the source). */
   async ffmpegInput(key: string): Promise<string> {
     return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.s.bucket, Key: key }), { expiresIn: 3600 });

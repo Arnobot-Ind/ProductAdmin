@@ -1,3 +1,4 @@
+import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
@@ -52,6 +53,14 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
     // JSON API only: lock everything down. The admin panel is served by Next.js, not from here.
     contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
     crossOriginResourcePolicy: { policy: 'same-site' },
+  });
+  // gzip JSON / text responses (lists and reports shrink ~5-10x: less egress, less proxying on Amplify).
+  // Video, images and other binary files are already compressed: they pass through untouched.
+  await app.register(compress, {
+    global: true,
+    threshold: 1024,
+    encodings: ['gzip', 'deflate'],
+    customTypes: /^(application\/(json|[\w.+-]+\+json|vnd\.apple\.mpegurl)|text\/)/,
   });
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: ctx.cfg.maxUploadBytes } });

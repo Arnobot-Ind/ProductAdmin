@@ -49,6 +49,27 @@ Robots keep working through the restart (~10 s): cloud_sync and fleet_sync queue
 undone, restore the pre-deploy dump (`pg_restore --clean --no-owner --no-acl`, skipping the `EXTENSION`
 entries, which the app role cannot own).
 
+## Video straight from the bucket (less server egress)
+
+With `ARCHIVE_DIRECT_PLAYBACK=true` in `backend/backend/.env`, browsers load recordings from S3 through short-lived
+signed links; the server only checks access (and audits downloads), so video no longer passes through this server
+or the admin panel's host. Turn it on only after the bucket allows the panel's origins
+(S3 → `arnobot-saibya-data` → Permissions → Cross-origin resource sharing (CORS)):
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://pms.arnobot.in", "http://localhost:3000"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["Range"],
+    "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Then set the variable and `pm2 restart productadmin-backend --update-env`. To go back, set it to `false` and restart.
+
 ## Good to know
 
 - Sign-in lockout (5 failures → 15 min) is kept in memory: `pm2 restart productadmin-backend` clears it.
