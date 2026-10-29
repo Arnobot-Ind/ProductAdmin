@@ -1,10 +1,10 @@
-import type { AuditEntryDto, Paginated } from '../shared';
+import type { AuditCalendarDayDto, AuditEntryDto, Paginated } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { platform, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
-import { isoDateTime, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
+import { istMonthBounds, isoDateTime, monthSchema, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
 
 const AUDIT_SELECT = `
 SELECT a.id::text, a.at, a.actor_id, a.actor_email, u.name AS actor_name, a.action, a.outcome, a.target_type, a.target_id,
@@ -64,6 +64,26 @@ export function auditRoutes(f: FastifyInstance, app: AppContext): void {
     query: z.object({ ...filterQuery, ...pageQuery }),
     handler: ({ query }): Promise<Paginated<AuditEntryDto>> =>
       paginate(db, AUDIT_SELECT, buildWhere(query), 'a.at DESC, a.id DESC', query.page, query.limit, toEntry) as Promise<Paginated<AuditEntryDto>>,
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/audit/calendar',
+    summary: 'Audit entries counted per IST day of a month (same filters as the list, except from / to)',
+    tag,
+    access: read,
+    query: z.object({ ...filterQuery, month: monthSchema }),
+    handler: async ({ query }): Promise<AuditCalendarDayDto[]> => {
+      const { from, to } = istMonthBounds(query.month);
+      const w = buildWhere({ ...query, from, to });
+      return (
+        await db.query<AuditCalendarDayDto>(
+          `SELECT (a.at AT TIME ZONE 'Asia/Kolkata')::date::text AS date, count(*)::int AS total, count(*) FILTER (WHERE a.outcome <> 'success')::int AS problems
+           FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id ${w.toSql()} GROUP BY 1 ORDER BY 1`,
+          w.params,
+        )
+      ).rows;
+    },
   });
 
   route(f, app, {

@@ -6,13 +6,13 @@ import type { AppContext } from '../context';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, route } from '../lib/route';
 import { iso } from '../lib/sql';
-import { assertUuid, optionalBool, optionalText, uuidSchema } from '../lib/validation';
+import { assertUuid, commitIdField, optionalBool, optionalText, repoUrlField, uuidSchema } from '../lib/validation';
 import { FILE_COLUMNS, toFileDto, type FileRow } from '../services/files.service';
 
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$/;
 const SELECT = `
 SELECT r.id, r.product_id, p.code AS product_code, r.component, r.version, r.sha256, r.signature, r.signature_algo,
-       r.requires_component, r.requires_min_version, r.notes, r.created_at, u.name AS created_by_name, r.deleted_at,
+       r.requires_component, r.requires_min_version, r.notes, r.repo_url, r.commit_id, r.created_at, u.name AS created_by_name, r.deleted_at,
        (SELECT row_to_json(x) FROM (SELECT ${FILE_COLUMNS} FROM files f WHERE f.id = r.file_id) x) AS file
 FROM releases r JOIN products p ON p.id = r.product_id LEFT JOIN users u ON u.id = r.created_by`;
 const toRelease = (r: Record<string, unknown>): ReleaseDto => ({
@@ -33,6 +33,8 @@ const createFields = z
     requires_component: z.enum(RELEASE_COMPONENTS).optional().or(z.literal('').transform(() => undefined)),
     requires_min_version: optionalText(50).refine((v) => v === undefined || SEMVER.test(v), 'requires_min_version must be semver'),
     notes: optionalText(4000),
+    repo_url: repoUrlField.optional(),
+    commit_id: commitIdField.optional(),
   })
   .refine((v) => !v.requires_component === !v.requires_min_version, { message: 'requires_component and requires_min_version go together' })
   .refine((v) => !v.requires_component || v.requires_component !== v.component, { message: 'requirement must be on the OTHER component' });
@@ -97,8 +99,8 @@ export function releaseRoutes(f: FastifyInstance, app: AppContext): void {
         if (!sha256) throw badRequest('upload the package file, or give its sha256');
         const id = (
           await tx.query<{ id: string }>(
-            `INSERT INTO releases (product_id, component, version, file_id, sha256, signature, signature_algo, requires_component, requires_min_version, notes, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+            `INSERT INTO releases (product_id, component, version, file_id, sha256, signature, signature_algo, requires_component, requires_min_version, notes, repo_url, commit_id, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
             [
               body.product_id,
               body.component,
@@ -110,6 +112,8 @@ export function releaseRoutes(f: FastifyInstance, app: AppContext): void {
               body.requires_component ?? null,
               body.requires_min_version ?? null,
               body.notes ?? null,
+              body.repo_url ?? null,
+              body.commit_id ?? null,
               user.id,
             ],
           )

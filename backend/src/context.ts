@@ -4,6 +4,7 @@ import { ArchiveService } from './services/archive/archive.service';
 import { AuditService } from './services/audit.service';
 import { AuthService } from './services/auth.service';
 import { DocumentsService } from './services/documents.service';
+import { DailyStatsService } from './services/daily-stats';
 import { FilesService } from './services/files.service';
 import { PermissionsService } from './services/permissions.service';
 import { RobotsService } from './services/robots.service';
@@ -32,6 +33,8 @@ export interface AppContext {
   documents: DocumentsService;
   /** Video / sensor archive: its own object store + Postgres index. */
   archive: ArchiveService;
+  /** Per-robot, per-day distance / moving / online rollup for fleet-wide reports (0025). */
+  dailyStats: DailyStatsService;
   runtime: RuntimeInfo;
 }
 
@@ -49,6 +52,7 @@ export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUr
     robots: new RobotsService(db),
     documents: new DocumentsService(db),
     archive: new ArchiveService(db, cfg.archive),
+    dailyStats: new DailyStatsService(db),
     runtime: { startedAt: new Date(), mqttConnected: () => null },
   };
 }

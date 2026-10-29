@@ -1,9 +1,9 @@
-import { CLIENT_FEATURES, type DashboardDto, type RobotStatus } from '../shared';
+import { CLIENT_FEATURES, ROBOT_CATEGORIES, type CategorySummaryDto, type DashboardDto, type RobotCategory, type RobotStatus } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context';
 import { anyScope, route } from '../lib/route';
 import { iso, Where } from '../lib/sql';
-import { EVENT_SELECT, toEvent } from './events';
+import { activeFaults, EVENT_SELECT, toEvent } from './events';
 
 /** Fleet overview. Every figure is limited to robots the user may read. */
 export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
@@ -39,12 +39,13 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
         faults: string[] | null;
         warranty_end: string | null;
         product_name: string;
+        category: RobotCategory;
         lat: number | null;
         lon: number | null;
         battery_pct: number | null;
         last_seen_at: Date | null;
       }>(
-        `SELECT r.robot_id, s.status, p.name AS product_name, ls.lat, ls.lon, ls.battery_pct, ls.last_seen_at,
+        `SELECT r.robot_id, s.status, p.name AS product_name, p.category, ls.lat, ls.lon, ls.battery_pct, ls.last_seen_at,
                 array_remove(ARRAY[
                   CASE WHEN ls.health_controller = 'fault' THEN 'controller' END,
                   CASE WHEN ls.health_lidar = 'fault' THEN 'lidar' END,
@@ -63,8 +64,9 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
 
       const ew = scopedData('e.robot_id', 'e.ts', (w) => w.add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'));
       const unacked = (
-        await db.query<{ total: number; critical: number }>(
-          `SELECT count(*)::int AS total, count(*) FILTER (WHERE e.severity = 'critical')::int AS critical FROM events e ${ew.toSql()}`,
+        await db.query<{ total: number; critical: number; warning: number }>(
+          `SELECT count(*)::int AS total, count(*) FILTER (WHERE e.severity = 'critical')::int AS critical,
+                  count(*) FILTER (WHERE e.severity = 'warning')::int AS warning FROM events e ${ew.toSql()}`,
           ew.params,
         )
       ).rows[0];
@@ -78,6 +80,58 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
           mw.params,
         )
       ).rows[0];
+
+      // All missions ever, by result, and per category (with distance and time on missions).
+      const aw = scopedData('m.robot_id', 'coalesce(m.started_at, m.created_at)');
+      const perCategory = (
+        await db.query<{ category: RobotCategory; total: number; completed: number; failed: number; aborted: number; in_progress: number; distance_m: number; duration_s: number }>(
+          `SELECT p.category, count(*)::int AS total,
+                  count(*) FILTER (WHERE m.result = 'completed')::int AS completed, count(*) FILTER (WHERE m.result = 'failed')::int AS failed,
+                  count(*) FILTER (WHERE m.result = 'aborted')::int AS aborted, count(*) FILTER (WHERE m.result = 'in_progress')::int AS in_progress,
+                  coalesce(sum(m.distance_m), 0)::float8 AS distance_m, coalesce(sum(m.duration_s), 0)::float8 AS duration_s
+           FROM missions m JOIN robots r ON r.robot_id = m.robot_id AND r.deleted_at IS NULL JOIN products p ON p.id = r.product_id
+           ${aw.toSql()} GROUP BY p.category`,
+          aw.params,
+        )
+      ).rows;
+
+      const faults = await activeFaults(db, scopedData('e.robot_id', 'e.ts'));
+      const cew = scopedData('e.robot_id', 'e.ts', (w) =>
+        w.add("e.severity = 'critical'").add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'),
+      );
+      const criticalEvents = await db.query(`${EVENT_SELECT} ${cew.toSql()} ORDER BY e.ts DESC LIMIT 20`, cew.params);
+      const gw = scopedData('e.robot_id', 'e.ts', (w) =>
+        w.add("e.severity = 'critical'").add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'),
+      );
+      const groupRows = (
+        await db.query(
+          `SELECT g.n, ev.* FROM (
+             SELECT DISTINCT ON (e.robot_id, coalesce(e.code, e.message)) e.id, count(*) OVER (PARTITION BY e.robot_id, coalesce(e.code, e.message))::int AS n
+             FROM events e ${gw.toSql()} ORDER BY e.robot_id, coalesce(e.code, e.message), e.ts DESC
+           ) g JOIN (${EVENT_SELECT}) ev ON ev.id = g.id ORDER BY ev.ts DESC LIMIT 20`,
+          gw.params,
+        )
+      ).rows;
+
+      const faulty = new Set([...robots.rows.filter((r) => r.faults?.length).map((r) => r.robot_id), ...faults.filter((x) => x.severity === 'critical').map((x) => x.robot_id)]);
+      const byCategory = Object.fromEntries(
+        ROBOT_CATEGORIES.map((c): [RobotCategory, CategorySummaryDto] => {
+          const rs = robots.rows.filter((r) => r.category === c);
+          const m = perCategory.find((x) => x.category === c);
+          return [
+            c,
+            {
+              robots: rs.length,
+              by_status: { online: rs.filter((r) => r.status === 'online').length, stale: rs.filter((r) => r.status === 'stale').length, offline: rs.filter((r) => r.status === 'offline').length },
+              with_faults: rs.filter((r) => faulty.has(r.robot_id)).length,
+              missions: { total: m?.total ?? 0, completed: m?.completed ?? 0, aborted: m?.aborted ?? 0, failed: m?.failed ?? 0, in_progress: m?.in_progress ?? 0 },
+              mission_distance_m: m?.distance_m ?? 0,
+              mission_duration_s: m?.duration_s ?? 0,
+            },
+          ];
+        }),
+      ) as Record<RobotCategory, CategorySummaryDto>;
+      const sum = (k: 'completed' | 'failed' | 'aborted' | 'in_progress') => perCategory.reduce((n, x) => n + x[k], 0);
 
       const rmw = scopedData('m.robot_id', 'coalesce(m.started_at, m.created_at)');
       const recentMissions = await db.query(
@@ -95,9 +149,20 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
       // Customer users see robot positions only with the location feature (0021).
       const hideLocation = !!user.client && !user.client.features.has(CLIENT_FEATURES.robotsLocation);
       return {
+        generated_at: new Date().toISOString(),
         robots_total: robots.rows.length,
         by_status: byStatus,
+        by_category: byCategory,
         unacked_critical_events: unacked.critical,
+        unacked_warning_events: unacked.warning,
+        active_faults: faults,
+        critical_events: criticalEvents.rows.map(toEvent),
+        critical_event_groups: groupRows.map((r) => {
+          const { n, ...e } = r;
+          const latest = toEvent(e);
+          return { robot_id: latest.robot_id, code: latest.code, count: n as number, latest };
+        }),
+        missions_total: { completed: sum('completed'), failed: sum('failed'), aborted: sum('aborted'), in_progress: sum('in_progress') },
         unacked_events: unacked.total,
         robots_with_fault: robots.rows.filter((r) => r.faults?.length).map((r) => ({ robot_id: r.robot_id, devices: r.faults! })),
         missions_last_7d: m7 as DashboardDto['missions_last_7d'],
@@ -108,6 +173,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
         fleet: robots.rows.map((r) => ({
           robot_id: r.robot_id,
           product_name: r.product_name,
+          category: r.category,
           status: r.status,
           lat: hideLocation ? null : r.lat,
           lon: hideLocation ? null : r.lon,

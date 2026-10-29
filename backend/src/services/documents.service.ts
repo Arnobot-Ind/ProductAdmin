@@ -11,22 +11,28 @@ interface DocRow {
   product_id: string | null;
   hardware_revision_id: string | null;
   robot_id: string | null;
+  attachment_id: string | null;
+  revision_attachment_id: string | null;
   source_label: string;
   created_at: Date;
   deleted_at: Date | null;
 }
 
 const DOC_SELECT = `
-SELECT d.id, d.doc_type, d.title, d.product_id, d.hardware_revision_id, d.robot_id, d.created_at, d.deleted_at,
-       coalesce(p.name, rp.name || ' ' || hr.name, d.robot_id) AS source_label
+SELECT d.id, d.doc_type, d.title, d.product_id, d.hardware_revision_id, d.robot_id, d.attachment_id, hr.attachment_id AS revision_attachment_id,
+       d.created_at, d.deleted_at,
+       coalesce(p.name, a.name, coalesce(rp.name, ra.name) || ' ' || hr.name, d.robot_id) AS source_label
 FROM documents d
 LEFT JOIN products p ON p.id = d.product_id
+LEFT JOIN attachments a ON a.id = d.attachment_id
 LEFT JOIN hardware_revisions hr ON hr.id = d.hardware_revision_id
-LEFT JOIN products rp ON rp.id = hr.product_id`;
+LEFT JOIN products rp ON rp.id = hr.product_id
+LEFT JOIN attachments ra ON ra.id = hr.attachment_id`;
 
 /**
  * Spec §4 / §3 row 7: documents live once on the product or hardware revision; a robot may also
- * have its own (one-off builds). Every upload is a new version; the latest is shown, older kept.
+ * have its own (one-off builds). An attachment keeps its documents the same way (on it or on one of its
+ * revisions). Every upload is a new version; the latest is shown, older kept.
  */
 export class DocumentsService {
   constructor(private readonly db: Db) {}
@@ -60,10 +66,11 @@ export class DocumentsService {
         id: r.id,
         doc_type: r.doc_type,
         title: r.title,
-        source: r.robot_id ? 'robot' : r.hardware_revision_id ? 'revision' : 'product',
+        source: r.robot_id ? 'robot' : r.attachment_id || r.revision_attachment_id ? 'attachment' : r.hardware_revision_id ? 'revision' : 'product',
         product_id: r.product_id,
         hardware_revision_id: r.hardware_revision_id,
         robot_id: r.robot_id,
+        attachment_id: r.attachment_id ?? r.revision_attachment_id,
         source_label: r.source_label,
         latest: vs[0] ?? null,
         versions: vs,
@@ -79,14 +86,16 @@ export class DocumentsService {
     return (await this.withVersions(rows, db))[0];
   }
 
-  /** Effective documents of a robot = its own ∪ its hardware revision's ∪ its product's. */
+  /** Effective documents of a robot = its own ∪ its hardware revision's ∪ its product's ∪ those of the attachments fitted on it now (and of the fitted revision). */
   async effectiveForRobot(robotId: string, db: Queryable = this.db, includeDeleted = false): Promise<DocumentDto[]> {
     const rows = await db.query<DocRow>(
       `${DOC_SELECT}
        JOIN robots r ON r.robot_id = $1
-       WHERE (d.robot_id = r.robot_id OR d.hardware_revision_id = r.hardware_revision_id OR d.product_id = r.product_id)
+       WHERE (d.robot_id = r.robot_id OR d.hardware_revision_id = r.hardware_revision_id OR d.product_id = r.product_id
+              OR d.attachment_id IN (SELECT f.attachment_id FROM robot_attachments f WHERE f.robot_id = r.robot_id AND f.removed_at IS NULL)
+              OR d.hardware_revision_id IN (SELECT f.hardware_revision_id FROM robot_attachments f WHERE f.robot_id = r.robot_id AND f.removed_at IS NULL AND f.hardware_revision_id IS NOT NULL))
          ${includeDeleted ? '' : 'AND d.deleted_at IS NULL'}
-       ORDER BY (d.robot_id IS NULL), (d.hardware_revision_id IS NULL), d.doc_type, d.title`,
+       ORDER BY (d.robot_id IS NULL), (coalesce(d.attachment_id, hr.attachment_id) IS NOT NULL), coalesce(a.name, ra.name), (d.hardware_revision_id IS NULL), d.doc_type, d.title`,
       [robotId],
     );
     return this.withVersions(rows.rows, db);
@@ -99,6 +108,17 @@ export class DocumentsService {
        WHERE (d.product_id = $1 OR hr.product_id = $1) ${includeDeleted ? '' : 'AND d.deleted_at IS NULL'}
        ORDER BY (d.hardware_revision_id IS NOT NULL), hr.name, d.doc_type, d.title`,
       [productId],
+    );
+    return this.withVersions(rows.rows, db);
+  }
+
+  /** Documents on an attachment and on all of its hardware revisions. */
+  async forAttachment(attachmentId: string, db: Queryable = this.db, includeDeleted = false): Promise<DocumentDto[]> {
+    const rows = await db.query<DocRow>(
+      `${DOC_SELECT}
+       WHERE (d.attachment_id = $1 OR hr.attachment_id = $1) ${includeDeleted ? '' : 'AND d.deleted_at IS NULL'}
+       ORDER BY (d.hardware_revision_id IS NOT NULL), hr.name, d.doc_type, d.title`,
+      [attachmentId],
     );
     return this.withVersions(rows.rows, db);
   }

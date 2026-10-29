@@ -25,6 +25,8 @@ export type AuditAction =
   | 'org.deleted'
   | 'org.restored'
   | 'robot.assigned'
+  | 'robot.note_added'
+  | 'robot.note_removed'
   | 'data.viewed'
   | 'data.downloaded'
   | 'data.deleted'

@@ -1,4 +1,5 @@
-import { EVENT_SEVERITIES, EVENT_TYPES, type EventCalendarDayDto, type EventDto, type Paginated } from '../shared';
+import { EVENT_SEVERITIES, EVENT_TYPES, type ActiveFaultDto, type EventCalendarDayDto, type EventDto, type Paginated } from '../shared';
+import type { Queryable } from '../db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
@@ -17,6 +18,43 @@ export const toEvent = (r: Record<string, unknown>): EventDto => ({
   acknowledged_at: iso(r.acknowledged_at as Date | null),
   received_at: iso(r.received_at as Date)!,
 });
+/** Which device a fault code concerns (robot and GCS codes: GIGA_NOT_CONNECTED, LIDAR_NOT_AVAILABLE, NO_GPS, BMS_FAULT …). */
+export function faultDevice(code: string): ActiveFaultDto['device'] {
+  const c = code.toUpperCase();
+  if (/LIDAR/.test(c)) return 'lidar';
+  if (/CAM|RTSP|DVR/.test(c)) return 'cameras';
+  if (/GPS|GNSS|RTK/.test(c)) return 'gps';
+  if (/BATTERY|BMS|VOLT/.test(c)) return 'battery';
+  if (/GIGA|CONTROLLER|MOTOR|ESTOP|EMERGENCY|JETSON|TEMP/.test(c)) return 'controller';
+  return 'other';
+}
+
+/**
+ * Faults and alerts still active: for each robot and code, the latest event decides. Robots send an `info`
+ * "… cleared" event when a problem ends, so the code is active while its latest event is a warning or critical.
+ * `w` carries the caller's robot / data scope on `e.robot_id` and `e.ts`.
+ */
+export async function activeFaults(db: Queryable, w: Where): Promise<ActiveFaultDto[]> {
+  w.add('e.code IS NOT NULL').add("e.type IN ('fault', 'alert')").add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)');
+  const rows = await db.query<{ id: string; robot_id: string; code: string; severity: ActiveFaultDto['severity']; message: string; ts: Date; acknowledged_at: Date | null }>(
+    `SELECT x.* FROM (
+       SELECT DISTINCT ON (e.robot_id, e.code) e.id, e.robot_id, e.code, e.severity, e.message, e.ts, e.acknowledged_at
+       FROM events e ${w.toSql()} ORDER BY e.robot_id, e.code, e.ts DESC
+     ) x WHERE x.severity <> 'info' ORDER BY (x.severity = 'critical') DESC, x.ts DESC`,
+    w.params,
+  );
+  return rows.rows.map((r) => ({
+    event_id: r.id,
+    robot_id: r.robot_id,
+    code: r.code,
+    device: faultDevice(r.code),
+    severity: r.severity,
+    message: r.message,
+    since: iso(r.ts)!,
+    acknowledged_at: iso(r.acknowledged_at),
+  }));
+}
+
 const listQuery = z.object({
   robot: robotIdSchema.optional(),
   type: z.enum(EVENT_TYPES).optional(),
@@ -73,6 +111,18 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
         w.params,
       );
       return rows.rows;
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/faults',
+    summary: "One robot's faults and alerts that are still active (latest event per code is not cleared)",
+    tag,
+    access: { can: 'robot.details', target: robotParam() },
+    handler: async ({ params, user }): Promise<ActiveFaultDto[]> => {
+      const w = app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts').add('e.robot_id = ?', params.robotId);
+      return activeFaults(db, w);
     },
   });
 
