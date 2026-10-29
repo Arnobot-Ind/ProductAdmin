@@ -6,6 +6,7 @@ import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { fmtDateTime, fmtRelative, fmtUtc } from '@/lib/format';
 import { Button } from './button';
+import { BesideBack } from './back-button';
 
 export type Tone = 'neutral' | 'ok' | 'warn' | 'fault' | 'offline' | 'accent';
 const toneClass: Record<Tone, string> = {
@@ -44,11 +45,14 @@ export function Card({ title, actions, children, className, bodyClassName }: { t
 export function PageHeader({ title, eyebrow, description, actions }: { title: ReactNode; eyebrow?: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        {eyebrow && <p className="eyebrow mb-1">{eyebrow}</p>}
+      {/* Level with the shell's Back button, never below it. */}
+      <BesideBack
+        className="min-w-0"
+        above={eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        below={description && <p className="mt-2 max-w-3xl text-base text-muted">{description}</p>}
+      >
         <h1 className="text-3xl font-bold">{title}</h1>
-        {description && <p className="mt-2 max-w-3xl text-base text-muted">{description}</p>}
-      </div>
+      </BesideBack>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );

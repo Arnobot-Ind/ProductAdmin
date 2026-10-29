@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { BrandMark } from '@/components/common/brand';
 import { useCanAnywhere, useFeature, useMe, useSignOut } from '@/lib/auth';
+import { ShellBack } from '@/components/ui/back-button';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 
@@ -176,7 +177,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
           </div>
         )}
       </header>
-      <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+      <main id="main" className="relative mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+        {/* Back under the logo (same left edge); page headings stay level with it and move right to clear it. */}
+        <ShellBack className="top-6 left-4" />
         {children}
       </main>
       <footer className="border-t border-border py-4 text-center text-xs text-muted">Arnobot Private Limited · {me.email}</footer>
