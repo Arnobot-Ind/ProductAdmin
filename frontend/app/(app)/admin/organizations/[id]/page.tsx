@@ -24,6 +24,7 @@ import { ClientCredentialsTab } from './_tabs/credentials';
 import { FeaturesTab } from './_tabs/features';
 import { ClientProfileCard } from './_tabs/profile';
 import { SoftwareTab } from './_tabs/software';
+import { BesideBack } from '@/components/ui/back-button';
 
 /** Customer organizations only: Arnobot itself keeps the single page (details, robots, users). */
 const CLIENT_TABS = [
@@ -149,13 +150,16 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <nav aria-label="Breadcrumb" className="mb-2 text-sm text-muted">
-          <Link href="/admin/organizations" className="hover:underline">
-            Organizations
-          </Link>{' '}
-          / <span aria-current="page">{org.name}</span>
-        </nav>
+      <BesideBack
+        above={
+          <nav aria-label="Breadcrumb" className="text-sm text-muted">
+            <Link href="/admin/organizations" className="hover:underline">
+              Organizations
+            </Link>{' '}
+            / <span aria-current="page">{org.name}</span>
+          </nav>
+        }
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{org.name}</h1>
@@ -181,7 +185,7 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
             )}
           </div>
         </div>
-      </div>
+      </BesideBack>
 
       {customer ? (
         <div>

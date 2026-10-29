@@ -120,7 +120,8 @@ export function AttentionList({ items, limit }: { items: AttentionItem[]; limit?
 const STATUS_COLOR = { online: '#16a34a', stale: '#d97706', offline: '#6b7280' } as const;
 
 /** Every robot at its last reported position; colour = status. Hover for details, click to open the robot. */
-export function FleetMap({ d, className }: { d: DashboardDto; className?: string }) {
+/** `fill`: the card takes the height its parent gives it and the map grows into it (the Fleet map page). */
+export function FleetMap({ d, title = 'Fleet map', className, fill }: { d: DashboardDto; title?: string; className?: string; fill?: boolean }) {
   const router = useRouter();
   const placed = d.fleet.filter((r) => r.lat !== null && r.lon !== null);
   const points = useMemo(
@@ -138,7 +139,9 @@ export function FleetMap({ d, className }: { d: DashboardDto; className?: string
   const unplaced = d.fleet.length - placed.length;
   return (
     <Card
-      title="Fleet map"
+      title={title}
+      className={fill ? 'flex min-h-0 flex-1 flex-col' : undefined}
+      bodyClassName={fill ? 'flex min-h-0 flex-1 flex-col p-5' : undefined}
       actions={
         <span className="flex flex-wrap items-center gap-4 text-sm text-muted">
           {(['online', 'stale', 'offline'] as const).map((st) => (
@@ -152,8 +155,8 @@ export function FleetMap({ d, className }: { d: DashboardDto; className?: string
     >
       {placed.length ? (
         <>
-          <GeoMap points={points} className={className ?? 'h-[calc(100dvh-22rem)] min-h-96'} ariaLabel={`Fleet map: ${placed.length} robots with a known position`} onPointClick={(id) => router.push(`/robots/${id}`)} />
-          <p className="mt-3 text-sm text-muted">
+          <GeoMap points={points} className={fill ? 'min-h-0 flex-1' : (className ?? 'h-[calc(100dvh-22rem)] min-h-96')} ariaLabel={`Fleet map: ${placed.length} robots with a known position`} onPointClick={(id) => router.push(`/robots/${id}`)} />
+          <p className="mt-3 shrink-0 text-sm text-muted">
             Last reported position of each robot. Hover a dot for details, click to open the robot.
             {unplaced > 0 && ` ${unplaced} robot${unplaced === 1 ? ' has' : 's have'} not reported a position yet.`}
           </p>
