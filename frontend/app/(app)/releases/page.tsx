@@ -15,6 +15,7 @@ import { useCan } from '@/lib/auth';
 import { fmtBytes } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useProducts } from '@/lib/queries';
+import { isCommitId, SourceLink } from '@/components/domain/source-link';
 import { RELEASE_COMPONENTS } from '@/lib/schema';
 
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$/;
@@ -62,9 +63,9 @@ export default function ReleasesPage() {
         }
       />
       <form aria-label="Filter releases" className="mb-4 grid gap-3 sm:grid-cols-3 sm:items-end" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Product">
+        <Field label="Base model">
           <Select value={productId} onChange={(e) => setParams({ product_id: e.target.value })}>
-            <option value="">All products</option>
+            <option value="">All base models</option>
             {products.data?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -107,6 +108,7 @@ export default function ReleasesPage() {
                     </span>
                   ),
                 },
+                { key: 'src', header: 'Source', cell: (r) => <SourceLink repo={r.repo_url} commit={r.commit_id} /> },
                 { key: 'req', header: 'Requires', cell: (r) => (r.requires_component ? `${r.requires_component} ≥ ${r.requires_min_version}` : '—') },
                 {
                   key: 'sha',
@@ -175,7 +177,7 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
   const products = useProducts(open);
   const qc = useQueryClient();
   const toast = useToast();
-  const [f, setF] = useState({ product_id: '', component: 'software' as ReleaseComponent, version: '', signature: '', signature_algo: 'ed25519', sha256: '', requires_min_version: '', notes: '' });
+  const [f, setF] = useState({ product_id: '', component: 'software' as ReleaseComponent, version: '', signature: '', signature_algo: 'ed25519', sha256: '', requires_min_version: '', notes: '', repo_url: '', commit_id: '' });
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const other: ReleaseComponent = f.component === 'software' ? 'firmware' : 'software';
@@ -194,6 +196,8 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
         fd.set('requires_min_version', f.requires_min_version.trim());
       }
       if (f.notes.trim()) fd.set('notes', f.notes.trim());
+      if (f.repo_url.trim()) fd.set('repo_url', f.repo_url.trim());
+      if (f.commit_id.trim()) fd.set('commit_id', f.commit_id.trim());
       if (file) fd.set('file', file);
       return api.upload<ReleaseDto>('/releases', fd);
     },
@@ -201,7 +205,7 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
       toast.success(`Registered ${r.product_code} ${r.component} ${r.version}`);
       void qc.invalidateQueries({ queryKey: ['releases'] });
       setFile(null);
-      setF((x) => ({ ...x, version: '', signature: '', sha256: '', requires_min_version: '', notes: '' }));
+      setF((x) => ({ ...x, version: '', signature: '', sha256: '', requires_min_version: '', notes: '', commit_id: '' }));
       onClose();
     },
     onError: (e) => setError(errorMessage(e)),
@@ -215,6 +219,8 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
     if (!file && !/^[a-f0-9]{64}$/i.test(f.sha256.trim())) return setError('Upload the package, or enter its SHA-256 checksum');
     if (f.sha256.trim() && !/^[a-f0-9]{64}$/i.test(f.sha256.trim())) return setError('SHA-256 must be 64 hex characters');
     if (f.requires_min_version.trim() && !SEMVER.test(f.requires_min_version.trim())) return setError('Minimum version must be semantic, e.g. 0.9.0');
+    if (f.repo_url.trim() && !/^https?:\/\/\S+$/i.test(f.repo_url.trim())) return setError('The GitHub link must start with https://');
+    if (f.commit_id.trim() && !isCommitId(f.commit_id.trim())) return setError('A commit ID is 7–64 letters a–f and digits, e.g. 3f9c2ab');
     setError(null);
     m.mutate();
   };
@@ -236,8 +242,16 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
       }
     >
       <form id="release-form" onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
-        <Field label="Product" required>
-          <Select value={f.product_id} onChange={(e) => setF({ ...f, product_id: e.target.value })} data-autofocus>
+        <Field label="Base model" required>
+          <Select
+            value={f.product_id}
+            onChange={(e) => {
+              // Start from the product's own repository; it can be changed for this release.
+              const repo = products.data?.find((p) => p.id === e.target.value)?.repo_url ?? '';
+              setF({ ...f, product_id: e.target.value, repo_url: f.repo_url || repo });
+            }}
+            data-autofocus
+          >
             <option value="">Choose…</option>
             {products.data?.filter((p) => !p.deleted_at).map((p) => (
               <option key={p.id} value={p.id}>
@@ -272,6 +286,12 @@ function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () =
         </Field>
         <Field label="Signature algorithm">
           <Input value={f.signature_algo} onChange={(e) => setF({ ...f, signature_algo: e.target.value })} />
+        </Field>
+        <Field label="GitHub link" hint="Optional: the repository (or tag / release page) this was built from">
+          <Input value={f.repo_url} onChange={(e) => setF({ ...f, repo_url: e.target.value })} placeholder="https://github.com/…" spellCheck={false} />
+        </Field>
+        <Field label="Commit ID" hint="Optional, e.g. 3f9c2ab (short or full)">
+          <Input value={f.commit_id} onChange={(e) => setF({ ...f, commit_id: e.target.value })} className="font-mono" spellCheck={false} />
         </Field>
         <Field label="Notes" className="sm:col-span-2">
           <Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />

@@ -4,7 +4,7 @@ import { AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, Inbox } from 'lu
 import { useState, type ReactNode } from 'react';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { fmtDateTime, fmtRelative, fmtUtc } from '@/lib/format';
+import { fmtAgo, fmtDateTime, fmtRelative, fmtUtc, fmtWhen } from '@/lib/format';
 import { BesideBack } from './back-button';
 import { Button } from './button';
 
@@ -124,6 +124,20 @@ export function Time({ iso, relative, now }: { iso: string | null | undefined; r
   return (
     <time dateTime={iso} title={`${fmtDateTime(iso)} · ${fmtUtc(iso) ?? ''}`}>
       {relative ? fmtRelative(iso, now) : fmtDateTime(iso)}
+    </time>
+  );
+}
+
+/**
+ * When a robot was last heard from, readable at a glance: "12 minutes ago" with the exact time
+ * ("Today, 3:45 pm", IST) beside it or below it. Never connected robots say so.
+ */
+export function LastSeen({ iso, now, stacked, className }: { iso: string | null | undefined; now?: number; stacked?: boolean; className?: string }) {
+  if (!iso) return <span className={cn('text-muted', className)}>Never connected</span>;
+  return (
+    <time dateTime={iso} title={fmtUtc(iso)} className={cn(stacked ? 'flex flex-col' : 'inline', className)}>
+      <span className="font-medium">{fmtAgo(iso, now)}</span>
+      {stacked ? <span className="text-sm text-muted">{fmtWhen(iso, now)}</span> : <span className="text-muted"> · {fmtWhen(iso, now)}</span>}
     </time>
   );
 }

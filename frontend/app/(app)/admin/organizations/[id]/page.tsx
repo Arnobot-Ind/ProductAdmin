@@ -1,9 +1,12 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { OrganizationDetailDto, OrganizationDto, Paginated, RobotListItemDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Link2, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react';
 import Link from 'next/link';
+import { RobotPicker } from '@/components/domain/robot-picker';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ClientStatusBadge } from '@/components/domain/client-admin';
@@ -22,7 +25,7 @@ import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { ActivityTab } from './_tabs/activity';
 import { ClientCredentialsTab } from './_tabs/credentials';
 import { FeaturesTab } from './_tabs/features';
-import { ClientProfileCard } from './_tabs/profile';
+import { ClientProfileCard, ProfileDialog } from './_tabs/profile';
 import { SoftwareTab } from './_tabs/software';
 import { BesideBack } from '@/components/ui/back-button';
 
@@ -52,7 +55,8 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
   const toast = useToast();
   const router = useRouter();
   const roles = useRoles(can('user.manage'));
-  const [editing, setEditing] = useState(false);
+  // ?edit=1 (the Edit link in the organizations list) opens the edit dialog straight away.
+  const [editing, setEditing] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('edit') === '1');
   const [assigning, setAssigning] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -74,7 +78,16 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
   const tab = tabs.some((t) => t.id === requested) ? requested : 'profile';
 
   const detailsCard = (
-    <Card title="Details">
+    <Card
+      title="Details"
+      actions={
+        !org.deleted_at && (
+          <Button size="sm" icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
+            Edit details
+          </Button>
+        )
+      }
+    >
       <KeyValue
         columns={3}
         items={[
@@ -118,9 +131,7 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
               header: 'Robot',
               rowHeader: true,
               cell: (r) => (
-                <Link href={`/robots/${r.robot_id}`} className="font-mono font-semibold text-accent-text hover:underline">
-                  {r.robot_id}
-                </Link>
+                <RobotRef id={r.robot_id} />
               ),
             },
             { key: 'p', header: 'Product', cell: (r) => r.product_name },
@@ -169,8 +180,8 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {!org.deleted_at && (
-              <Button icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
-                Edit
+              <Button variant="primary" icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
+                Edit organization
               </Button>
             )}
             {customer && (
@@ -213,7 +224,7 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
         </>
       )}
 
-      {editing && <OrganizationDialog open onClose={() => setEditing(false)} org={org} />}
+      {editing && (customer && org.profile ? <ProfileDialog org={org} profile={org.profile} onClose={() => setEditing(false)} /> : <OrganizationDialog open onClose={() => setEditing(false)} org={org} />)}
       <AssignRobotDialog open={assigning} onClose={() => setAssigning(false)} org={org} />
       <CreateUserDialog open={inviting} onClose={() => setInviting(false)} roles={roles.data ?? []} organization={{ id: org.id, name: org.name, kind: org.kind }} />
       <ConfirmDialog
@@ -233,11 +244,10 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
 function AssignRobotDialog({ open, onClose, org }: { open: boolean; onClose: () => void; org: OrganizationDetailDto }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const robots = useQuery({ queryKey: ['robots', 'options'], queryFn: () => api.get<Paginated<RobotListItemDto>>('/robots', { limit: 200 }), enabled: open, staleTime: 60_000 });
   const [robotId, setRobotId] = useState('');
+  const [picked, setPicked] = useState<RobotListItemDto | null>(null);
   const [reason, setReason] = useState('');
   const owned = new Set(org.robots.map((r) => r.robot_id));
-  const options = (robots.data?.items ?? []).filter((r) => !owned.has(r.robot_id) && !r.deleted_at);
   const m = useMutation({
     mutationFn: () =>
       api.post(`/organizations/${org.id}/robots`, { robot_id: robotId, reason: reason.trim() || null }),
@@ -251,7 +261,6 @@ function AssignRobotDialog({ open, onClose, org }: { open: boolean; onClose: () 
     },
     onError: toast.error,
   });
-  const picked = options.find((r) => r.robot_id === robotId);
   return (
     <Dialog
       open={open}
@@ -269,14 +278,15 @@ function AssignRobotDialog({ open, onClose, org }: { open: boolean; onClose: () 
     >
       <div className="grid gap-4">
         <Field label="Robot" required hint={picked ? `Currently with ${picked.owner_company ?? 'nobody'}.` : undefined}>
-          <Select value={robotId} onChange={(e) => setRobotId(e.target.value)} data-autofocus>
-            <option value="">Choose…</option>
-            {options.map((r) => (
-              <option key={r.robot_id} value={r.robot_id}>
-                {r.robot_id} · {r.product_name} · now with {r.owner_company ?? 'nobody'}
-              </option>
-            ))}
-          </Select>
+          <RobotPicker
+            value={robotId}
+            exclude={owned}
+            autoFocus
+            onChange={(id, r) => {
+              setRobotId(id);
+              setPicked(r);
+            }}
+          />
         </Field>
         <InlineAlert tone="accent">
           {org.name} will see this robot and its data: everything recorded for it except while another customer owned it.

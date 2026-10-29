@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { EventCalendarDayDto, EventDto, Paginated } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
@@ -123,10 +125,10 @@ function DayView({ day, onClear }: { day: string; onClear: () => void }) {
   return (
     <div className="flex flex-col gap-6">
       <Band labelledBy="day-h">
-        <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="grid gap-6 p-6 sm:p-8 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-end">
           <div className="min-w-0">
             <p className="text-base text-muted">{dayTitle(day)}</p>
-            <h2 id="day-h" className="mt-2 flex items-baseline gap-3">
+            <h2 id="day-h" className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-5xl leading-none font-semibold">{total}</span>
               <span className="text-xl font-semibold">event{total === 1 ? '' : 's'} across the fleet</span>
             </h2>
@@ -170,7 +172,7 @@ function DayView({ day, onClear }: { day: string; onClear: () => void }) {
                   rowKey={(e) => e.id}
                   columns={[
                     { key: 'ts', header: 'Time', cell: (e) => <span className="whitespace-nowrap"><Time iso={e.ts} /></span> },
-                    { key: 'robot', header: 'Robot', cell: (e) => <Link className="font-mono text-accent-text hover:underline" href={`/robots/${e.robot_id}?tab=events&day=${day}`}>{e.robot_id}</Link> },
+                    { key: 'robot', header: 'Robot', cell: (e) => <RobotRef id={e.robot_id} href={`/robots/${e.robot_id}?tab=events&day=${day}`} /> },
                     { key: 'sev', header: 'Severity', cell: (e) => <SeverityBadge severity={e.severity} /> },
                     { key: 'msg', header: 'Message', cell: (e) => <span title={e.message}>{e.code ? <span className="mr-2 font-mono text-muted">{e.code}</span> : null}{e.message}</span> },
                     { key: 'ack', header: 'Acknowledged', cell: (e) => (e.acknowledged_at ? <Badge tone="ok">Yes</Badge> : <span className="text-muted">No</span>) },

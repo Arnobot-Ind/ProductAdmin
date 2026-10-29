@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { MissionDetailDto, MissionFileDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { Download, FileImage, FileVideo, HardDrive } from 'lucide-react';
@@ -89,7 +91,7 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
           <KeyValue
             columns={1}
             items={[
-              { label: 'Robot', value: <Link href={`/robots/${m.robot_id}`} className="font-mono text-accent-text hover:underline">{m.robot_id}</Link> },
+              { label: 'Robot', value: <RobotRef id={m.robot_id} /> },
               { label: 'Start', value: <Time iso={m.started_at} /> },
               { label: 'End', value: <Time iso={m.ended_at} /> },
               { label: 'Duration', value: fmtDuration(m.duration_s) },

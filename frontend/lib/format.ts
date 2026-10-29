@@ -99,10 +99,13 @@ export function fmtCoord(lat: number | null | undefined, lon: number | null | un
   return `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
 }
 
+/** Words kept in their usual spelling when a code is turned into words (NO_GPS → "No GPS"). */
+const ACRONYMS: Record<string, string> = { gps: 'GPS', gnss: 'GNSS', rtk: 'RTK', bms: 'BMS', rth: 'RTH', aws: 'AWS', giga: 'GIGA', lidar: 'LiDAR', imu: 'IMU', usb: 'USB', ssh: 'SSH', gcs: 'GCS', cpu: 'CPU', dvr: 'DVR', rtsp: 'RTSP', wifi: 'Wi-Fi', id: 'ID', ugv: 'UGV', uav: 'UAV' };
 /** snake_case → "Snake case" for enum labels. */
 export function humanize(v: string | null | undefined): string {
   if (!v) return DASH;
-  const s = v.replace(/_/g, ' ');
+  const words = v.replace(/_/g, ' ').split(' ').map((w) => ACRONYMS[w.toLowerCase()] ?? w);
+  const s = words.join(' ');
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -124,4 +127,41 @@ export function todayDate(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const IST = 'Asia/Kolkata';
+const istDayOf = (t: number) => new Date(t).toLocaleDateString('en-CA', { timeZone: IST });
+const istClock = new Intl.DateTimeFormat('en-IN', { timeZone: IST, hour: 'numeric', minute: '2-digit', hour12: true });
+const istDate = new Intl.DateTimeFormat('en-GB', { timeZone: IST, day: 'numeric', month: 'short', year: 'numeric' });
+
+/** "Just now", "12 minutes ago", "3 hours ago", "2 days ago", "5 weeks ago": always words, never a bare number. */
+export function fmtAgo(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return 'Never';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return DASH;
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  const unit = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'} ago`;
+  if (s < 45) return 'Just now';
+  if (s < 3600) return unit(Math.max(1, Math.round(s / 60)), 'minute');
+  if (s < 86400) return unit(Math.round(s / 3600), 'hour');
+  if (s < 14 * 86400) return unit(Math.round(s / 86400), 'day');
+  if (s < 60 * 86400) return unit(Math.round(s / (7 * 86400)), 'week');
+  return unit(Math.round(s / (30 * 86400)), 'month');
+}
+
+/** The exact moment in plain words, IST: "Today, 3:45 pm", "Yesterday, 9:02 am", "27 Oct 2026, 6:10 pm". */
+export function fmtWhen(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return DASH;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return DASH;
+  const day = istDayOf(t);
+  const clock = istClock.format(t);
+  if (day === istDayOf(now)) return `Today, ${clock}`;
+  if (day === istDayOf(now - 86_400_000)) return `Yesterday, ${clock}`;
+  return `${istDate.format(t)}, ${clock}`;
+}
+
+/** "12 minutes ago · Today, 3:45 pm". */
+export function fmtSeen(iso: string | null | undefined, now: number = Date.now()): string {
+  return iso ? `${fmtAgo(iso, now)} · ${fmtWhen(iso, now)}` : 'Never connected';
 }

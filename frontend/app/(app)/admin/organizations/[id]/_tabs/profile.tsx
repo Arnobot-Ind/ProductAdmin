@@ -62,10 +62,16 @@ export function ClientProfileCard({ org, canEdit }: { org: OrganizationDetailDto
   );
 }
 
-function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; profile: ClientProfileDto; onClose: () => void }) {
+/**
+ * Edit everything about a customer organization in one place: name and contact, and the client profile
+ * (status, code, manager, contract, data visibility, legal and billing details). Saves both in turn.
+ */
+export function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; profile: ClientProfileDto; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const managers = useQuery({ queryKey: ['account-managers'], queryFn: () => api.get<UserRefDto[]>('/account-managers'), staleTime: 300_000 });
+  const [basic, setBasic] = useState({ name: org.name, contact_name: org.contact_name ?? '', contact_email: org.contact_email ?? '', notes: org.notes ?? '' });
+  const contactBad = !!basic.contact_email && !/\S+@\S+\.\S+/.test(basic.contact_email);
   const [f, setF] = useState({
     client_code: profile.client_code ?? '',
     status: profile.status,
@@ -82,17 +88,28 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
     data_from: profile.data_from ?? '',
   });
   const m = useMutation({
-    mutationFn: () =>
-      api.patch<ClientProfileDto>(`/organizations/${org.id}/profile`, {
+    mutationFn: async () => {
+      const changed =
+        basic.name.trim() !== org.name || basic.contact_name.trim() !== (org.contact_name ?? '') || basic.contact_email.trim() !== (org.contact_email ?? '') || basic.notes.trim() !== (org.notes ?? '');
+      if (changed)
+        await api.patch(`/organizations/${org.id}`, {
+          name: basic.name.trim(),
+          contact_name: basic.contact_name.trim() || null,
+          contact_email: basic.contact_email.trim() || null,
+          notes: basic.notes.trim() || null,
+        });
+      return api.patch<ClientProfileDto>(`/organizations/${org.id}/profile`, {
         ...f,
         account_manager_id: f.account_manager_id || null,
         contract_start: f.contract_start || null,
         contract_end: f.contract_end || null,
         data_history_days: f.data_history_days ? Number(f.data_history_days) : null,
         data_from: f.data_from || null,
-      }),
+      });
+    },
     onSuccess: () => {
-      toast.success('Client profile saved');
+      toast.success(`${basic.name.trim() || org.name} saved`);
+      void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['organizations'] });
       onClose();
     },
@@ -110,19 +127,34 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
       open
       onClose={onClose}
       size="lg"
-      title={`Client profile of ${org.name}`}
+      title={`Edit ${org.name}`}
+      description="Everything about this organization. Changes are kept in the audit log."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant={leaving ? 'danger' : 'primary'} onClick={() => m.mutate()} loading={m.isPending} disabled={codeBad || gstinBad || emailBad || datesBad || daysBad}>
+          <Button variant={leaving ? 'danger' : 'primary'} onClick={() => m.mutate()} loading={m.isPending} disabled={!basic.name.trim() || contactBad || codeBad || gstinBad || emailBad || datesBad || daysBad}>
             {leaving ? `Save and sign ${org.name} out` : 'Save'}
           </Button>
         </>
       }
     >
       <form className="grid gap-4 sm:grid-cols-2" onSubmit={(e) => e.preventDefault()} autoComplete="off">
+        <h3 className="text-base font-semibold sm:col-span-2">Organization</h3>
+        <Field label="Name" required className="sm:col-span-2">
+          <Input value={basic.name} onChange={(e) => setBasic({ ...basic, name: e.target.value })} data-autofocus />
+        </Field>
+        <Field label="Contact person">
+          <Input value={basic.contact_name} onChange={(e) => setBasic({ ...basic, contact_name: e.target.value })} />
+        </Field>
+        <Field label="Contact email" error={contactBad ? 'Not an email address' : null}>
+          <Input type="email" value={basic.contact_email} onChange={(e) => setBasic({ ...basic, contact_email: e.target.value })} />
+        </Field>
+        <Field label="Notes" className="sm:col-span-2">
+          <Textarea rows={2} value={basic.notes} onChange={(e) => setBasic({ ...basic, notes: e.target.value })} />
+        </Field>
+        <h3 className="mt-2 border-t border-border pt-4 text-base font-semibold sm:col-span-2">Client account</h3>
         <Field label="Status" required hint="Onboarding and Active can sign in to the client app. Suspended and Ended cannot: their sessions end at once.">
-          <Select value={f.status} onChange={(e) => set({ status: e.target.value as ClientStatus })} data-autofocus>
+          <Select value={f.status} onChange={(e) => set({ status: e.target.value as ClientStatus })}>
             {CLIENT_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {CLIENT_STATUS_LABEL[s]}
@@ -161,6 +193,7 @@ function ProfileDialog({ org, profile, onClose }: { org: OrganizationDetailDto; 
         <Field label="Contract end" error={datesBad ? 'Ends before it starts' : null}>
           <Input type="date" value={f.contract_end} onChange={(e) => set({ contract_end: e.target.value })} />
         </Field>
+        <h3 className="mt-2 border-t border-border pt-4 text-base font-semibold sm:col-span-2">Legal &amp; billing</h3>
         <Field label="Legal name">
           <Input value={f.legal_name} onChange={(e) => set({ legal_name: e.target.value })} />
         </Field>

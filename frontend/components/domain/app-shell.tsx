@@ -16,6 +16,9 @@ import {
   ListChecks,
   LogOut,
   Map as MapIcon,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Moon,
   Package,
   Route,
@@ -42,6 +45,7 @@ import { cn } from '@/lib/cn';
 import { useRealtime } from '@/lib/realtime';
 import { useTheme } from '@/lib/theme';
 import { BrandMark } from './brand';
+import { GlobalSearch } from './global-search';
 
 interface NavItem {
   href: string;
@@ -92,7 +96,7 @@ const NAV: NavGroup[] = [
     section: 'Hardware & software',
     Icon: Cpu,
     items: [
-      { href: '/products', label: 'Products & hardware', description: 'Robot models, hardware revisions and parts', Icon: Boxes, perm: 'catalog.read' },
+      { href: '/products', label: 'Base models & attachments', description: 'UGV and UAV base models, attachments, hardware revisions and parts', Icon: Boxes, perm: 'catalog.read' },
       { href: '/releases', label: 'Software releases', description: 'Signed software and firmware versions for robots', Icon: Package, perm: 'catalog.read' },
       { href: '/admin/software', label: 'Client software', description: 'GCS, client portal and other software clients run', Icon: AppWindow, perm: 'org.manage' },
     ],
@@ -141,6 +145,7 @@ const PAGE_WIDTHS: [prefix: string, cls: string][] = [
   ['/robots', 'max-w-screen-2xl'],
   ['/downloads', 'max-w-screen-2xl'],
   ['/products/', 'max-w-screen-2xl'],
+  ['/attachments/', 'max-w-screen-2xl'],
   ['/videos', 'max-w-screen-2xl'],
   ['/overview/missions', 'max-w-screen-2xl'],
   ['/overview/events', 'max-w-screen-2xl'],
@@ -155,7 +160,11 @@ function pageWidth(pathname: string) {
 /** Length of the menu's slide-in and slide-out animations (globals.css: app-menu-in / app-menu-out). */
 const MENU_MS = 280;
 
+/** Pages that belong to another menu entry (an attachment's page is under Base models & attachments). */
+const MENU_ALIASES: [prefix: string, href: string][] = [['/attachments/', '/products']];
+
 function isActive(pathname: string, href: string) {
+  if (MENU_ALIASES.some(([prefix, to]) => to === href && pathname.startsWith(prefix))) return true;
   return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -168,6 +177,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { theme, toggle } = useTheme();
   const qc = useQueryClient();
   const [menu, setMenu] = useState<'closed' | 'open' | 'closing'>('closed');
+  /** The side menu on phones and tablets (a drawer); on large screens it is always there. */
+  const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useSidebarCollapsed();
 
   const groups = useMemo(
     () =>
@@ -184,8 +196,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const t = window.setTimeout(() => setMenu('closed'), MENU_MS);
     return () => window.clearTimeout(t);
   }, [menu]);
-  // Navigating closes the menu.
-  useEffect(() => closeMenu(), [pathname]);
+  // Navigating closes the menu and the drawer.
+  useEffect(() => {
+    closeMenu();
+    setDrawer(false);
+  }, [pathname]);
 
   const logout = async () => {
     try {
@@ -203,21 +218,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
 
       <header className="sticky top-0 z-30 border-b border-border bg-surface shadow-sm">
-        <div className="flex h-16 w-full items-center gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 w-full items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
           <Link href="/" aria-label="Arnobot PMS home" className="shrink-0">
             <BrandMark />
           </Link>
           {current && (
             <>
-              <span className="hidden h-9 w-px bg-current opacity-30 md:block" aria-hidden />
+              <span className="hidden h-9 w-px bg-current opacity-30 2xl:block" aria-hidden />
               {/* Same size and style as "PMS / Product Admin" beside the logo. */}
-              <span className="hidden min-w-0 items-center gap-2 text-sm font-semibold tracking-[0.16em] text-muted uppercase md:inline-flex">
+              <span className="hidden min-w-0 items-center gap-2 text-sm font-semibold tracking-[0.16em] text-muted uppercase 2xl:inline-flex">
                 <current.Icon className="size-4 shrink-0" aria-hidden />
                 <span className="truncate">{current.label}</span>
               </span>
             </>
           )}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          {can('robot.details') && (
+            <div className="ml-auto flex min-w-0 flex-1 justify-end xl:justify-center">
+              <GlobalSearch />
+            </div>
+          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
             <span
               className={cn('hidden items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium sm:inline-flex', connected ? 'border-ok/40 text-ok' : 'border-warn/40 text-warn')}
               title={connected ? 'Receiving live updates' : 'Live connection down: refreshing every 15 s'}
@@ -238,6 +258,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               <LogOut className="size-4" aria-hidden />
               <span className="hidden sm:inline">Sign out</span>
             </button>
+            {/* Phones and tablets: the side menu as a drawer (on large screens it is always shown). */}
+            <button
+              type="button"
+              onClick={() => setDrawer(true)}
+              aria-label="Open side menu"
+              aria-expanded={drawer}
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-surface-2 lg:hidden"
+            >
+              <Menu className="size-6" aria-hidden />
+            </button>
             <button
               type="button"
               onClick={() => setMenu('open')}
@@ -254,12 +284,153 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {menu !== 'closed' && <AppMenu groups={groups} pathname={pathname} closing={menu === 'closing'} onClose={closeMenu} />}
 
-      <div className="relative">
-        {/* Back under the logo (same left edge); page headings stay level with it and move right only if they would touch it. */}
-        <ShellBack className="top-8 left-4 sm:left-6 lg:left-8" />
-        <main id="main" tabIndex={-1} className={cn('mx-auto w-full px-4 py-8 outline-none sm:px-6 lg:px-8', pageWidth(pathname))}>
-          {children}
-        </main>
+      <div className="flex">
+        {/* Large screens: the side menu is always there, under the logo (Back sits at its top). */}
+        <aside
+          aria-label="Side menu"
+          className={cn('sticky top-16 hidden h-[calc(100dvh-4rem)] shrink-0 border-r border-border bg-surface/95 backdrop-blur lg:block', collapsed ? 'w-24' : 'w-64')}
+        >
+          <SideNav groups={groups} pathname={pathname} collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        </aside>
+
+        <div className="relative min-w-0 flex-1">
+          {/* Phones and tablets: Back under the logo (same left edge); page headings stay level with it and move right only if they would touch it. */}
+          <ShellBack className="top-8 left-4 sm:left-6 lg:hidden" />
+          <main id="main" tabIndex={-1} className={cn('mx-auto w-full px-4 py-8 outline-none sm:px-6 lg:px-8', pageWidth(pathname))}>
+            {children}
+          </main>
+        </div>
+      </div>
+
+      {drawer && <SideDrawer groups={groups} pathname={pathname} onClose={() => setDrawer(false)} />}
+    </div>
+  );
+}
+
+const COLLAPSE_KEY = 'pms.sidebar.collapsed';
+/** Whether the large-screen side menu shows icons only; remembered per browser. */
+function useSidebarCollapsed(): [boolean, (v: boolean) => void] {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1');
+    } catch {
+      /* storage unavailable: start expanded */
+    }
+  }, []);
+  const set = (v: boolean) => {
+    setCollapsed(v);
+    try {
+      window.localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0');
+    } catch {
+      /* not remembered */
+    }
+  };
+  return [collapsed, set];
+}
+
+/** The side menu's content: Back at the top (under the logo), then every page by group. */
+function SideNav({ groups, pathname, collapsed, onToggle, onNavigate }: { groups: NavGroup[]; pathname: string; collapsed?: boolean; onToggle?: () => void; onNavigate?: () => void }) {
+  return (
+    <div className="flex h-full flex-col">
+      {/* Back sits under the logo (same left edge) and level with the page heading (main's top padding). */}
+      <div className={cn('flex min-h-14 items-center gap-2 pt-8 pr-3 pb-2', collapsed ? 'flex-col px-3' : 'pl-8')}>
+        <ShellBack className="relative" />
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            title={collapsed ? 'Show the side menu' : 'Show icons only'}
+            aria-label={collapsed ? 'Expand side menu' : 'Collapse side menu'}
+            className="ml-auto inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+          >
+            {collapsed ? <PanelLeftOpen className="size-5" aria-hidden /> : <PanelLeftClose className="size-5" aria-hidden />}
+          </button>
+        )}
+      </div>
+      <nav aria-label="Pages" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+        {groups.map((g) => (
+          <section key={g.id} aria-labelledby={`nav-${g.id}`} className="mt-4 first:mt-1">
+            <h2 id={`nav-${g.id}`} className={cn('mb-1 px-3 text-xs font-semibold tracking-[0.12em] text-muted uppercase', collapsed && 'sr-only')}>
+              {g.section}
+            </h2>
+            <ul className="flex flex-col gap-0.5">
+              {g.items.map((i) => {
+                const active = isActive(pathname, i.href);
+                return (
+                  <li key={i.href}>
+                    <Link
+                      href={i.href}
+                      onClick={onNavigate}
+                      aria-current={active ? 'page' : undefined}
+                      title={collapsed ? i.label : i.description}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg px-3 py-2 text-base font-medium transition-colors',
+                        collapsed && 'justify-center px-0',
+                        active ? 'bg-accent text-accent-fg shadow-sm' : 'text-fg hover:bg-surface-2',
+                      )}
+                    >
+                      <i.Icon className="size-5 shrink-0" aria-hidden />
+                      <span className={cn('min-w-0 leading-tight', collapsed && 'sr-only')}>{i.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+/** Phones and tablets: the side menu slides in from the left. Esc, the close button or a tap outside closes it. */
+function SideDrawer({ groups, pathname, onClose }: { groups: NavGroup[]; pathname: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    const { overflow } = document.body.style;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = overflow;
+    };
+  }, [onClose]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Side menu" className="fixed inset-0 z-50 lg:hidden">
+      <button type="button" aria-label="Close side menu" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div className="animate-drawer-in absolute inset-y-0 left-0 flex w-[min(20rem,85vw)] flex-col bg-surface shadow-xl">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
+          <BrandMark />
+          <button type="button" onClick={onClose} aria-label="Close side menu" className="inline-flex size-10 items-center justify-center rounded-lg hover:bg-surface-2">
+            <X className="size-6" aria-hidden />
+          </button>
+        </div>
+        <nav aria-label="Pages" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+          {groups.map((g) => (
+            <section key={g.id} className="mt-4">
+              <h2 className="mb-1 px-3 text-xs font-semibold tracking-[0.12em] text-muted uppercase">{g.section}</h2>
+              <ul className="flex flex-col gap-0.5">
+                {g.items.map((i) => {
+                  const active = isActive(pathname, i.href);
+                  return (
+                    <li key={i.href}>
+                      <Link
+                        href={i.href}
+                        onClick={onClose}
+                        aria-current={active ? 'page' : undefined}
+                        className={cn('flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium', active ? 'bg-accent text-accent-fg' : 'hover:bg-surface-2')}
+                      >
+                        <i.Icon className="size-5 shrink-0" aria-hidden />
+                        <span className="truncate">{i.label}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </nav>
       </div>
     </div>
   );

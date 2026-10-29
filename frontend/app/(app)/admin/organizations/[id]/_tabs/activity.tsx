@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { AuditEntryDto, OrganizationDetailDto, Paginated } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { ScrollText } from 'lucide-react';
@@ -54,7 +56,7 @@ export function ActivityTab({ org }: { org: OrganizationDetailDto }) {
                       </span>
                     ),
                   },
-                  { key: 'r', header: 'Robot', cell: (e) => (e.robot_id ? <span className="font-mono">{e.robot_id}</span> : <span className="text-muted">—</span>) },
+                  { key: 'r', header: 'Robot', cell: (e) => (e.robot_id ? <RobotRef id={e.robot_id} /> : <span className="text-muted">—</span>) },
                   { key: 'd', header: 'Details', className: 'max-w-md', cell: (e) => <span className="block truncate text-xs text-muted" title={JSON.stringify(e.detail)}>{auditSummary(e)}</span> },
                 ]}
               />

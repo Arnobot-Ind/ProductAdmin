@@ -1,5 +1,6 @@
 'use client';
 
+import { RobotPicker } from '@/components/domain/robot-picker';
 import type { ArchiveSessionDto, ArchiveSessionListDto, Paginated, RobotListItemDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Check, Download, FileJson, Gauge, Info, Radar, Satellite, Video } from 'lucide-react';
@@ -46,7 +47,8 @@ export default function DownloadsPage() {
   const restricted = canAnywhere('data.download_restricted');
   const types = TYPES.filter((t) => !t.sensor || restricted);
 
-  const robots = useQuery({ queryKey: ['robots', 'options'], queryFn: () => api.get<Paginated<RobotListItemDto>>('/robots', { limit: 200 }), staleTime: 60_000 });
+  // Start on the robot with the most recordings; any robot can then be searched for.
+  const robots = useQuery({ queryKey: ['robots', 'most-recorded'], queryFn: () => api.get<Paginated<RobotListItemDto>>('/robots', { limit: 1, sort: '-video_sessions' }), staleTime: 60_000 });
   const params = useSearchParams();
   const [robot, setRobot] = useState(params.get('robot') ?? '');
   const [period, setPeriod] = useState<(typeof PERIODS)[number]['id']>('7d');
@@ -58,7 +60,7 @@ export default function DownloadsPage() {
 
   // First robot with recordings by default.
   useEffect(() => {
-    if (!robot && robots.data?.items.length) setRobot((robots.data.items.find((r) => r.video_sessions > 0) ?? robots.data.items[0]).robot_id);
+    if (!robot && robots.data?.items.length) setRobot(robots.data.items[0].robot_id);
   }, [robots.data, robot]);
 
   const sessions = useQuery({
@@ -112,13 +114,7 @@ export default function DownloadsPage() {
       <section aria-label="What to download" className="grid gap-4 rounded-lg border border-border bg-surface p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="grid gap-3">
           <Field label="Robot">
-            <Select value={robot} onChange={(e) => setRobot(e.target.value)}>
-              {robots.data?.items.map((r) => (
-                <option key={r.robot_id} value={r.robot_id}>
-                  {r.robot_id} · {r.product_name} · {r.video_sessions} recording{r.video_sessions === 1 ? '' : 's'}
-                </option>
-              ))}
-            </Select>
+            <RobotPicker value={robot} onChange={(id) => id && setRobot(id)} />
           </Field>
           <Field label="Period">
             <Select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>

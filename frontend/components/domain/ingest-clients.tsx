@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { IngestClientDto, IngestKeyIssuedDto, Paginated, RobotListItemDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, ShieldX } from 'lucide-react';
@@ -201,7 +203,7 @@ function RobotPicker({ value, onChange, robots }: { value: string[]; onChange: (
               key={r.robot_id}
               label={
                 <span>
-                  <span className="font-mono">{r.robot_id}</span> <span className="text-muted">({r.product_name})</span>
+                  <RobotRef id={r.robot_id} link={false} />
                 </span>
               }
               checked={value.includes(r.robot_id)}

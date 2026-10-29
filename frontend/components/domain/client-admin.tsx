@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { ClientFeatureDto, ClientStatus, LicenceState, OrganizationDetailDto, UserAccessDto, UserDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
@@ -222,7 +224,7 @@ export function UserAccessDialog({ user, onClose }: { user: UserDto | null; onCl
                           checked={robots.includes(r.robot_id)}
                           onChange={(e) => setRobots(e.target.checked ? [...robots, r.robot_id].sort() : robots.filter((x) => x !== r.robot_id))}
                         />
-                        <span className="font-mono">{r.robot_id}</span>
+                        <RobotRef id={r.robot_id} link={false} />
                       </label>
                     ))
                   )}

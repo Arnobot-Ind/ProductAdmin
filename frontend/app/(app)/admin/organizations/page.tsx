@@ -2,7 +2,7 @@
 
 import type { OrganizationDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus } from 'lucide-react';
+import { Building2, Plus, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -88,6 +88,22 @@ export default function OrganizationsPage() {
                 { key: 'ce', header: 'Contract ends', cell: (o) => (o.client?.contract_end ? fmtDate(o.client.contract_end) : <span className="text-muted">—</span>) },
                 { key: 'c', header: 'Contact', cell: (o) => (o.contact_name || o.contact_email ? [o.contact_name, o.contact_email].filter(Boolean).join(' · ') : <span className="text-muted">—</span>) },
                 { key: 't', header: 'Created', cell: (o) => <Time iso={o.created_at} /> },
+                {
+                  key: 'e',
+                  header: <span className="sr-only">Actions</span>,
+                  align: 'right',
+                  cell: (o) =>
+                    o.deleted_at ? null : (
+                      <Link
+                        href={`/admin/organizations/${o.id}?edit=1`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-sm font-medium hover:bg-surface-2"
+                        aria-label={`Edit ${o.name}`}
+                      >
+                        <Pencil className="size-3.5" aria-hidden /> Edit
+                      </Link>
+                    ),
+                },
               ]}
             />
           )

@@ -1,8 +1,8 @@
 'use client';
 
-import type { RobotLogDto, RobotLogEntryDto, RobotLogKind } from '@arnobot/message-schema';
+import type { LogLevelGroup, RobotLogDto, RobotLogEntryDto, RobotLogKind } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Bell, Building2, Cpu, FileText, Inbox, Package, Route, ScrollText, Search, ShieldAlert, Wrench, X } from 'lucide-react';
+import { AlertOctagon, AlertTriangle, Bell, NotebookPen, Building2, Cpu, FileText, Inbox, Info, Package, Route, ScrollText, Search, ShieldAlert, Wrench, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { missionHref } from '@/components/domain/missions-table';
@@ -11,9 +11,11 @@ import { Badge, Card, EmptyState, Pagination, QueryView, type Tone } from '@/com
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useDebounced } from '@/lib/hooks';
+import { humanize } from '@/lib/format';
 import { useLivePoll } from '@/lib/realtime';
 
 const KIND: Record<RobotLogKind, { label: string; Icon: typeof Bell }> = {
+  note: { label: 'Notes', Icon: NotebookPen },
   event: { label: 'Events', Icon: Bell },
   mission: { label: 'Missions', Icon: Route },
   hardware: { label: 'Hardware', Icon: Cpu },
@@ -35,6 +37,13 @@ const LEVEL: Record<string, { tone: Tone; label: string }> = {
   ok: { tone: 'ok', label: 'OK' },
 };
 
+/** The severity filter: critical (critical, fault, error), warnings, information. Several can be on at once. */
+const LEVEL_FILTERS: { key: LogLevelGroup; label: string; Icon: typeof Bell; on: string }[] = [
+  { key: 'critical', label: 'Critical & errors', Icon: AlertOctagon, on: 'border-fault bg-fault-bg text-fault' },
+  { key: 'warning', label: 'Warnings', Icon: AlertTriangle, on: 'border-warn bg-warn-bg text-warn' },
+  { key: 'info', label: 'Information', Icon: Info, on: 'border-accent bg-accent-soft text-accent-text' },
+];
+
 const IST = 'Asia/Kolkata';
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: IST });
 const dayTitle = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { timeZone: IST, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -51,6 +60,7 @@ const nextDay = (d: string) => new Date(new Date(`${d}T12:00:00Z`).getTime() + 8
 export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day?: string | null; onClearDay?: () => void }) {
   const poll = useLivePoll();
   const [hidden, setHidden] = useState<Set<RobotLogKind>>(new Set());
+  const [levels, setLevels] = useState<Set<LogLevelGroup>>(new Set());
   const [messages, setMessages] = useState(false);
   const [text, setText] = useState('');
   const q = useDebounced(text.trim(), 350);
@@ -68,7 +78,7 @@ export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day
   const limit = 50;
 
   const query = useQuery({
-    queryKey: ['robot', robotId, 'log', [...hidden].sort().join(','), messages, q, from, to, page],
+    queryKey: ['robot', robotId, 'log', [...hidden].sort().join(','), [...levels].sort().join(','), messages, q, from, to, page],
     queryFn: async () => {
       // First learn which kinds exist for this user, then ask only for the visible ones.
       const params: Record<string, string | number> = { page, limit };
@@ -76,6 +86,7 @@ export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day
       if (from) params.from = istStart(from);
       if (to) params.to = istStart(nextDay(to));
       if (messages) params.include_messages = 1;
+      if (levels.size) params.levels = [...levels].join(',');
       if (hidden.size) {
         const all = (Object.keys(KIND) as RobotLogKind[]).filter((k) => k !== 'message' || messages);
         params.kinds = all.filter((k) => !hidden.has(k)).join(',') || 'none';
@@ -95,7 +106,16 @@ export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day
       return next;
     });
   };
-  const filtered = hidden.size > 0 || !!q || !!from || !!to;
+  const toggleLevel = (k: LogLevelGroup) => {
+    setPage(1);
+    setLevels((l) => {
+      const next = new Set(l);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+  const filtered = hidden.size > 0 || levels.size > 0 || !!q || !!from || !!to;
 
   return (
     <div className="flex flex-col gap-5">
@@ -138,7 +158,38 @@ export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day
             />
           </Field>
         </div>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Severity">
+          <span className="mr-1 text-sm font-medium text-muted">Severity</span>
+          <button
+            type="button"
+            aria-pressed={levels.size === 0}
+            onClick={() => {
+              setLevels(new Set());
+              setPage(1);
+            }}
+            className={cn('rounded-full border px-3 py-1.5 text-sm font-medium', levels.size === 0 ? 'border-accent bg-accent text-accent-fg' : 'border-border bg-surface hover:bg-surface-2')}
+          >
+            All
+          </button>
+          {LEVEL_FILTERS.map((l) => {
+            const on = levels.has(l.key);
+            return (
+              <button
+                key={l.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleLevel(l.key)}
+                className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors', on ? l.on : 'border-border bg-surface hover:bg-surface-2')}
+              >
+                <l.Icon className="size-4" aria-hidden />
+                {l.label}
+                <span className="tabular-nums">{query.data?.level_counts[l.key] ?? 0}</span>
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Show log types">
+          <span className="mr-1 text-sm font-medium text-muted">Type</span>
           {(query.data?.available ?? []).map((k) => {
             if (k === 'message' && !messages) return null;
             const on = !hidden.has(k);
@@ -179,6 +230,7 @@ export function RobotLogTab({ robotId, day, onClearDay }: { robotId: string; day
               type="button"
               onClick={() => {
                 setHidden(new Set());
+                setLevels(new Set());
                 setText('');
                 setFrom('');
                 setTo('');
@@ -240,12 +292,16 @@ function Entry({ robotId, it }: { robotId: string; it: RobotLogEntryDto }) {
   const K = KIND[it.kind];
   const level = LEVEL[it.level];
   const href = it.kind === 'mission' ? missionHref({ robot_id: robotId, mission_id: it.ref }) : it.kind === 'event' ? `/robots/${robotId}?tab=events` : null;
+  // Event codes read as words (NO_GPS → No GPS); "<CODE> cleared" reads as Cleared.
+  const code = it.kind === 'event' && /^[A-Z0-9_]+$/.test(it.title) ? it.title : null;
+  const text = code ? humanize(code.toLowerCase()) : it.title;
+  const body = code && it.body === `${code} cleared` ? 'Cleared' : it.body;
   const title: ReactNode = href ? (
     <Link href={href} className="font-semibold text-accent-text hover:underline">
-      {it.title}
+      {text}
     </Link>
   ) : (
-    <span className="font-semibold">{it.title}</span>
+    <span className="font-semibold">{text}</span>
   );
   return (
     <div className="flex items-start gap-4 px-5 py-3">
@@ -266,7 +322,8 @@ function Entry({ robotId, it }: { robotId: string; it: RobotLogEntryDto }) {
           {level && <Badge tone={level.tone}>{level.label}</Badge>}
           {it.actor && <span className="text-sm text-muted">· {it.actor}</span>}
         </span>
-        {it.body && <span className="mt-0.5 block text-sm break-words text-muted">{it.body}</span>}
+        {body && <span className={cn('mt-0.5 block text-sm break-words', body === 'Cleared' ? 'font-medium text-ok' : 'text-muted')}>{body}</span>}
+        {code && <span className="block font-mono text-xs text-muted">{code}</span>}
       </span>
     </div>
   );

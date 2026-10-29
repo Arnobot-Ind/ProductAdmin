@@ -1,9 +1,9 @@
 'use client';
 
-import type { DeviceHealthDto, EventSeverity, HealthLevel, MissionState, RobotStatus } from '@arnobot/message-schema';
-import { AlertOctagon, AlertTriangle, CheckCircle2, CircleDashed, CircleDot, CircleOff, Info, Loader, WifiOff, XCircle } from 'lucide-react';
+import type { DeviceHealthDto, EventSeverity, HealthLevel, MissionState, RobotCategory, RobotStatus } from '@arnobot/message-schema';
+import { AlertOctagon, AlertTriangle, CheckCircle2, CircleDashed, CircleDot, CircleOff, Info, Loader, Plane, Truck, WifiOff, XCircle } from 'lucide-react';
 import { Badge, type Tone } from '@/components/ui/misc';
-import { fmtRelative, fmtUtc } from '@/lib/format';
+import { fmtAgo, fmtUtc } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { computeRobotStatus } from '@/lib/schema';
 
@@ -26,7 +26,18 @@ export function RobotStatusBadge({ lastSeenAt, showAge }: { lastSeenAt: string |
       <Badge tone={s.tone} icon={<s.Icon className="size-3.5" aria-hidden />} title={lastSeenAt ? `Last seen ${fmtUtc(lastSeenAt)}` : 'Never seen'}>
         {s.label}
       </Badge>
-      {showAge && <span className="text-xs text-muted">{lastSeenAt ? fmtRelative(lastSeenAt, now) : 'never seen'}</span>}
+      {showAge && <span className="text-sm text-muted">{lastSeenAt ? `Seen ${fmtAgo(lastSeenAt, now).toLowerCase()}` : 'Never seen'}</span>}
+    </span>
+  );
+}
+
+/** UGV (ground) or UAV (aerial), with an icon and the category colour as a dot, always labelled. */
+export function CategoryBadge({ category, className }: { category: RobotCategory; className?: string }) {
+  const Icon = category === 'uav' ? Plane : Truck;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-sm font-semibold ${className ?? ''}`} title={category === 'uav' ? 'Aerial robot' : 'Ground robot'}>
+      <Icon className="size-3.5" style={{ color: `var(--cat-${category})` }} aria-hidden />
+      {category.toUpperCase()}
     </span>
   );
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import { RobotRef } from '@/components/domain/robot-ref';
+
 import type { OrganizationDetailDto, SoftwareInstallDto, SoftwareProductDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppWindow, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -77,7 +79,7 @@ export function SoftwareTab({ org, canEdit }: { org: OrganizationDetailDto; canE
                     </span>
                   ),
                 },
-                { key: 'r', header: 'Robot', cell: (i) => (i.robot_id ? <span className="font-mono">{i.robot_id}</span> : <span className="text-muted">—</span>) },
+                { key: 'r', header: 'Robot', cell: (i) => (i.robot_id ? <RobotRef id={i.robot_id} /> : <span className="text-muted">—</span>) },
                 { key: 'n', header: 'Seats', align: 'right', cell: (i) => i.seats ?? <span className="text-muted">—</span> },
                 { key: 'i', header: 'Installed', cell: (i) => fmtDate(i.installed_at) },
                 { key: 'l', header: 'Licence', cell: (i) => <LicenceBadge state={i.licence_state} until={i.licence_valid_until} /> },

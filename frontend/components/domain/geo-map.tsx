@@ -75,11 +75,14 @@ export function GeoMap({
   className,
   ariaLabel,
   onPointClick,
+  cluster,
 }: {
   lines?: MapLine[];
   points?: MapPoint[];
   className?: string;
   ariaLabel: string;
+  /** Group nearby points into one circle sized by how many it holds (a large fleet); click a group to zoom in. */
+  cluster?: boolean;
   /** Makes the points clickable (e.g. open that robot); hovering shows their label. */
   onPointClick?: (id: string) => void;
 }) {
@@ -135,6 +138,27 @@ export function GeoMap({
         map.on('click', 'pms-points', (e) => {
           const id = e.features?.[0]?.properties?.id;
           if (id && clickRef.current) clickRef.current(String(id));
+        });
+        // Groups (cluster mode): hover tells how many robots, click zooms in until they separate.
+        map.on('mouseenter', 'pms-clusters', (e) => {
+          const f = e.features?.[0];
+          if (!f || !map) return;
+          map.getCanvas().style.cursor = 'pointer';
+          popup
+            .setLngLat((f.geometry as unknown as { coordinates: [number, number] }).coordinates)
+            .setText(`${f.properties?.point_count ?? ''} robots here · click to zoom in`)
+            .addTo(map);
+        });
+        map.on('mouseleave', 'pms-clusters', () => {
+          if (map) map.getCanvas().style.cursor = '';
+          popup.remove();
+        });
+        map.on('click', 'pms-clusters', async (e) => {
+          const f = e.features?.[0];
+          const src = map?.getSource('pms-points') as unknown as { getClusterExpansionZoom?: (id: number) => Promise<number> } | undefined;
+          if (!f || !map || !src?.getClusterExpansionZoom) return;
+          const zoom = await src.getClusterExpansionZoom(Number(f.properties?.cluster_id));
+          map.easeTo({ center: (f.geometry as unknown as { coordinates: [number, number] }).coordinates, zoom });
         });
         mapRef.current = map;
       } catch {
@@ -203,15 +227,32 @@ export function GeoMap({
     if (points.length) {
       map.addSource('pms-points', {
         type: 'geojson',
+        ...(cluster ? { cluster: true, clusterRadius: 42, clusterMaxZoom: 15 } : {}),
         data: {
           type: 'FeatureCollection',
           features: points.map((p) => ({ type: 'Feature', properties: { id: p.id, color: cssVar(p.color), label: p.label ?? '' }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })),
         },
       });
+      if (cluster) {
+        map.addLayer({
+          id: 'pms-clusters',
+          type: 'circle',
+          source: 'pms-points',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': cssVar('var(--accent)'),
+            'circle-opacity': 0.85,
+            'circle-radius': ['step', ['get', 'point_count'], 14, 10, 18, 50, 24, 200, 32],
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+          },
+        });
+      }
       map.addLayer({
         id: 'pms-points',
         type: 'circle',
         source: 'pms-points',
+        ...(cluster ? { filter: ['!', ['has', 'point_count']] } : {}),
         paint: { 'circle-radius': 7, 'circle-color': ['get', 'color'], 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' },
       });
       for (const p of points) extend(p.lon, p.lat);
@@ -222,7 +263,7 @@ export function GeoMap({
       if (bounds[0] === bounds[2] && bounds[1] === bounds[3]) map.jumpTo({ center: [bounds[0], bounds[1]], zoom: 15 });
       else map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
     }
-  }, [lines, points, ready]);
+  }, [lines, points, ready, cluster]);
 
   return (
     <div className={cn('relative overflow-hidden rounded-lg border border-border bg-surface-2', className ?? 'h-80')}>

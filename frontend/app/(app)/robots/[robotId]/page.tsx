@@ -2,7 +2,7 @@
 
 import type { HardwareRevisionDto, ProductDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, RotateCcw, Trash2 } from 'lucide-react';
+import { ExternalLink, GitBranch, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
@@ -11,7 +11,9 @@ import { RobotStatusBadge } from '@/components/domain/status';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
-import { Badge, InlineAlert, Mono, QueryView } from '@/components/ui/misc';
+import { Badge, InlineAlert, LastSeen, QueryView } from '@/components/ui/misc';
+import { CategoryBadge } from '@/components/domain/status';
+import { ProductPicture } from '@/components/domain/product-media';
 import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
@@ -32,18 +34,22 @@ import { RobotEventsTab, RobotMissionsTab } from './_tabs/lists';
 import { HealthTab, LocationTab, MissionStatsCard, OverviewTab, RobotMonthCharts } from './_tabs/overview';
 import { RobotLogTab } from './_tabs/log';
 import { OwnershipTab } from './_tabs/ownership';
+import { AttachmentsTab } from './_tabs/attachments';
+import { RobotBuild } from '@/components/domain/robot-build';
+import { NotesTab, PinnedNotes } from './_tabs/notes';
 import { SoftwareTab } from './_tabs/software';
 import { TelemetryTab } from './_tabs/telemetry';
 import { VideosTab } from './_tabs/videos';
 import { DataActivityBadge } from '@/components/archive/badges';
 import { BesideBack } from '@/components/ui/back-button';
-import { Band, BandFact, BandMeter } from '@/components/ui/band';
+import { Band, BandFact } from '@/components/ui/band';
 import { fmtDistance } from '@/lib/format';
 
 /**
- * The robot record in five sections, each with a few views (?tab= keeps the view's id, so old links still work).
- * Status = what it is doing now; Recordings = what it captured; Hardware / Software = how it is built;
- * Records = paperwork and history; Logs = everything above in one timeline.
+ * The robot record. The header says what the robot is (name, category, status, description, serial number, owner,
+ * lifetime distance and missions, software version and repository, last seen, pictures). Below it, sections in the
+ * order people use them: Live status, Logs, Software (with SSH access), then Recordings, Hardware and Records.
+ * ?tab= keeps the view's id, so old links still work.
  */
 /** Which count the activity calendar shades for each Recordings tab (and Logs), and back. */
 const TAB_METRIC: Record<string, ActivityMetric> = { videos: 'recordings', detections: 'detections', missions: 'missions', events: 'events', log: 'log' };
@@ -62,6 +68,21 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
     ],
   },
   {
+    id: 'logs',
+    label: 'Logs',
+    tabs: [{ id: 'log', label: 'Activity log' }],
+  },
+  {
+    id: 'software',
+    label: 'Software',
+    tabs: [
+      { id: 'software', label: 'Installed software' },
+      { id: 'ssh', label: 'SSH access', perm: 'credential.read_meta' },
+      { id: 'credentials', label: 'Other credentials', perm: 'credential.read_meta' },
+      { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
+    ],
+  },
+  {
     id: 'recordings',
     label: 'Recordings',
     tabs: [
@@ -75,32 +96,20 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
     id: 'hardware',
     label: 'Hardware',
     tabs: [
+      { id: 'attachments', label: 'Attachments' },
       { id: 'hardware', label: 'Parts fitted' },
       { id: 'maintenance', label: 'Maintenance' },
       { id: 'dispatch', label: 'Dispatch & warranty' },
     ],
   },
   {
-    id: 'software',
-    label: 'Software',
-    tabs: [
-      { id: 'software', label: 'Installed software' },
-      { id: 'credentials', label: 'Credentials', perm: 'credential.read_meta' },
-      { id: 'keys', label: 'Robot & GCS keys', perm: 'ingest.manage' },
-    ],
-  },
-  {
     id: 'records',
     label: 'Records',
     tabs: [
+      { id: 'notes', label: 'Journal' },
       { id: 'documents', label: 'Documents' },
       { id: 'ownership', label: 'Ownership' },
     ],
-  },
-  {
-    id: 'logs',
-    label: 'Logs',
-    tabs: [{ id: 'log', label: 'Activity log' }],
   },
 ];
 
@@ -144,77 +153,106 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
   return (
     <>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1 basis-80">
-          <BesideBack
-            above={
-              <nav aria-label="Breadcrumb" className="text-sm text-muted">
-                <Link href="/robots" className="hover:underline">
-                  Robots
-                </Link>{' '}
-                / <span aria-current="page">{robot.robot_id}</span>
-              </nav>
-            }
-          >
+      <header className="mb-6">
+        <BesideBack
+          above={
+            <nav aria-label="Breadcrumb" className="text-sm text-muted">
+              <Link href="/robots" className="hover:underline">
+                Robots
+              </Link>{' '}
+              / <span aria-current="page">{robot.robot_id}</span>
+            </nav>
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="font-mono text-3xl font-bold">{robot.robot_id}</h1>
+              <h1 className="text-3xl font-bold">
+                <span className="font-mono">{robot.robot_id}</span>
+                {robot.nickname && <span> · {robot.nickname}</span>}
+              </h1>
+              <CategoryBadge category={robot.category} />
               <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
               <DataActivityBadge lastSeenAt={robot.last_seen_at} lastUploadAt={robot.last_upload_at} sendingData={robot.sending_data} recording={robot.recording} />
               {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
             </div>
-          </BesideBack>
-          {/* The robot's headline facts on the brand band (as on the dashboard). */}
-          <Band label={`${robot.robot_id} summary`} className="mt-4">
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 p-5 sm:grid-cols-3 sm:p-6 xl:grid-cols-5">
-              <BandFact label="Product">{robot.product_name}</BandFact>
-              <BandFact label="Revision">{robot.hardware_revision ?? 'Not set'}</BandFact>
-              <BandFact label="Serial">
-                <span className="font-mono">{robot.serial_number}</span>
-              </BandFact>
-              <BandFact label="Owner">
-                <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
-              </BandFact>
-              <BandFact label="Current mission">
-                {robot.current_mission_id ? (
-                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
+            <div className="flex flex-wrap gap-2 empty:hidden">
+              {can('robot.write') && !robot.deleted_at && (
+                <Button icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              )}
+              {can('robot.delete') &&
+                (robot.deleted_at ? (
+                  <Button icon={<RotateCcw className="size-4" aria-hidden />} onClick={() => del.mutate()} loading={del.isPending}>
+                    Restore
+                  </Button>
+                ) : (
+                  <Button variant="ghost" icon={<Trash2 className="size-4" aria-hidden />} onClick={() => setDeleting(true)}>
+                    Delete
+                  </Button>
+                ))}
+            </div>
+          </div>
+        </BesideBack>
+
+        {/* What the robot is, on the brand band: picture, product and description, then the identity facts. */}
+        <Band label={`${robot.robot_id} summary`} className="mt-4">
+          <div className="grid gap-6 p-5 sm:p-6 md:grid-cols-[13rem_minmax(0,1fr)]">
+            <ProductPicture productId={robot.product_id} name={`${robot.product_name} · ${robot.robot_id}`} />
+            <div className="min-w-0">
+              <p className="max-w-3xl text-base">
+                {robot.description ?? <span className="text-muted">{robot.product_description ?? 'No description yet. Use Edit to add one.'}</span>}
+              </p>
+              <RobotBuild
+                className="mt-3"
+                category={robot.category}
+                product={{ id: robot.product_id, name: robot.product_name, revision: robot.hardware_revision, coverPhotoId: robot.product_cover_photo_id }}
+                attachments={robot.attachments}
+                onFit={can('robot.write') && !robot.deleted_at ? () => openTab('attachments') : undefined}
+              />
+              {robot.current_mission_id && (
+                <p className="mt-2 text-base">
+                  <span className="text-muted">On mission </span>
+                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('font-medium text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
                     {robot.current_mission_name ?? robot.current_mission_id}
                   </Link>
-                ) : (
-                  'None'
-                )}
-              </BandFact>
-            </dl>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 border-t border-border px-5 py-4 sm:grid-cols-3 sm:px-6">
-              <div className="min-w-0">
-                <dt className="text-base text-muted">Battery</dt>
-                <dd className="mt-2">
-                  <BandMeter pct={robot.battery_pct} />
-                </dd>
-              </div>
-              <BandFact label="Software">
-                <span className="font-mono">{robot.sw_ver ?? 'Not reported'}</span>
-              </BandFact>
-              <BandFact label="Lifetime distance">{robot.odometer_m !== null ? fmtDistance(robot.odometer_m) : 'Not reported'}</BandFact>
-            </dl>
-          </Band>
-        </div>
-        <div className="flex flex-wrap gap-2 empty:hidden">
-          {can('robot.write') && !robot.deleted_at && (
-            <Button icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
-          {can('robot.delete') &&
-            (robot.deleted_at ? (
-              <Button icon={<RotateCcw className="size-4" aria-hidden />} onClick={() => del.mutate()} loading={del.isPending}>
-                Restore
-              </Button>
-            ) : (
-              <Button variant="ghost" icon={<Trash2 className="size-4" aria-hidden />} onClick={() => setDeleting(true)}>
-                Delete
-              </Button>
-            ))}
-        </div>
+                </p>
+              )}
+              <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-3">
+                <BandFact label="Serial number">
+                  <span className="font-mono">{robot.serial_number}</span>
+                </BandFact>
+                <BandFact label="Current owner">
+                  <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
+                </BandFact>
+                <div className="min-w-0">
+                  <dt className="text-base text-muted">Last seen</dt>
+                  <dd className="mt-1 text-lg">
+                    <LastSeen iso={robot.last_seen_at} stacked />
+                  </dd>
+                </div>
+                <BandFact label="Lifetime distance">{robot.odometer_m !== null ? fmtDistance(robot.odometer_m) : fmtDistance(robot.total_distance_m)}</BandFact>
+                <BandFact label="Lifetime missions">
+                  {robot.total_missions.toLocaleString('en-IN')} <span className="text-base font-normal text-muted">· {robot.completed.toLocaleString('en-IN')} completed</span>
+                </BandFact>
+                <div className="min-w-0">
+                  <dt className="text-base text-muted">Software</dt>
+                  <dd className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-lg font-semibold">
+                    <span className="font-mono">{robot.sw_ver ?? 'Not reported'}</span>
+                    {robot.repo_url ? (
+                      <a href={robot.repo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-base font-medium text-accent-text hover:underline">
+                        <GitBranch className="size-4" aria-hidden /> Repository <ExternalLink className="size-3.5" aria-hidden />
+                      </a>
+                    ) : (
+                      <span className="text-sm font-normal text-muted">No repository link</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </Band>
+        <PinnedNotes robotId={robot.robot_id} onOpen={() => openTab('notes')} />
       </header>
 
       {robot.deleted_at && (
@@ -276,10 +314,13 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         )}
         {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
+        {tab === 'attachments' && <AttachmentsTab robotId={robot.robot_id} category={robot.category} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
         {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
         {tab === 'connectivity' && <ConnectivityTab robotId={robot.robot_id} />}
-        {tab === 'credentials' && <CredentialsTab robotId={robot.robot_id} />}
+        {tab === 'ssh' && <CredentialsTab robotId={robot.robot_id} only="ssh" />}
+        {tab === 'credentials' && <CredentialsTab robotId={robot.robot_id} only="other" />}
+        {tab === 'notes' && <NotesTab robotId={robot.robot_id} />}
         {tab === 'documents' && <DocumentsTab robot={robot} />}
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
         {tab === 'maintenance' && <MaintenanceTab robotId={robot.robot_id} />}
@@ -306,6 +347,8 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
   const toast = useToast();
   const [revisionId, setRevisionId] = useState(robot.hardware_revision_id ?? '');
   const [notes, setNotes] = useState(robot.notes ?? '');
+  const [nickname, setNickname] = useState(robot.nickname ?? '');
+  const [description, setDescription] = useState(robot.description ?? '');
   const product = useQuery({
     queryKey: ['product', robot.product_id],
     queryFn: () => api.get<ProductDto & { revisions: HardwareRevisionDto[] }>(`/products/${robot.product_id}`),
@@ -316,6 +359,8 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
       api.patch<RobotDetailDto>(`/robots/${robot.robot_id}`, {
         hardware_revision_id: revisionId || null,
         notes: notes.trim() || null,
+        nickname: nickname.trim() || null,
+        description: description.trim() || null,
       }),
     onSuccess: () => {
       toast.success('Robot updated');
@@ -330,7 +375,7 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
       open={open}
       onClose={onClose}
       title={`Edit ${robot.robot_id}`}
-      description="The Robot ID, serial number and product are permanent and cannot be edited."
+      description="The Robot ID, serial number and base model are permanent and cannot be edited."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -341,6 +386,12 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
       }
     >
       <div className="grid gap-4">
+        <Field label="Nickname" hint="A short name people use for it, shown next to the Robot ID everywhere, e.g. Khavda patrol 1.">
+          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} data-autofocus />
+        </Field>
+        <Field label="Short description" hint="One or two lines: what it does and where. Shown on lists and when hovering the robot.">
+          <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
+        </Field>
         <Field label="Serial number" hint="Generated by the PMS at registration (8 digits). Permanent.">
           <Input value={robot.serial_number} readOnly className="font-mono" />
         </Field>

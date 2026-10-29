@@ -1,16 +1,19 @@
 'use client';
 
-import type { AuditEntryDto, Paginated } from '@arnobot/message-schema';
-import { useQuery } from '@tanstack/react-query';
-import { Download, ScrollText } from 'lucide-react';
+import { RobotRef } from '@/components/domain/robot-ref';
+
+import type { AuditCalendarDayDto, AuditEntryDto, Paginated } from '@arnobot/message-schema';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Download, ScrollText, X } from 'lucide-react';
+import { CalendarLayout, dayBounds, dayTitle, istToday, MonthCalendar } from '@/components/domain/activity-calendar';
 import { useState } from 'react';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Badge, EmptyState, InlineAlert, PageHeader, Pagination, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api, downloadUrl, qs } from '@/lib/api';
 import { useCan } from '@/lib/auth';
-import { fromLocalInput } from '@/lib/format';
-import { useDebounced, useDocumentTitle } from '@/lib/hooks';
+import { fmtDateTime, fmtWhen, fromLocalInput } from '@/lib/format';
+import { useDebounced, useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useCompanies } from '@/lib/queries';
 import { ACTION_LABEL, auditSummary } from '@/lib/audit';
 
@@ -38,6 +41,13 @@ export default function AuditPage() {
   const companies = useCompanies(can('audit.read'));
   const [f, setF] = useState({ action: '', outcome: '', company_id: '', robot: '', q: '', from: '', to: '' });
   const [page, setPage] = useState(1);
+  // A day picked on the calendar (IST, kept in the URL) replaces From / To.
+  const [url, setUrl] = useUrlState();
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(url.get('day') ?? '') ? url.get('day') : null;
+  const setDay = (d: string | null) => {
+    setUrl({ day: d });
+    setPage(1);
+  };
   const text = useDebounced(f.q, 300);
   const robot = useDebounced(f.robot.trim().toLowerCase(), 300);
   const params = {
@@ -46,9 +56,11 @@ export default function AuditPage() {
     company_id: f.company_id || undefined,
     robot: /^[a-z][a-z0-9_]*[0-9]+$/.test(robot) ? robot : undefined,
     q: text || undefined,
-    from: fromLocalInput(f.from),
-    to: fromLocalInput(f.to),
+    from: day ? dayBounds(day).from : fromLocalInput(f.from),
+    to: day ? dayBounds(day).to : fromLocalInput(f.to),
   };
+  // The calendar counts with the same filters, minus the dates.
+  const { from: _from, to: _to, ...calendarFilters } = params;
   const q = useQuery({
     queryKey: ['audit', params, page],
     queryFn: () => api.get<Paginated<AuditEntryDto>>('/audit', { ...params, page, limit: 50 }),
@@ -83,7 +95,16 @@ export default function AuditPage() {
           </a>
         }
       />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <CalendarLayout calendar={<AuditCalendar filters={calendarFilters} day={day} onDay={setDay} />}>
+      {day && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent-soft px-4 py-2.5">
+          <p className="text-base font-semibold text-accent-text">{dayTitle(day)}</p>
+          <button type="button" onClick={() => setDay(null)} className="inline-flex items-center gap-1 text-sm font-medium text-accent-text hover:underline">
+            <X className="size-4" aria-hidden /> All days
+          </button>
+        </div>
+      )}
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         <Field label="Event">
           <Select value={f.action} onChange={(e) => set({ action: e.target.value })}>
             {ACTIONS.map((a) => (
@@ -117,12 +138,16 @@ export default function AuditPage() {
         <Field label="Search">
           <Input value={f.q} onChange={(e) => set({ q: e.target.value })} placeholder="email, name, file…" />
         </Field>
-        <Field label="From">
-          <Input type="datetime-local" value={f.from} onChange={(e) => set({ from: e.target.value })} />
-        </Field>
-        <Field label="To">
-          <Input type="datetime-local" value={f.to} onChange={(e) => set({ to: e.target.value })} />
-        </Field>
+        {!day && (
+          <>
+            <Field label="From">
+              <Input type="datetime-local" value={f.from} onChange={(e) => set({ from: e.target.value })} />
+            </Field>
+            <Field label="To">
+              <Input type="datetime-local" value={f.to} onChange={(e) => set({ to: e.target.value })} />
+            </Field>
+          </>
+        )}
       </div>
       <QueryView query={q} rows={12}>
         {(res) =>
@@ -136,7 +161,7 @@ export default function AuditPage() {
                 rows={res.items}
                 rowKey={(e) => e.id}
                 columns={[
-                  { key: 't', header: 'When', cell: (e) => <Time iso={e.at} /> },
+                  { key: 't', header: 'When', className: 'whitespace-nowrap', cell: (e) => <span title={fmtDateTime(e.at)}>{fmtWhen(e.at)}</span> },
                   {
                     key: 'w',
                     header: 'Who',
@@ -158,8 +183,8 @@ export default function AuditPage() {
                       </span>
                     ),
                   },
-                  { key: 'r', header: 'Robot', cell: (e) => (e.robot_id ? <span className="font-mono">{e.robot_id}</span> : <span className="text-muted">—</span>) },
-                  { key: 'o', header: 'Organization', cell: (e) => e.company_name ?? <span className="text-muted">—</span> },
+                  { key: 'r', header: 'Robot', cell: (e) => (e.robot_id ? <RobotRef id={e.robot_id} /> : <span className="text-muted">—</span>) },
+                  { key: 'o', header: 'Organization', cell: (e) => (e.company_name ? <span className="block max-w-44 truncate" title={e.company_name}>{e.company_name}</span> : <span className="text-muted">—</span>) },
                   { key: 'd', header: 'Details', className: 'max-w-md', cell: (e) => <span className="block truncate text-xs text-muted" title={JSON.stringify(e.detail)}>{auditSummary(e)}</span> },
                   { key: 'i', header: 'IP', cell: (e) => <span className="font-mono text-xs">{e.ip ?? '—'}</span> },
                 ]}
@@ -169,6 +194,42 @@ export default function AuditPage() {
           )
         }
       </QueryView>
+      </CalendarLayout>
     </>
   );
 }
+
+/** The month on a calendar, each day shaded by its audit entries; a red dot when some were refused or failed. */
+function AuditCalendar({ filters, day, onDay }: { filters: Record<string, string | undefined>; day: string | null; onDay: (d: string | null) => void }) {
+  const [month, setMonth] = useState((day ?? istToday()).slice(0, 7));
+  const q = useQuery({
+    queryKey: ['audit', 'calendar', month, filters],
+    queryFn: () => api.get<AuditCalendarDayDto[]>('/audit/calendar', { ...filters, month }),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+  const byDay = new Map((q.data ?? []).map((x) => [x.date, x]));
+  const picked = day ? byDay.get(day) : undefined;
+  return (
+    <MonthCalendar
+      month={month}
+      onMonth={setMonth}
+      loading={q.isFetching && !q.data}
+      value={(c) => ({ n: byDay.get(c)?.total ?? 0, alert: byDay.get(c)?.problems ?? 0 })}
+      label={(n) => `${n} entr${n === 1 ? 'y' : 'ies'}`}
+      alertLabel="refused or failed"
+      day={day}
+      onDay={onDay}
+    >
+      {day && (
+        <div className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+          <p className="font-semibold">{dayTitle(day)}</p>
+          <p className="mt-1">
+            {picked?.total ?? 0} entr{picked?.total === 1 ? 'y' : 'ies'} · <span className={picked?.problems ? 'font-medium text-fault' : 'text-muted'}>{picked?.problems ?? 0} refused or failed</span>
+          </p>
+        </div>
+      )}
+    </MonthCalendar>
+  );
+}
+

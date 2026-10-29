@@ -1,10 +1,12 @@
 'use client';
 
-import type { DeviceHealthDto, HealthLevel, LiveStateDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
+import type { ActiveFaultDto, DeviceHealthDto, HealthLevel, LiveStateDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
   BatteryCharging,
+  Bell,
+  Clock3,
   BatteryFull,
   BatteryLow,
   BatteryMedium,
@@ -29,10 +31,10 @@ import Link from 'next/link';
 import { useMemo, type ReactNode } from 'react';
 import { DistancePerDayChart, istDay, MissionsPerDayChart, ShareBar } from '@/components/domain/charts';
 import { GeoMap } from '@/components/domain/geo-map';
-import { Badge, Card, QueryView, Time } from '@/components/ui/misc';
+import { Badge, Card, LastSeen, QueryView, Time } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { fmtCoord, fmtDistance, fmtDuration, fmtNum, fmtRelative, humanize } from '@/lib/format';
+import { fmtAgo, fmtCoord, fmtDistance, fmtDuration, fmtNum, fmtRelative, fmtWhen, humanize } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
 
@@ -51,7 +53,13 @@ function useLive(robotId: string) {
   });
 }
 
-/** Live status → Summary: how fresh the data is, four live tiles, and one link card per topic. */
+/** The robot's faults and alerts still active (Health, Summary). */
+function useFaults(robotId: string) {
+  const poll = useLivePoll();
+  return useQuery({ queryKey: ['robot', robotId, 'faults'], queryFn: () => api.get<ActiveFaultDto[]>(`/robots/${robotId}/faults`), refetchInterval: poll || 60_000 });
+}
+
+/** Live status → Summary: last battery, Wi-Fi, mode and speed; then location, last seen, last event and health. */
 export function OverviewTab({ robot }: { robot: RobotDetailDto }) {
   const q = useLive(robot.robot_id);
   return <QueryView query={q} rows={6}>{(live) => <SummaryView live={live} robot={robot} />}</QueryView>;
@@ -69,9 +77,12 @@ export function HealthTab({ robot }: { robot: RobotDetailDto }) {
   return (
     <QueryView query={q} rows={6}>
       {(live) => (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <DeviceHealthCard health={live.health} />
-          <TemperatureCard temps={live.temps_c} />
+        <div className="flex flex-col gap-5">
+          <ActiveFaultsCard robotId={robot.robot_id} />
+          <div className="grid gap-5 lg:grid-cols-2">
+            <DeviceHealthCard health={live.health} robotId={robot.robot_id} />
+            <TemperatureCard temps={live.temps_c} />
+          </div>
         </div>
       )}
     </QueryView>
@@ -101,57 +112,141 @@ function Freshness({ live }: { live: LiveStateDto }) {
 
 function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDto }) {
   const id = robot.robot_id;
+  const faults = useFaults(id);
+  const now = useNow(30_000);
+  const active = faults.data ?? [];
   const problems = DEVICES.filter((d) => live.health[d.key] === 'fault' || live.health[d.key] === 'warning').length;
-  const healthKnown = DEVICES.some((d) => live.health[d.key]);
+  const healthKnown = DEVICES.some((d) => live.health[d.key]) || active.length > 0;
+  const e = robot.last_event;
   return (
     <div className="flex flex-col gap-6">
       <Freshness live={live} />
 
-      {/* Values the robot does not report (e.g. battery temperature on Saibya) are left out rather than shown as "—". */}
-      <section aria-label="Live metrics" className={cn('grid gap-4 sm:grid-cols-2', live.signal_dbm !== null ? 'xl:grid-cols-4' : 'xl:grid-cols-3')}>
+      <section aria-label="Last reported" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <BatteryTile live={live} />
-        {live.signal_dbm !== null && <SignalTile dbm={live.signal_dbm} />}
+        <SignalTile dbm={live.signal_dbm} />
         <ArmedTile armed={live.armed} mode={live.mode} />
         <MotionTile speed={live.position?.speed_mps ?? null} heading={live.position?.heading_deg ?? null} />
       </section>
 
-      {/* One card per topic, information only: each topic has its own tab above. */}
-      <section aria-label="More about this robot" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <TopicCard icon={<MapPin className="size-5" />} title="Location">
-          {live.position ? <span className="font-mono text-base">{fmtCoord(live.position.lat, live.position.lon)}</span> : 'No position yet'}
+      <section aria-label="Where and when" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <TopicCard icon={<MapPin className="size-5" />} title="Location" href={`/robots/${id}?tab=location`}>
+          {live.position ? <span className="font-mono text-base text-fg">{fmtCoord(live.position.lat, live.position.lon)}</span> : 'No position yet'}
           {live.position?.fix && (
             <span className="mt-1 block">
               <FixBadge fix={live.position.fix} />
             </span>
           )}
         </TopicCard>
-        <TopicCard icon={<Cpu className="size-5" />} title="Health" tone={!healthKnown ? undefined : problems ? 'fault' : 'ok'}>
-          {!healthKnown ? 'Not reported' : problems ? `${problems} device${problems === 1 ? '' : 's'} need attention` : 'All devices OK'}
+        <TopicCard icon={<Clock3 className="size-5" />} title="Last seen">
+          <LastSeen iso={live.last_seen_at} stacked className="text-base text-fg" />
         </TopicCard>
-        <TopicCard icon={<Route className="size-5" />} title="Missions">
-          {robot.total_missions.toLocaleString()} missions · {robot.completed.toLocaleString()} completed
+        <TopicCard icon={<Bell className="size-5" />} title="Last event" tone={e?.severity === 'critical' ? 'fault' : undefined} href={`/robots/${id}?tab=events`}>
+          {e ? (
+            <>
+              <span className="block font-semibold text-fg">{e.code ? humanize(e.code.toLowerCase()) : humanize(e.severity)}</span>
+              {/* Robots report the end of a problem as "<CODE> cleared". */}
+              <span className="block break-words">{e.code && e.message === `${e.code} cleared` ? <span className="font-medium text-ok">Cleared</span> : e.message}</span>
+              <span className="mt-1 block text-muted">
+                {fmtAgo(e.ts, now)} · {fmtWhen(e.ts, now)}
+              </span>
+            </>
+          ) : (
+            'No events yet'
+          )}
         </TopicCard>
-        <TopicCard icon={<Package className="size-5" />} title="Software">
-          <span className="font-mono text-base">{robot.sw_ver ?? 'Not reported'}</span>
+        <TopicCard icon={<Cpu className="size-5" />} title="Health" tone={!healthKnown ? undefined : problems || active.length ? 'fault' : 'ok'} href={`/robots/${id}?tab=health`}>
+          {active.length ? (
+            <ul className="flex flex-col gap-0.5">
+              {active.slice(0, 3).map((f) => (
+                <li key={f.event_id} className="font-medium">
+                  {humanize(f.code.toLowerCase())}
+                </li>
+              ))}
+              {active.length > 3 && <li>and {active.length - 3} more</li>}
+            </ul>
+          ) : !healthKnown ? (
+            'Not reported'
+          ) : problems ? (
+            `${problems} device${problems === 1 ? '' : 's'} need attention`
+          ) : (
+            'All devices OK'
+          )}
         </TopicCard>
       </section>
     </div>
   );
 }
 
-function TopicCard({ icon, title, tone, children }: { icon: ReactNode; title: string; tone?: 'ok' | 'fault'; children: ReactNode }) {
-  return (
-    <div className="flex items-start gap-4 rounded-xl border border-border bg-surface p-5 shadow-sm">
+function TopicCard({ icon, title, tone, href, children }: { icon: ReactNode; title: string; tone?: 'ok' | 'fault'; href?: string; children: ReactNode }) {
+  const body = (
+    <>
       <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-lg', tone === 'fault' ? 'bg-fault-bg text-fault' : tone === 'ok' ? 'bg-ok-bg text-ok' : 'bg-accent-soft text-accent-text')} aria-hidden>
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-base font-semibold">{title}</span>
-        <span className={cn('mt-1 block text-sm', tone === 'fault' ? 'text-fault' : 'text-muted')}>{children}</span>
+        <span className="flex items-center justify-between gap-2 text-base font-semibold">
+          {title}
+          {href && <ChevronRight className="size-4 text-muted" aria-hidden />}
+        </span>
+        <span className={cn('mt-1 block text-base break-words', tone === 'fault' ? 'text-fault' : 'text-muted')}>{children}</span>
       </span>
-    </div>
+    </>
+  );
+  const cls = 'flex items-start gap-4 rounded-xl border border-border bg-surface p-5 shadow-sm';
+  return href ? (
+    <Link href={href} className={cn(cls, 'transition-colors hover:border-accent/50')}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cls}>{body}</div>
   );
 }
+
+/** Health: every fault or alert still active, with its exact cause, device and since when. */
+function ActiveFaultsCard({ robotId }: { robotId: string }) {
+  const q = useFaults(robotId);
+  const now = useNow(30_000);
+  return (
+    <Card title="Active faults" actions={q.data && (q.data.length ? <Badge tone="fault">{q.data.length} active</Badge> : <Badge tone="ok">None</Badge>)} bodyClassName="p-0">
+      <QueryView query={q} rows={2}>
+        {(list) =>
+          list.length === 0 ? (
+            <p className="flex items-center gap-2 px-5 py-4 text-base text-muted">
+              <CheckCircle2 className="size-5 text-ok" aria-hidden /> No fault is active. Every fault the robot reported has been cleared.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {list.map((f) => (
+                <li key={f.event_id} className={cn('flex flex-wrap items-start gap-x-4 gap-y-1 px-5 py-4', f.severity === 'critical' ? 'bg-fault-bg/40' : 'bg-warn-bg/40')}>
+                  <span className={cn('mt-0.5 shrink-0', f.severity === 'critical' ? 'text-fault' : 'text-warn')} aria-hidden>
+                    {f.severity === 'critical' ? <XCircle className="size-5" /> : <AlertTriangle className="size-5" />}
+                  </span>
+                  <div className="min-w-0 flex-1 basis-64">
+                    <p className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-base font-semibold">{humanize(f.code.toLowerCase())}</span>
+                      <span className="text-sm text-muted">
+                        {f.severity === 'critical' ? 'Critical' : 'Warning'} · {DEVICE_NAME[f.device]}
+                      </span>
+                    </p>
+                    <p className="text-base">{f.message}</p>
+                    <p className="font-mono text-sm text-muted">{f.code}</p>
+                  </div>
+                  <span className="text-right text-sm">
+                    <span className="block font-medium">Since {fmtAgo(f.since, now).toLowerCase()}</span>
+                    <span className="block text-muted">{fmtWhen(f.since, now)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </QueryView>
+    </Card>
+  );
+}
+
+const DEVICE_NAME: Record<ActiveFaultDto['device'], string> = { controller: 'Controller', lidar: 'LiDAR', cameras: 'Cameras', gps: 'GPS', battery: 'Battery', other: 'Other' };
 
 function PositionCard({ live, robotId }: { live: LiveStateDto; robotId: string }) {
   const points = useMemo(
@@ -231,7 +326,15 @@ function BatteryTile({ live }: { live: LiveStateDto }) {
   );
 }
 
-function SignalTile({ dbm }: { dbm: number }) {
+function SignalTile({ dbm }: { dbm: number | null }) {
+  if (dbm === null) {
+    return (
+      <Tile label="Wi-Fi signal" icon={<SignalBars bars={0} tone="muted" small />}>
+        <p className="text-2xl font-semibold text-muted">—</p>
+        <p className="mt-1.5 text-xs text-muted">Not reported by this robot</p>
+      </Tile>
+    );
+  }
   const bars = dbm >= -60 ? 4 : dbm >= -70 ? 3 : dbm >= -80 ? 2 : 1;
   const label = ['', 'Weak', 'Fair', 'Good', 'Excellent'][bars];
   const tone: Tone = bars >= 3 ? 'ok' : bars === 2 ? 'warn' : 'fault';
@@ -319,7 +422,8 @@ const LEVEL: Record<HealthLevel, { tone: Tone; label: string; Icon: typeof Check
   fault: { tone: 'fault', label: 'Fault', Icon: XCircle },
 };
 
-function DeviceHealthCard({ health }: { health: DeviceHealthDto }) {
+function DeviceHealthCard({ health, robotId }: { health: DeviceHealthDto; robotId: string }) {
+  const faults = useFaults(robotId).data ?? [];
   const problems = DEVICES.filter((d) => health[d.key] === 'fault' || health[d.key] === 'warning').length;
   const unknown = DEVICES.every((d) => !health[d.key]);
   return (
@@ -344,6 +448,13 @@ function DeviceHealthCard({ health }: { health: DeviceHealthDto }) {
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">{d.name}</span>
                 <span className="block text-xs text-muted">{d.detail}</span>
+                {faults
+                  .filter((f) => f.device === d.key)
+                  .map((f) => (
+                    <span key={f.event_id} className={cn('mt-0.5 block text-sm font-medium', f.severity === 'critical' ? 'text-fault' : 'text-warn')}>
+                      {humanize(f.code.toLowerCase())}: {f.message}
+                    </span>
+                  ))}
               </span>
               {l ? (
                 <span className={cn('inline-flex items-center gap-1 text-sm font-semibold', TONE_TEXT[l.tone])}>
