@@ -14,6 +14,7 @@ import { useFeature, useMe } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration, fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useNow } from '@/lib/hooks';
+import { Band } from '@/components/ui/band';
 
 // Leaflet is client-only.
 const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
@@ -92,7 +93,9 @@ function Dashboard({ data }: { data: FleetReportDto }) {
   const unsuccessful = t.aborted + t.failed;
   return (
     <div className="flex flex-col gap-5">
-      <section aria-label="Totals" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      {/* The period's totals on the brand band, divided by hairlines rather than boxed. */}
+      <Band label="Totals">
+        <dl className="grid grid-cols-2 gap-y-5 p-5 sm:p-6 md:grid-cols-3 xl:grid-cols-6">
         <Tile label="Robots online" value={`${t.online} / ${t.robots}`} />
         {missions && (
           <>
@@ -103,7 +106,8 @@ function Dashboard({ data }: { data: FleetReportDto }) {
         )}
         <Tile label="Distance driven" value={fmtDistance(t.driven_m)} />
         <Tile label="Time on the move" value={fmtDuration(t.moving_s)} />
-      </section>
+        </dl>
+      </Band>
 
       {has(CLIENT_FEATURES.robotsLocation) && <FleetMap robots={data.robots} />}
 
@@ -135,10 +139,10 @@ function Dashboard({ data }: { data: FleetReportDto }) {
 
 function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-      {note && <p className="mt-0.5 text-xs text-muted">{note}</p>}
+    <div className="min-w-0 border-border px-4 [&:not(:first-child)]:border-l max-md:[&:nth-child(2n+1)]:border-l-0 md:max-xl:[&:nth-child(3n+1)]:border-l-0">
+      <dt className="text-base text-muted">{label}</dt>
+      <dd className="mt-1 truncate text-3xl font-semibold">{value}</dd>
+      {note && <dd className="mt-0.5 truncate text-sm text-muted">{note}</dd>}
     </div>
   );
 }
