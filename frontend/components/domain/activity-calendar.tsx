@@ -57,9 +57,7 @@ export function ActivityCalendar({
   /** Open another tab (keeping the day). */
   onOpen?: (metric: ActivityMetric) => void;
 }) {
-  const today = istToday();
-  const thisMonth = today.slice(0, 7);
-  const [month, setMonth] = useState((day ?? today).slice(0, 7));
+  const [month, setMonth] = useState((day ?? istToday()).slice(0, 7));
   const q = useQuery({
     queryKey: ['robot', robotId, 'activity', month],
     queryFn: () => api.get<RobotActivityDayDto[]>(`/robots/${robotId}/activity/calendar`, { month }),
@@ -68,84 +66,24 @@ export function ActivityCalendar({
   });
   const byDay = new Map((q.data ?? []).map((d) => [d.date, d]));
   const value = (d: RobotActivityDayDto | undefined) => (d ? d[metric] : 0);
-  const max = Math.max(0, ...(q.data ?? []).map((d) => d[metric]));
   const M = METRIC[metric];
 
-  const [y, m] = month.split('-').map(Number);
-  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
-  const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: count }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)];
-  const total = (q.data ?? []).reduce((n, d) => n + d[metric], 0);
-  const active = (q.data ?? []).filter((d) => d[metric] > 0).length;
   const selected = day ? byDay.get(day) : undefined;
 
   return (
-    <Card
-      title={monthTitle(month)}
-      actions={
-        <span className="flex items-center gap-1">
-          <NavButton label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}>
-            <ChevronLeft className="size-4" />
-          </NavButton>
-          <NavButton label="Next month" disabled={month >= thisMonth} onClick={() => setMonth(shiftMonth(month, 1))}>
-            <ChevronRight className="size-4" />
-          </NavButton>
-        </span>
-      }
-      bodyClassName="flex flex-col gap-4 p-4"
+    <MonthCalendar
+      month={month}
+      onMonth={setMonth}
+      loading={q.isFetching && !q.data}
+      value={(c) => {
+        const d = byDay.get(c);
+        return { n: value(d), alert: d && M.alert ? M.alert(d) : 0 };
+      }}
+      label={M.label}
+      alertLabel={M.alertLabel}
+      day={day}
+      onDay={onDay}
     >
-      <div>
-        <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-muted" aria-hidden>
-          {WEEKDAYS.map((w) => (
-            <span key={w}>{w}</span>
-          ))}
-        </div>
-        <div role="grid" aria-label={`${monthTitle(month)}: ${M.label(total)}`} className={cn('grid grid-cols-7 gap-1', q.isFetching && !q.data && 'opacity-50')}>
-          {cells.map((c, i) => {
-            if (!c) return <span key={`pad-${i}`} />;
-            const d = byDay.get(c);
-            const n = value(d);
-            const alert = d && M.alert ? M.alert(d) : 0;
-            const future = c > today;
-            const isSel = c === day;
-            return (
-              <button
-                key={c}
-                type="button"
-                disabled={future}
-                aria-pressed={isSel}
-                aria-label={`${dayTitle(c)}: ${M.label(n)}${alert ? `, ${alert} ${M.alertLabel}` : ''}`}
-                title={`${dayTitle(c)}\n${M.label(n)}${alert ? ` · ${alert} ${M.alertLabel}` : ''}`}
-                onClick={() => onDay(isSel ? null : c)}
-                className={cn(
-                  'relative flex aspect-square flex-col items-center justify-center rounded-md text-sm tabular-nums transition-colors',
-                  future ? 'cursor-default text-muted/40' : 'hover:ring-2 hover:ring-accent/40',
-                  SHADES[level(n, max)],
-                  !n && !future && 'text-muted',
-                  c === today && 'font-bold underline underline-offset-2',
-                  isSel && 'ring-2 ring-accent ring-offset-2 ring-offset-surface',
-                )}
-              >
-                {Number(c.slice(8))}
-                {alert > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-fault" aria-hidden />}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted">
-          <span>
-            {M.label(total)} on {active} day{active === 1 ? '' : 's'}
-          </span>
-          <span className="inline-flex items-center gap-1" aria-hidden>
-            Less
-            {SHADES.slice(1).map((s) => (
-              <span key={s} className={cn('size-3 rounded-sm', s)} />
-            ))}
-            More
-          </span>
-        </div>
-      </div>
-
       {day && (
         <div className="rounded-lg border border-border bg-surface-2 p-3">
           <div className="mb-2 flex items-start justify-between gap-2">
@@ -177,10 +115,119 @@ export function ActivityCalendar({
           </ul>
         </div>
       )}
+    </MonthCalendar>
+  );
+}
+
+/**
+ * A month grid: each IST day shaded by its count (one hue, light to dark, relative to the month's busiest day),
+ * a red dot when `alert` > 0, today underlined, future days disabled. `children` (the picked day's summary) shows
+ * under the grid while a day is picked. The caller supplies the numbers, so one calendar serves a robot or the fleet.
+ */
+export function MonthCalendar({
+  month,
+  onMonth,
+  loading,
+  value,
+  label,
+  alertLabel,
+  day,
+  onDay,
+  children,
+}: {
+  month: string;
+  onMonth: (month: string) => void;
+  loading?: boolean;
+  value: (date: string) => { n: number; alert: number };
+  label: (n: number) => string;
+  alertLabel?: string;
+  day: string | null;
+  onDay: (day: string | null) => void;
+  children?: ReactNode;
+}) {
+  const today = istToday();
+  const thisMonth = today.slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+  const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const dates = Array.from({ length: count }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
+  const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...dates];
+  const values = new Map(dates.map((c) => [c, value(c)]));
+  const max = Math.max(0, ...[...values.values()].map((v) => v.n));
+  const total = [...values.values()].reduce((n, v) => n + v.n, 0);
+  const active = [...values.values()].filter((v) => v.n > 0).length;
+
+  return (
+    <Card
+      title={monthTitle(month)}
+      actions={
+        <span className="flex items-center gap-1">
+          <NavButton label="Previous month" onClick={() => onMonth(shiftMonth(month, -1))}>
+            <ChevronLeft className="size-4" />
+          </NavButton>
+          <NavButton label="Next month" disabled={month >= thisMonth} onClick={() => onMonth(shiftMonth(month, 1))}>
+            <ChevronRight className="size-4" />
+          </NavButton>
+        </span>
+      }
+      bodyClassName="flex flex-col gap-4 p-4"
+    >
+      <div>
+        <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-muted" aria-hidden>
+          {WEEKDAYS.map((w) => (
+            <span key={w}>{w}</span>
+          ))}
+        </div>
+        <div role="grid" aria-label={`${monthTitle(month)}: ${label(total)}`} className={cn('grid grid-cols-7 gap-1', loading && 'opacity-50')}>
+          {cells.map((c, i) => {
+            if (!c) return <span key={`pad-${i}`} />;
+            const { n, alert } = values.get(c)!;
+            const future = c > today;
+            const isSel = c === day;
+            const text = `${label(n)}${alert ? `, ${alert} ${alertLabel ?? ''}` : ''}`;
+            return (
+              <button
+                key={c}
+                type="button"
+                disabled={future}
+                aria-pressed={isSel}
+                aria-label={`${dayTitle(c)}: ${text}`}
+                title={`${dayTitle(c)}\n${text}`}
+                onClick={() => onDay(isSel ? null : c)}
+                className={cn(
+                  'relative flex aspect-square flex-col items-center justify-center rounded-md text-sm tabular-nums transition-colors',
+                  future ? 'cursor-default text-muted/40' : 'hover:ring-2 hover:ring-accent/40',
+                  SHADES[level(n, max)],
+                  !n && !future && 'text-muted',
+                  c === today && 'font-bold underline underline-offset-2',
+                  isSel && 'ring-2 ring-accent ring-offset-2 ring-offset-surface',
+                )}
+              >
+                {Number(c.slice(8))}
+                {alert > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-fault" aria-hidden />}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted">
+          <span>
+            {label(total)} on {active} day{active === 1 ? '' : 's'}
+          </span>
+          <span className="inline-flex items-center gap-1" aria-hidden>
+            Less
+            {SHADES.slice(1).map((s) => (
+              <span key={s} className={cn('size-3 rounded-sm', s)} />
+            ))}
+            More
+          </span>
+        </div>
+      </div>
+      {day && children}
       {!day && <p className="text-xs text-muted">Pick a day to see only that day. Times are IST.</p>}
     </Card>
   );
 }
+
 
 function NavButton({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return (
