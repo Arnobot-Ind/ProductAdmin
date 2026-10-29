@@ -1,5 +1,6 @@
 'use client';
 
+import { isCommitId, SourceLink } from '@/components/domain/source-link';
 import type { SoftwareKind, SoftwareProductDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppWindow, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
@@ -95,6 +96,7 @@ export default function SoftwarePage() {
                 { key: 'c', header: 'Code', cell: (p) => <Mono>{p.code}</Mono> },
                 { key: 'k', header: 'Kind', cell: (p) => (p.deleted_at ? <Badge tone="fault">Deleted</Badge> : <Badge>{KIND_LABELS[p.kind]}</Badge>) },
                 { key: 'v', header: 'Latest version', cell: (p) => (p.latest_version ? <span className="font-mono">{p.latest_version}</span> : <span className="text-muted">—</span>) },
+                { key: 'src', header: 'Source', cell: (p) => <SourceLink repo={p.repo_url} commit={p.commit_id} /> },
                 { key: 'i', header: 'Installs', align: 'right', cell: (p) => p.install_count },
                 { key: 't', header: 'Added', cell: (p) => <Time iso={p.created_at} /> },
                 {
@@ -149,11 +151,20 @@ function ProductDialog({ product, onClose }: { product: SoftwareProductDto | nul
     kind: product?.kind ?? ('desktop_app' as SoftwareKind),
     description: product?.description ?? '',
     latest_version: product?.latest_version ?? '',
+    repo_url: product?.repo_url ?? '',
+    commit_id: product?.commit_id ?? '',
   });
   const set = (patch: Partial<typeof f>) => setF({ ...f, ...patch });
   const m = useMutation({
     mutationFn: () => {
-      const body = { name: f.name.trim(), kind: f.kind, description: f.description.trim() || null, latest_version: f.latest_version.trim() || null };
+      const body = {
+        name: f.name.trim(),
+        kind: f.kind,
+        description: f.description.trim() || null,
+        latest_version: f.latest_version.trim() || null,
+        repo_url: f.repo_url.trim() || null,
+        commit_id: f.commit_id.trim() || null,
+      };
       return product ? api.patch<SoftwareProductDto>(`/software-products/${product.id}`, body) : api.post<SoftwareProductDto>('/software-products', { ...body, code: f.code.trim() });
     },
     onSuccess: (p) => {
@@ -165,6 +176,8 @@ function ProductDialog({ product, onClose }: { product: SoftwareProductDto | nul
     onError: toast.error,
   });
   const codeBad = !product && !!f.code && !/^[a-z][a-z0-9_]*$/.test(f.code.trim());
+  const repoBad = !!f.repo_url.trim() && !/^https?:\/\/\S+$/i.test(f.repo_url.trim());
+  const commitBad = !!f.commit_id.trim() && !isCommitId(f.commit_id.trim());
   return (
     <Dialog
       open
@@ -173,7 +186,7 @@ function ProductDialog({ product, onClose }: { product: SoftwareProductDto | nul
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={!f.name.trim() || (!product && !f.code.trim()) || codeBad}>
+          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={!f.name.trim() || (!product && !f.code.trim()) || codeBad || repoBad || commitBad}>
             {product ? 'Save' : 'Add'}
           </Button>
         </>
@@ -202,6 +215,12 @@ function ProductDialog({ product, onClose }: { product: SoftwareProductDto | nul
         </Field>
         <Field label="Latest version" hint="Installs on an older version show “update available”.">
           <Input value={f.latest_version} onChange={(e) => set({ latest_version: e.target.value })} className="font-mono" placeholder="1.0.0" />
+        </Field>
+        <Field label="GitHub link" hint="Optional: repository or release page of the latest version" error={repoBad ? 'A web link starting with https://' : null}>
+          <Input value={f.repo_url} onChange={(e) => set({ repo_url: e.target.value })} placeholder="https://github.com/…" spellCheck={false} />
+        </Field>
+        <Field label="Commit ID" hint="Optional, of the latest version" error={commitBad ? '7–64 letters a–f and digits' : null}>
+          <Input value={f.commit_id} onChange={(e) => set({ commit_id: e.target.value })} className="font-mono" spellCheck={false} placeholder="3f9c2ab" />
         </Field>
         <Field label="Description" className="sm:col-span-2">
           <Textarea rows={2} value={f.description} onChange={(e) => set({ description: e.target.value })} />

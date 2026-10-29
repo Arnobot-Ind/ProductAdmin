@@ -113,7 +113,8 @@ export default function VideosPage() {
             <option value="">All robots</option>
             {robots.data?.items.map((r) => (
               <option key={r.robot_id} value={r.robot_id}>
-                {r.robot_id} · {r.serial_number}
+                {r.robot_id}
+                {r.nickname ? ` · ${r.nickname}` : ''} · {r.product_name} · SN {r.serial_number}
               </option>
             ))}
           </Select>

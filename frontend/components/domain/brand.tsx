@@ -4,8 +4,8 @@ import Image from 'next/image';
 export function BrandMark({ compact, onDark }: { compact?: boolean; onDark?: boolean }) {
   return (
     <span className="inline-flex items-center gap-3 leading-none">
-      {!onDark && <Image src="/brand/arnobot-logo-black.png" alt="Arnobot" width={1392} height={320} priority className="h-10 w-auto dark:hidden" />}
-      <Image src="/brand/arnobot-logo-white.png" alt="Arnobot" width={1405} height={320} priority className={onDark ? 'h-10 w-auto' : 'hidden h-10 w-auto dark:block'} />
+      {!onDark && <Image src="/brand/arnobot-logo-black.png" alt="Arnobot" width={1392} height={320} priority className="h-8 w-auto sm:h-10 dark:hidden" />}
+      <Image src="/brand/arnobot-logo-white.png" alt="Arnobot" width={1405} height={320} priority className={onDark ? 'h-8 w-auto sm:h-10' : 'hidden h-8 w-auto sm:h-10 dark:block'} />
       {!compact && (
         <>
           <span className="hidden h-9 w-px bg-current opacity-30 sm:block" aria-hidden />

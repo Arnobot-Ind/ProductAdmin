@@ -20,6 +20,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'org.deleted': 'Deleted organization',
   'org.restored': 'Restored organization',
   'robot.assigned': 'Assigned robot',
+  'robot.note_added': 'Added a robot note',
+  'robot.note_removed': 'Removed a robot note',
   'data.viewed': 'Opened recording',
   'data.downloaded': 'Downloaded',
   'data.deleted': 'Deleted recording',

@@ -48,10 +48,15 @@
   --chart-warning: #fab219;
   --chart-critical: #d03b3b;
   --chart-neutral: #8b8f97;
+  /* Robot categories (identity, not state): validated pair, always shown with their UGV / UAV label. */
+  --cat-ugv: #2453d6;
+  --cat-uav: #0f8f80;
 }
 /* On the dark grey cards the red is lifted one step so it keeps 3:1 contrast. */
 [data-theme='dark'] {
   --chart-critical: #ef6b6b;
+  --cat-ugv: #5b86ee;
+  --cat-uav: #25a898;
 }
 
 [data-theme='dark'] {
@@ -98,6 +103,15 @@
 @theme {
   --animate-app-menu-in: app-menu-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-app-menu-out: app-menu-out 280ms cubic-bezier(0.64, 0, 0.78, 0) both;
+  --animate-drawer-in: drawer-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 @keyframes app-menu-in {
   from {

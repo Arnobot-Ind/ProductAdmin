@@ -1,13 +1,17 @@
 'use client';
 
-import type { FleetReportDto, MissionListItemDto, Paginated } from '@arnobot/message-schema';
+import { RobotRef } from '@/components/domain/robot-ref';
+
+import type { FleetReportDto, MissionListItemDto, MissionPeriodStatsDto, Paginated } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CalendarLayout, dayBounds, dayTitle, istToday, MonthCalendar } from '@/components/domain/activity-calendar';
 import { MissionsPerDayChart, RankBars, RESULTS, ShareBar } from '@/components/domain/charts';
-import { DashboardPage, MissionsWeek, RecentMissions, useFleetReport } from '@/components/domain/dashboard';
+import { Segmented } from '@/components/ui/segmented';
+import { periodBounds, PERIODS, type PeriodId } from '@/lib/periods';
+import { DashboardPage } from '@/components/domain/dashboard';
 import { missionHref } from '@/components/domain/missions-table';
 import { MissionResultBadge } from '@/components/domain/status';
 import { Band } from '@/components/ui/band';
@@ -15,7 +19,7 @@ import { Card, EmptyState, Pagination, QueryView, Time } from '@/components/ui/m
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { fmtDistance, fmtDuration } from '@/lib/format';
+import { fmtDistance, fmtDuration, fmtWhen } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 
 type Day = FleetReportDto['daily'][number];
@@ -31,18 +35,10 @@ export default function FleetMissionsPage() {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? params.get('day') : null;
   const setDay = (d: string | null) => setParams({ day: d });
   return (
-    <DashboardPage title="Missions" description="Mission results across the fleet, day by day. Each robot's own missions are on its page, under Recordings.">
-      {(d) => (
+    <DashboardPage title="Missions" description="Mission results across the fleet for any period, or pick a day on the calendar. Each robot's own missions are on its page, under Recordings.">
+      {() => (
         <CalendarLayout calendar={<FleetMissionCalendar day={day} onDay={setDay} />}>
-          {day ? (
-            <DayView day={day} onClear={() => setDay(null)} />
-          ) : (
-            <div className="flex flex-col gap-6">
-              <MissionsWeek d={d} />
-              <LastThirtyDays />
-              <RecentMissions d={d} />
-            </div>
-          )}
+          {day ? <DayView day={day} onClear={() => setDay(null)} /> : <PeriodView />}
         </CalendarLayout>
       )}
     </DashboardPage>
@@ -112,26 +108,145 @@ function FleetMissionCalendar({ day, onDay }: { day: string | null; onDay: (d: s
   );
 }
 
-// ── no day picked: the overview ─────────────────────────────────────────────
+// ── no day picked: a period (today … all time) ───────────────────────────
 
-function LastThirtyDays() {
-  const report = useFleetReport(30);
+/**
+ * Missions over the chosen period: the results, missions per hour / day / month, the robots that flew them and every
+ * mission in the period. Short periods are shown per hour, up to 3 months per day, all time per month.
+ */
+function PeriodView() {
+  const [url, setUrl] = useUrlState();
+  const period = (PERIODS.some((p) => p.id === url.get('period')) ? url.get('period') : '7d') as PeriodId;
+  const [bounds, setBounds] = useState(() => periodBounds(period));
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setBounds(periodBounds(period));
+    setPage(1);
+    // "Now" moves on: keep the open-ended periods current.
+    const t = window.setInterval(() => setBounds(periodBounds(period)), 300_000);
+    return () => window.clearInterval(t);
+  }, [period]);
+  const stats = useQuery({
+    queryKey: ['missions', 'stats', bounds.from, bounds.to],
+    queryFn: () => api.get<MissionPeriodStatsDto>('/missions/stats', bounds),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+  const list = useQuery({
+    queryKey: ['missions', 'period', bounds.from, bounds.to, page],
+    queryFn: () => api.get<Paginated<MissionListItemDto>>('/missions', { ...bounds, page, limit: LIMIT }),
+    placeholderData: keepPreviousData,
+  });
+  const label = PERIODS.find((p) => p.id === period)!.label;
+
   return (
-    <QueryView query={report} rows={4}>
-      {(r) => (
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <Card title="Missions per day · last 30 days" actions={<span className="text-base font-semibold tabular-nums">{r.totals.total} missions</span>}>
-            <MissionsPerDayChart rows={r.daily} />
-          </Card>
-          <Card title="Missions per robot · last 30 days">
-            <RankBars
-              rows={r.robots.map((x) => ({ key: x.robot_id, label: x.robot_id, value: x.missions.total, display: String(x.missions.total), detail: `${x.robot_id}: ${x.missions.total} missions, ${x.missions.completed} completed` }))}
-              empty="No missions in the last 30 days."
-            />
-          </Card>
-        </div>
-      )}
-    </QueryView>
+    <div className="flex flex-col gap-6">
+      <Segmented label="Period" value={period} onChange={(p) => setUrl({ period: p === '7d' ? null : p })} options={PERIODS.map((p) => [p.id, p.label] as const)} />
+      <QueryView query={stats} rows={4}>
+        {(st) => {
+          const t = st.totals;
+          return (
+            <>
+              <Band labelledBy="period-h">
+                <div className="grid gap-6 p-6 sm:p-8 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-end">
+                  <div className="min-w-0">
+                    <p className="text-base text-muted">{label}</p>
+                    <h2 id="period-h" className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span className="text-5xl leading-none font-semibold">{t.total.toLocaleString('en-IN')}</span>
+                      <span className="text-xl font-semibold">mission{t.total === 1 ? '' : 's'} across the fleet</span>
+                    </h2>
+                    <div className="mt-5 max-w-xl">
+                      <ShareBar
+                        large
+                        label={`Mission results, ${label.toLowerCase()}`}
+                        parts={[
+                          ...RESULTS.map((r) => ({ label: r.label, value: t[r.key], color: r.color })),
+                          ...(t.in_progress ? [{ label: 'In progress', value: t.in_progress, color: 'var(--accent)' }] : []),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-3 divide-x divide-border">
+                    <div className="pr-6">
+                      <dt className="text-base text-muted">Completed</dt>
+                      <dd className="mt-1 text-3xl font-semibold">{t.total ? `${Math.round((t.completed / t.total) * 100)} %` : '—'}</dd>
+                    </div>
+                    <div className="px-6">
+                      <dt className="text-base text-muted">Distance</dt>
+                      <dd className="mt-1 text-3xl font-semibold">{fmtDistance(t.distance_m)}</dd>
+                    </div>
+                    <div className="pl-6">
+                      <dt className="text-base text-muted">Robots</dt>
+                      <dd className="mt-1 text-3xl font-semibold">{st.robots.length}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </Band>
+              <div className="grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <Card
+                  title={`Missions per ${st.granularity} · ${label.toLowerCase()}`}
+                  actions={<span className="text-base font-semibold tabular-nums">{t.total.toLocaleString('en-IN')} missions</span>}
+                >
+                  <MissionsPerDayChart granularity={st.granularity} rows={st.buckets.map((b) => ({ date: b.start, completed: b.completed, aborted: b.aborted, failed: b.failed }))} />
+                </Card>
+                <Card title={`Missions per robot · ${label.toLowerCase()}`}>
+                  <RankBars
+                    rows={st.robots.map((x) => ({ key: x.robot_id, label: <RobotRef id={x.robot_id} detail={false} />, value: x.total, display: String(x.total), detail: `${x.robot_id}: ${x.total} missions, ${x.completed} completed, ${x.aborted} aborted, ${x.failed} failed` }))}
+                    empty={`No missions ${period === 'all' ? 'yet' : `in this period`}.`}
+                  />
+                </Card>
+              </div>
+            </>
+          );
+        }}
+      </QueryView>
+      <Card title={`Missions · ${label.toLowerCase()}`} bodyClassName="p-0">
+        <QueryView query={list} rows={5}>
+          {(d) =>
+            d.items.length === 0 ? (
+              <div className="p-5">
+                <EmptyState title="No missions in this period" description="Pick a longer period, or a day on the calendar." />
+              </div>
+            ) : (
+              <>
+                <MissionTable rows={d.items} caption={`Missions, ${label.toLowerCase()}`} />
+                <div className="px-5 pb-4">
+                  <Pagination page={d.page} limit={d.limit} total={d.total} onPage={setPage} />
+                </div>
+              </>
+            )
+          }
+        </QueryView>
+      </Card>
+    </div>
+  );
+}
+
+/** The missions table shared by a period and a day: name, robot, start, duration, distance, result. */
+function MissionTable({ rows, caption, day }: { rows: MissionListItemDto[]; caption: string; day?: string }) {
+  return (
+    <DataTable
+      caption={caption}
+      rows={rows}
+      rowKey={(m) => m.mission_id}
+      columns={[
+        {
+          key: 'name',
+          header: 'Mission',
+          rowHeader: true,
+          cell: (m) => (
+            <Link className={cn('block max-w-72 truncate text-accent-text hover:underline', !m.name && 'font-mono')} href={missionHref(m)} title={m.name ? `${m.name} (${m.mission_id})` : m.mission_id}>
+              {m.name ?? m.mission_id}
+            </Link>
+          ),
+        },
+        { key: 'robot', header: 'Robot', cell: (m) => <RobotRef id={m.robot_id} href={`/robots/${m.robot_id}?tab=missions${day ? `&day=${day}` : ''}`} /> },
+        { key: 'start', header: 'Started', cell: (m) => <span className="whitespace-nowrap">{m.started_at ? fmtWhen(m.started_at) : '—'}</span> },
+        { key: 'dur', header: 'Duration', cell: (m) => <span className="whitespace-nowrap tabular-nums">{fmtDuration(m.duration_s)}</span> },
+        { key: 'dist', header: 'Distance', cell: (m) => <span className="whitespace-nowrap tabular-nums">{fmtDistance(m.distance_m)}</span> },
+        { key: 'res', header: 'Result', cell: (m) => <MissionResultBadge result={m.result} /> },
+      ]}
+    />
   );
 }
 
@@ -161,10 +276,10 @@ function DayView({ day, onClear }: { day: string; onClear: () => void }) {
     <div className="flex flex-col gap-6">
       {/* The day's headline on the brand band, as on the dashboard. */}
       <Band labelledBy="day-h">
-        <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="grid gap-6 p-6 sm:p-8 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-end">
           <div className="min-w-0">
             <p className="text-base text-muted">{dayTitle(day)}</p>
-            <h2 id="day-h" className="mt-2 flex items-baseline gap-3">
+            <h2 id="day-h" className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-5xl leading-none font-semibold">{total}</span>
               <span className="text-xl font-semibold">mission{total === 1 ? '' : 's'} across the fleet</span>
             </h2>
@@ -209,28 +324,7 @@ function DayView({ day, onClear }: { day: string; onClear: () => void }) {
               </div>
             ) : (
               <>
-                <DataTable
-                  caption={`Missions on ${day}`}
-                  rows={d.items}
-                  rowKey={(m) => m.mission_id}
-                  columns={[
-                    {
-                      key: 'name',
-                      header: 'Mission',
-                      rowHeader: true,
-                      cell: (m) => (
-                        <Link className={cn('block max-w-72 truncate text-accent-text hover:underline', !m.name && 'font-mono')} href={missionHref(m)} title={m.name ? `${m.name} (${m.mission_id})` : m.mission_id}>
-                          {m.name ?? m.mission_id}
-                        </Link>
-                      ),
-                    },
-                    { key: 'robot', header: 'Robot', cell: (m) => <Link className="font-mono text-accent-text hover:underline" href={`/robots/${m.robot_id}?tab=missions&day=${day}`}>{m.robot_id}</Link> },
-                    { key: 'start', header: 'Started', cell: (m) => <span className="whitespace-nowrap"><Time iso={m.started_at} /></span> },
-                    { key: 'dur', header: 'Duration', cell: (m) => <span className="whitespace-nowrap tabular-nums">{fmtDuration(m.duration_s)}</span> },
-                    { key: 'dist', header: 'Distance', cell: (m) => <span className="whitespace-nowrap tabular-nums">{fmtDistance(m.distance_m)}</span> },
-                    { key: 'res', header: 'Result', cell: (m) => <MissionResultBadge result={m.result} /> },
-                  ]}
-                />
+                <MissionTable rows={d.items} caption={`Missions on ${day}`} day={day} />
                 <div className="px-5 pb-4">
                   <Pagination page={d.page} limit={d.limit} total={d.total} onPage={setPage} />
                 </div>

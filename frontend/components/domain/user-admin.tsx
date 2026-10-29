@@ -1,5 +1,6 @@
 'use client';
 
+import { RobotPicker } from '@/components/domain/robot-picker';
 import type { CompanyDto, GrantDto, OrganizationDetailDto, Paginated, RobotListItemDto, RoleDto, ScopeType, UserCredentialsDto, UserDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Link2, Mail, Pencil, RotateCcw, ShieldPlus, SlidersHorizontal, Trash2, X } from 'lucide-react';
@@ -118,13 +119,8 @@ function ScopeFields({
     queryFn: () => api.get<OrganizationDetailDto>(`/organizations/${customerOrgId}`),
     enabled: !!customerOrgId && scopeType === 'robot',
   });
-  const allRobots = useQuery({
-    queryKey: ['robots', 'options'],
-    queryFn: () => api.get<Paginated<RobotListItemDto>>('/robots', { limit: 200 }),
-    enabled: !customerOrgId && scopeType === 'robot',
-    staleTime: 60_000,
-  });
-  const robots = customerOrgId ? (orgRobots.data?.robots.map((r) => r.robot_id) ?? []) : (allRobots.data?.items.map((r) => r.robot_id) ?? []);
+  // A customer's own robots are few (a list); any robot for Arnobot staff is searched for (RobotPicker).
+  const robots = orgRobots.data?.robots.map((r) => r.robot_id) ?? [];
   return (
     <>
       <Field label="Applies to" required hint={customerOrgId ? 'Customer users only ever see their own organization.' : undefined}>
@@ -163,14 +159,18 @@ function ScopeFields({
       )}
       {scopeType === 'robot' && (
         <Field label="Robot" required hint={customerOrgId && !robots.length ? 'This organization has no robots yet. Assign one first.' : undefined}>
-          <Select value={scopeId} onChange={(e) => onId(e.target.value)}>
-            <option value="">Choose…</option>
-            {robots.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </Select>
+          {customerOrgId ? (
+            <Select value={scopeId} onChange={(e) => onId(e.target.value)}>
+              <option value="">Choose…</option>
+              {robots.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <RobotPicker value={scopeId} onChange={(id) => onId(id)} />
+          )}
         </Field>
       )}
     </>

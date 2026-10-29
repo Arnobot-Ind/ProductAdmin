@@ -19,7 +19,7 @@ export function DocumentsTab({ robot }: { robot: RobotDetailDto }) {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <InlineAlert tone="accent">Shows this robot&apos;s own documents plus those of its hardware revision and product. The latest version is shown; open History for older ones.</InlineAlert>
+      <InlineAlert tone="accent">Shows this robot&apos;s own documents plus those of its hardware revision and base model. The latest version is shown; open History for older ones.</InlineAlert>
       <QueryView query={q}>
         {(docs) => <DocumentsPanel documents={docs} invalidateKey={['robot', robot.robot_id, 'documents']} owners={owners} emptyText="No documents for this robot, its revision or its product" />}
       </QueryView>

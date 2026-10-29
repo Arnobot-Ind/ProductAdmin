@@ -16,7 +16,7 @@ import { fmtBytes, humanize } from '@/lib/format';
 import { DOCUMENT_TYPES } from '@/lib/schema';
 import { cn } from '@/lib/cn';
 
-export type DocOwner = { product_id: string } | { hardware_revision_id: string } | { robot_id: string };
+export type DocOwner = { product_id: string } | { hardware_revision_id: string } | { robot_id: string } | { attachment_id: string };
 export interface OwnerOption {
   label: string;
   owner: DocOwner;
