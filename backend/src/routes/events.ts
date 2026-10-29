@@ -1,4 +1,4 @@
-import { EVENT_SEVERITIES, EVENT_TYPES, type EventDto, type Paginated } from '../shared';
+import { EVENT_SEVERITIES, EVENT_TYPES, type EventCalendarDayDto, type EventDto, type Paginated } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
@@ -50,6 +50,30 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     access: { can: 'robot.details', target: anyScope() },
     query: listQuery,
     handler: ({ query, user }) => list(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts')),
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/events/calendar',
+    summary: 'Events across robots the user may read, counted per IST day of a month (total, critical, warning, unacknowledged)',
+    tag,
+    access: { can: 'robot.details', target: anyScope() },
+    query: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') }),
+    handler: async ({ query, user }): Promise<EventCalendarDayDto[]> => {
+      const [y, m] = query.month.split('-').map(Number);
+      const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+      const w = app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts');
+      w.add('e.ts >= ?', `${query.month}-01T00:00:00+05:30`).add('e.ts < ?', `${next}-01T00:00:00+05:30`);
+      const rows = await db.query<EventCalendarDayDto>(
+        `SELECT (e.ts AT TIME ZONE 'Asia/Kolkata')::date::text AS date, count(*)::int AS total,
+                count(*) FILTER (WHERE e.severity = 'critical')::int AS critical,
+                count(*) FILTER (WHERE e.severity = 'warning')::int AS warning,
+                count(*) FILTER (WHERE e.acknowledged_at IS NULL)::int AS unacked
+         FROM events e ${w.toSql()} GROUP BY 1 ORDER BY 1`,
+        w.params,
+      );
+      return rows.rows;
+    },
   });
 
   route(f, app, {
