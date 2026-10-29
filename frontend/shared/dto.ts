@@ -675,6 +675,14 @@ export interface MissionDetailDto extends MissionListItemDto {
 }
 
 // ── events ──────────────────────────────────────────────────────────────────
+/** One IST day of the fleet's event calendar (Overview → Events). */
+export interface EventCalendarDayDto {
+  date: string;
+  total: number;
+  critical: number;
+  warning: number;
+  unacked: number;
+}
 export interface EventDto {
   id: string;
   msg_id: string | null;
