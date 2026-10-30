@@ -86,8 +86,24 @@ export const api = {
   upload: <T>(path: string, form: FormData) => request<T>('POST', path, form),
 };
 
-/** A same-origin download link. The API streams the file or redirects to a short-lived URL. */
+/**
+ * The backend's own public address in production (the same one live updates use, e.g. https://api.arnobot.in).
+ * Downloads go there directly: the hosting proxy in front of /api/v1 on the panel's domain ends a response after
+ * 30 s, which cuts off large zips and exports. The session cookie is set for the parent domain (COOKIE_DOMAIN), so
+ * the backend knows the user. In development, and without an https address, links stay same-origin.
+ */
+const DIRECT_API = (() => {
+  const origin = (process.env.NEXT_PUBLIC_WS_URL ?? '').replace(/\/$/, '');
+  return process.env.NODE_ENV === 'production' && origin.startsWith('https://') ? `${origin}/api/v1` : API_BASE;
+})();
+
+/** A link that downloads a file (zip, CSV, document, release). The API streams the file or redirects to a short-lived URL. */
 export function downloadUrl(path: string): string {
+  return `${DIRECT_API}${path}`;
+}
+
+/** A same-origin file URL for use inside the page (an <img>, a preview): the page's security policy only allows these. */
+export function sameOriginUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 

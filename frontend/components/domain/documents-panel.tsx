@@ -10,7 +10,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/field';
 import { Badge, EmptyState, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { api, downloadUrl, errorMessage } from '@/lib/api';
+import { api, downloadUrl, errorMessage, sameOriginUrl } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { fmtBytes, humanize } from '@/lib/format';
 import { DOCUMENT_TYPES } from '@/lib/schema';
@@ -472,7 +472,7 @@ function previewKind(contentType: string | null | undefined): PreviewKind {
   if (t === 'application/pdf' || t === 'text/plain') return 'tab';
   return null;
 }
-const inlineUrl = (v: DocumentVersionDto) => downloadUrl(`/document-versions/${v.id}/download?inline=1`);
+const inlineUrl = (v: DocumentVersionDto) => sameOriginUrl(`/document-versions/${v.id}/download?inline=1`);
 
 function PreviewButton({ version, title, onOpen, compact }: { version: DocumentVersionDto; title: string; onOpen: (p: { version: DocumentVersionDto; title: string }) => void; compact?: boolean }) {
   const kind = previewKind(version.file.content_type);

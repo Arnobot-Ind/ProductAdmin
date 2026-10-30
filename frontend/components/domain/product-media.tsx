@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Card, EmptyState, InlineAlert } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
-import { api, downloadUrl, errorMessage } from '@/lib/api';
+import { api, errorMessage, sameOriginUrl } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtBytes } from '@/lib/format';
@@ -38,7 +38,7 @@ declare module 'react' {
   }
 }
 
-export const mediaUrl = (id: string) => downloadUrl(`/product-media/${id}/file`);
+export const mediaUrl = (id: string) => sameOriginUrl(`/product-media/${id}/file`);
 
 /** Whose pictures: a base model's or an attachment's (both keep the same kinds). */
 export type MediaOwner = 'products' | 'attachments';
