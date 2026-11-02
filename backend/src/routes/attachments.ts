@@ -236,6 +236,9 @@ export function attachmentRoutes(f: FastifyInstance, app: AppContext): void {
       const w = app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'r.robot_id');
       const rows = await db.query(
         `SELECT r.robot_id, r.nickname, r.description, p.name AS product_name, p.category, c.name AS owner_company,
+                (SELECT st.name FROM site_assignment_history dp JOIN sites st ON st.id = dp.site_id WHERE dp.robot_id = r.robot_id AND dp.valid_to IS NULL) AS site_name,
+                nullif(coalesce((SELECT ls.sw_ver FROM live_state ls WHERE ls.robot_id = r.robot_id),
+                                (SELECT h.sw_ver FROM software_history h WHERE h.robot_id = r.robot_id ORDER BY h.reported_at DESC LIMIT 1)), '') AS sw_ver,
                 coalesce((SELECT array_agg(a.name ORDER BY a.name) FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id
                           WHERE ra.robot_id = r.robot_id AND ra.removed_at IS NULL), '{}') AS attachments
          FROM robots r JOIN products p ON p.id = r.product_id

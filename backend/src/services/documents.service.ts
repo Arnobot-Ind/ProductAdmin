@@ -12,6 +12,7 @@ interface DocRow {
   hardware_revision_id: string | null;
   robot_id: string | null;
   attachment_id: string | null;
+  software_product_id: string | null;
   revision_attachment_id: string | null;
   source_label: string;
   created_at: Date;
@@ -19,10 +20,11 @@ interface DocRow {
 }
 
 const DOC_SELECT = `
-SELECT d.id, d.doc_type, d.title, d.product_id, d.hardware_revision_id, d.robot_id, d.attachment_id, hr.attachment_id AS revision_attachment_id,
+SELECT d.id, d.doc_type, d.title, d.product_id, d.hardware_revision_id, d.robot_id, d.attachment_id, d.software_product_id, hr.attachment_id AS revision_attachment_id,
        d.created_at, d.deleted_at,
-       coalesce(p.name, a.name, coalesce(rp.name, ra.name) || ' ' || hr.name, d.robot_id) AS source_label
+       coalesce(p.name, a.name, sp.name, coalesce(rp.name, ra.name) || ' ' || hr.name, d.robot_id) AS source_label
 FROM documents d
+LEFT JOIN software_products sp ON sp.id = d.software_product_id
 LEFT JOIN products p ON p.id = d.product_id
 LEFT JOIN attachments a ON a.id = d.attachment_id
 LEFT JOIN hardware_revisions hr ON hr.id = d.hardware_revision_id
@@ -66,11 +68,12 @@ export class DocumentsService {
         id: r.id,
         doc_type: r.doc_type,
         title: r.title,
-        source: r.robot_id ? 'robot' : r.attachment_id || r.revision_attachment_id ? 'attachment' : r.hardware_revision_id ? 'revision' : 'product',
+        source: r.robot_id ? 'robot' : r.software_product_id ? 'software' : r.attachment_id || r.revision_attachment_id ? 'attachment' : r.hardware_revision_id ? 'revision' : 'product',
         product_id: r.product_id,
         hardware_revision_id: r.hardware_revision_id,
         robot_id: r.robot_id,
         attachment_id: r.attachment_id ?? r.revision_attachment_id,
+        software_product_id: r.software_product_id,
         source_label: r.source_label,
         latest: vs[0] ?? null,
         versions: vs,
@@ -120,6 +123,12 @@ export class DocumentsService {
        ORDER BY (d.hardware_revision_id IS NOT NULL), hr.name, d.doc_type, d.title`,
       [attachmentId],
     );
+    return this.withVersions(rows.rows, db);
+  }
+
+  /** Documents on a catalogue software item. */
+  async forSoftware(softwareId: string, db: Queryable = this.db, includeDeleted = false): Promise<DocumentDto[]> {
+    const rows = await db.query<DocRow>(`${DOC_SELECT} WHERE d.software_product_id = $1 ${includeDeleted ? '' : 'AND d.deleted_at IS NULL'} ORDER BY d.doc_type, d.title`, [softwareId]);
     return this.withVersions(rows.rows, db);
   }
 

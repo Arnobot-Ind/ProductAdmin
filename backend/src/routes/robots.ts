@@ -30,6 +30,8 @@ const listQuery = z.object({
   owner: uuidSchema.optional(),
   /** Has this attachment fitted now. */
   attachment: uuidSchema.optional(),
+  /** Deployed at this site now; "none" = not deployed anywhere. */
+  site: z.union([uuidSchema, z.literal('none')]).optional(),
   status: z.enum(['online', 'stale', 'offline']).optional(),
   /** Only robots that need someone: an unacknowledged critical event, a device fault, or offline for over a day. */
   problems: optionalBool,
@@ -51,6 +53,8 @@ const registerBody = z.object({
   attachments: z
     .array(z.object({ attachment_id: uuidSchema, hardware_revision_id: uuidSchema.nullable().optional(), serial_number: nullableText(100).optional() }))
     .max(30),
+  /** Site it is deployed at from the start (optional: it can be deployed later). */
+  site_id: uuidSchema.nullable().optional(),
   /** Owner from the start; omitted = Arnobot. A customer owner needs ownership.write as well as robot.write. */
   company_id: uuidSchema.nullable().optional(),
 });
@@ -146,9 +150,12 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
       const like = w.param(`%${q.q.replace(/[\\%_]/g, '\\$&')}%`);
       w.add(
         `(r.robot_id ILIKE ${like} OR r.serial_number ILIKE ${like} OR r.nickname ILIKE ${like} OR r.description ILIKE ${like} OR r.notes ILIKE ${like} OR c.name ILIKE ${like}
-          OR EXISTS (SELECT 1 FROM robot_attachments qa JOIN attachments qx ON qx.id = qa.attachment_id WHERE qa.robot_id = r.robot_id AND qa.removed_at IS NULL AND qx.name ILIKE ${like}))`,
+          OR EXISTS (SELECT 1 FROM robot_attachments qa JOIN attachments qx ON qx.id = qa.attachment_id WHERE qa.robot_id = r.robot_id AND qa.removed_at IS NULL AND qx.name ILIKE ${like})
+          OR EXISTS (SELECT 1 FROM site_assignment_history qd JOIN sites qs ON qs.id = qd.site_id WHERE qd.robot_id = r.robot_id AND qd.valid_to IS NULL AND (qs.name ILIKE ${like} OR qs.city ILIKE ${like})))`,
       );
     }
+    if (q.site === 'none') w.add('NOT EXISTS (SELECT 1 FROM site_assignment_history sd WHERE sd.robot_id = r.robot_id AND sd.valid_to IS NULL)');
+    else if (q.site) w.add('EXISTS (SELECT 1 FROM site_assignment_history sd WHERE sd.robot_id = r.robot_id AND sd.valid_to IS NULL AND sd.site_id = ?)', q.site);
     if (q.attachment) w.add('EXISTS (SELECT 1 FROM robot_attachments fa WHERE fa.robot_id = r.robot_id AND fa.removed_at IS NULL AND fa.attachment_id = ?)', q.attachment);
     if (q.status) {
       w.add(
@@ -181,6 +188,9 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
         ['nickname', (r) => r.nickname],
         ['base_model', (r) => r.product_name],
         ['attachments', (r) => r.attachments.map((a) => a.name).join('; ')],
+        ['site', (r) => r.site?.name ?? ''],
+        ['site_city', (r) => r.site?.city ?? ''],
+        ['deployed_since', (r) => r.site?.deployed_since ?? ''],
         ['description', (r) => r.description],
         ['owner', (r) => r.owner_company],
         ['status', (r) => r.status],
@@ -252,6 +262,10 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
             user.id,
             'Fitted at registration',
           ]);
+        }
+        if (body.site_id) {
+          if (!(await tx.query('SELECT 1 FROM sites WHERE id = $1 AND deleted_at IS NULL', [body.site_id])).rowCount) throw badRequest('unknown site');
+          await tx.query('INSERT INTO site_assignment_history (robot_id, site_id, valid_from, created_by, notes) VALUES ($1, $2, now(), $3, $4)', [reg.robotId, body.site_id, user.id, 'Deployed at registration']);
         }
         if (owner && owner.kind !== 'internal') {
           await app.audit.record(

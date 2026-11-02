@@ -26,7 +26,8 @@ const createFields = z
   .object({
     product_id: uuidSchema,
     component: z.enum(RELEASE_COMPONENTS),
-    version: z.string().trim().regex(SEMVER, 'version must be semver, e.g. 1.4.0'),
+    // A Git tag like "v1.4.0" is the same version as "1.4.0".
+    version: z.string().trim().transform((v) => v.replace(/^v(?=\d)/i, '')).pipe(z.string().regex(SEMVER, 'version must be major.minor.patch, e.g. 1.4.0')),
     signature: z.string().trim().min(1).max(8192),
     signature_algo: optionalText(50),
     sha256: optionalText(64).refine((v) => v === undefined || /^[a-f0-9]{64}$/i.test(v), 'sha256 must be 64 hex chars'),
@@ -87,7 +88,7 @@ export function releaseRoutes(f: FastifyInstance, app: AppContext): void {
     handler: ({ body, file, user }) =>
       withTransaction(db, async (tx) => {
         const product = (await tx.query<{ code: string }>('SELECT code FROM products WHERE id = $1 AND deleted_at IS NULL', [body.product_id])).rows[0];
-        if (!product) throw notFound('product');
+        if (!product) throw notFound('base model');
         const dup = await tx.query('SELECT 1 FROM releases WHERE product_id = $1 AND component = $2 AND version = $3', [body.product_id, body.component, body.version]);
         if (dup.rowCount) throw conflict(`${product.code} ${body.component} ${body.version} already exists (version numbers are never reused)`);
         let fileId: string | null = null;
@@ -96,7 +97,7 @@ export function releaseRoutes(f: FastifyInstance, app: AppContext): void {
           fileId = await app.files.store(file, `releases/${product.code}/${body.component}/${body.version}`, user.id, tx, sha256);
           sha256 = (await tx.query<{ sha256: string }>('SELECT sha256 FROM files WHERE id = $1', [fileId])).rows[0].sha256;
         }
-        if (!sha256) throw badRequest('upload the package file, or give its sha256');
+        if (!sha256) throw badRequest('choose the package file, or give its SHA-256');
         const id = (
           await tx.query<{ id: string }>(
             `INSERT INTO releases (product_id, component, version, file_id, sha256, signature, signature_algo, requires_component, requires_min_version, notes, repo_url, commit_id, created_by)

@@ -44,7 +44,13 @@ const SOURCES: Record<RobotLogKind, string> = {
                     concat_ws(' · ', s.source, s.note), s.id::text, NULL
              FROM software_history s WHERE s.robot_id = $1`,
   ownership: `SELECT o.valid_from, 'ownership', 'info', 'Owner: ' || c.name, o.reason, o.id::text, NULL
-              FROM company_assignment_history o JOIN companies c ON c.id = o.company_id WHERE o.robot_id = $1`,
+              FROM company_assignment_history o JOIN companies c ON c.id = o.company_id WHERE o.robot_id = $1
+              UNION ALL
+              SELECT d.valid_from, 'ownership', 'info', 'Deployed at ' || s.name || coalesce(', ' || s.city, ''), concat_ws(' · ', d.purpose, d.notes), d.id::text, NULL
+              FROM site_assignment_history d JOIN sites s ON s.id = d.site_id WHERE d.robot_id = $1
+              UNION ALL
+              SELECT d.valid_to, 'ownership', 'info', 'Left ' || s.name, d.end_note, d.id::text, NULL
+              FROM site_assignment_history d JOIN sites s ON s.id = d.site_id WHERE d.robot_id = $1 AND d.valid_to IS NOT NULL`,
   document: `SELECT v.uploaded_at, 'document', 'info', 'Document v' || v.version_no || ': ' || d.title, v.note, d.id::text, NULL
              FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.robot_id = $1`,
   audit: `SELECT a.at, 'audit', CASE WHEN a.outcome = 'success' THEN 'info' ELSE 'warning' END, a.action,
