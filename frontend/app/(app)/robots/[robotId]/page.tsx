@@ -34,6 +34,7 @@ import { RobotEventsTab, RobotMissionsTab } from './_tabs/lists';
 import { HealthTab, LocationTab, MissionStatsCard, OverviewTab, RobotMonthCharts } from './_tabs/overview';
 import { RobotLogTab } from './_tabs/log';
 import { OwnershipTab } from './_tabs/ownership';
+import { DeploymentTab } from './_tabs/deployment';
 import { AttachmentsTab } from './_tabs/attachments';
 import { RobotBuild } from '@/components/domain/robot-build';
 import { NotesTab, PinnedNotes } from './_tabs/notes';
@@ -43,7 +44,7 @@ import { VideosTab } from './_tabs/videos';
 import { DataActivityBadge } from '@/components/archive/badges';
 import { BesideBack } from '@/components/ui/back-button';
 import { Band, BandFact } from '@/components/ui/band';
-import { fmtDistance } from '@/lib/format';
+import { fmtDistance, fmtWhen } from '@/lib/format';
 
 /**
  * The robot record. The header says what the robot is (name, category, status, description, serial number, owner,
@@ -108,6 +109,7 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
     tabs: [
       { id: 'notes', label: 'Journal' },
       { id: 'documents', label: 'Documents' },
+      { id: 'deployment', label: 'Deployment' },
       { id: 'ownership', label: 'Ownership' },
     ],
   },
@@ -226,6 +228,25 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                   <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
                 </BandFact>
                 <div className="min-w-0">
+                  <dt className="text-base text-muted">Deployed at</dt>
+                  <dd className="mt-1 text-lg">
+                    {robot.site ? (
+                      <>
+                        <Link href={`/sites/${robot.site.id}`} className="block truncate font-semibold text-accent-text hover:underline" title={robot.site.name}>
+                          {robot.site.name}
+                        </Link>
+                        <span className="block text-sm text-muted">
+                          {[robot.site.city, `since ${fmtWhen(robot.site.deployed_since)}`].filter(Boolean).join(' · ')}
+                        </span>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => openTab('deployment')} className="text-muted hover:text-accent-text hover:underline">
+                        Not deployed{can('robot.write') && !robot.deleted_at ? ' · Deploy' : ''}
+                      </button>
+                    )}
+                  </dd>
+                </div>
+                <div className="min-w-0">
                   <dt className="text-base text-muted">Last seen</dt>
                   <dd className="mt-1 text-lg">
                     <LastSeen iso={robot.last_seen_at} stacked />
@@ -325,6 +346,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
         {tab === 'maintenance' && <MaintenanceTab robotId={robot.robot_id} />}
         {tab === 'ownership' && <OwnershipTab robotId={robot.robot_id} />}
+        {tab === 'deployment' && <DeploymentTab robotId={robot.robot_id} deleted={!!robot.deleted_at} />}
       </TabPanel>
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />

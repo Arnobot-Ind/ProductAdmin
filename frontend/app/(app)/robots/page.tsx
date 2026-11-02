@@ -1,12 +1,13 @@
 'use client';
 
+import { useSites } from '@/components/domain/sites';
 import { attachmentUnit, CategoryIcon, Thumb } from '@/components/domain/robot-build';
 import type { AttachmentDto, DashboardDto, DeviceHealthDto, Paginated, ProductDto, RobotListItemDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertOctagon, Download, Plus, Puzzle, Search, X } from 'lucide-react';
+import { AlertOctagon, Download, Plus, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { RobotStatusBadge } from '@/components/domain/status';
 import { Button, LinkButton } from '@/components/ui/button';
 import { Checkbox, Input, Select } from '@/components/ui/field';
@@ -37,12 +38,13 @@ export default function RobotsPage() {
   const status = params.get('status') ?? '';
   const owner = params.get('owner') ?? '';
   const attachment = params.get('attachment') ?? '';
+  const site = params.get('site') ?? '';
   const problems = params.get('problems') === 'true';
   const includeDeleted = params.get('include_deleted') === 'true';
   const page = Number(params.get('page') ?? 1) || 1;
   const sortParam = params.get('sort') ?? 'robot_id';
   const sort: SortState = sortParam.startsWith('-') ? { key: sortParam.slice(1), dir: 'desc' } : { key: sortParam, dir: 'asc' };
-  const filtered = Boolean(q || product || category || owner || attachment || problems || status || includeDeleted);
+  const filtered = Boolean(q || product || category || owner || attachment || site || problems || status || includeDeleted);
 
   useEffect(() => {
     if ((params.get('q') ?? '') !== q) setParams({ q, page: null });
@@ -51,14 +53,14 @@ export default function RobotsPage() {
 
   const clearFilters = () => {
     setSearch('');
-    setParams({ q: null, product: null, category: null, owner: null, attachment: null, problems: null, status: null, include_deleted: null, page: null });
+    setParams({ q: null, product: null, category: null, owner: null, attachment: null, site: null, problems: null, status: null, include_deleted: null, page: null });
   };
 
   // Fleet counts for the status chips (same scope as the list).
   const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 300_000 });
   const products = useQuery({ queryKey: ['products', 'all'], queryFn: () => api.get<ProductDto[]>('/products'), enabled: can('catalog.read'), staleTime: 300_000 });
   const robots = useQuery({
-    queryKey: ['robots', { q, product, category, owner, attachment, problems, status, includeDeleted, page, sortParam }],
+    queryKey: ['robots', { q, product, category, owner, attachment, site, problems, status, includeDeleted, page, sortParam }],
     queryFn: () =>
       api.get<Paginated<RobotListItemDto>>('/robots', {
         q,
@@ -66,6 +68,7 @@ export default function RobotsPage() {
         category,
         owner,
         attachment: attachment || undefined,
+        site: site || undefined,
         problems: problems || undefined,
         status,
         include_deleted: includeDeleted,
@@ -80,7 +83,8 @@ export default function RobotsPage() {
   const columns = robotColumns(now);
   const companies = useCompanies();
   const attachments = useQuery({ queryKey: ['attachments'], queryFn: () => api.get<AttachmentDto[]>('/attachments'), enabled: can('catalog.read'), staleTime: 300_000 });
-  const exportQuery = qs({ q, product, category, owner, attachment: attachment || undefined, problems: problems || undefined, status, include_deleted: includeDeleted || undefined, sort: sortParam });
+  const sites = useSites();
+  const exportQuery = qs({ q, product, category, owner, attachment: attachment || undefined, site: site || undefined, problems: problems || undefined, status, include_deleted: includeDeleted || undefined, sort: sortParam });
 
   return (
     <>
@@ -111,7 +115,7 @@ export default function RobotsPage() {
         <form role="search" aria-label="Filter robots" className="grid gap-2 md:grid-cols-2 2xl:grid-cols-[minmax(16rem,2fr)_auto_repeat(4,minmax(9rem,1fr))_auto] 2xl:items-center" onSubmit={(e) => e.preventDefault()}>
           <div className="relative min-w-0 md:col-span-2 2xl:col-span-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search robot ID, nickname, serial number, owner or attachment" aria-label="Search robots" className="pl-9" type="search" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search robot ID, nickname, serial number, owner, site or attachment" aria-label="Search robots" className="pl-9" type="search" />
           </div>
           <div role="group" aria-label="Category" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
             {(
@@ -158,6 +162,17 @@ export default function RobotsPage() {
               {attachments.data?.filter((a) => !category || !a.category || a.category === category).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name} ({a.robot_count})
+                </option>
+              ))}
+            </Select>
+          )}
+          {(sites.data?.length ?? 0) > 0 && (
+            <Select value={site} onChange={(e) => setParams({ site: e.target.value || null, page: null })} aria-label="Site">
+              <option value="">All sites</option>
+              <option value="none">Not deployed</option>
+              {sites.data?.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name} ({st.robots_now})
                 </option>
               ))}
             </Select>
@@ -257,6 +272,7 @@ export default function RobotsPage() {
                 </span>
               }
               columns={columns}
+              compact
             />
           </div>
           {robots.data && robots.data.total > 0 && <Pagination page={page} limit={LIMIT} total={robots.data.total} onPage={(p) => setParams({ page: p === 1 ? null : p })} />}
@@ -277,37 +293,55 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
       header: 'Robot',
       sortKey: 'robot_id',
       rowHeader: true,
-      sticky: true,
       cell: (r) => (
-        <span className="flex max-w-96 min-w-56 items-start gap-3" title={r.description ?? undefined}>
-          <Thumb photoId={r.product_cover_photo_id} icon={<CategoryIcon category={r.category} className="size-5" />} className="mt-0.5 size-11" />
-          <span className="block min-w-0">
+        <span className="flex w-[min(16rem,calc(100vw-6rem))] items-start gap-2.5" title={[`SN ${r.serial_number}`, r.description].filter(Boolean).join('\n')}>
+          <Thumb photoId={r.product_cover_photo_id} icon={<CategoryIcon category={r.category} className="size-5" />} className="mt-0.5 size-10" />
+          <span className="block min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <Link href={`/robots/${r.robot_id}`} className="min-w-0 truncate text-accent-text hover:underline" onClick={(e) => e.stopPropagation()}>
                 <span className="font-mono font-semibold">{r.robot_id}</span>
-                {r.nickname && <span className="font-semibold"> · {r.nickname}</span>}
               </Link>
               {r.deleted_at && <Badge tone="fault">Deleted</Badge>}
-            </span>
-            <span className="block text-sm font-normal whitespace-nowrap text-muted">
-              <span className="font-semibold" style={{ color: `var(--cat-${r.category})` }}>
-                {r.category.toUpperCase()}
-              </span>{' '}
-              · <span className="text-fg">{r.product_name}</span>
-              {r.hardware_revision && ` ${r.hardware_revision}`} · SN <span className="font-mono">{r.serial_number}</span>
-            </span>
-            <span
-              className="mt-0.5 block truncate text-sm font-normal"
-              title={r.attachments.map((x) => `${x.name}${attachmentUnit(x) ? ` (${attachmentUnit(x)})` : ''}`).join('\n') || undefined}
-            >
-              <Puzzle className="inline size-3.5 align-[-2px] text-accent-text" aria-label="Attachments" />{' '}
-              {r.attachments.length ? (
-                r.attachments.map((x) => `${x.name}${x.revision_name ? ` ${x.revision_name}` : ''}`).join(', ')
-              ) : (
-                <span className="text-muted">No attachment</span>
+              {/* Phones have no Status or Alerts column: they ride along here. */}
+              <span className="md:hidden">
+                <RobotStatusBadge lastSeenAt={r.last_seen_at} />
+              </span>
+              {r.unacked_critical_events > 0 && (
+                <span className="sm:hidden">
+                  <Badge tone="fault" icon={<AlertOctagon className="size-3.5" aria-hidden />}>
+                    {r.unacked_critical_events}
+                  </Badge>
+                </span>
               )}
             </span>
-            {r.description && <span className="block truncate text-sm font-normal text-muted italic">{r.description}</span>}
+            {r.nickname && <span className="block truncate text-sm font-semibold">{r.nickname}</span>}
+            {/* What it is, one labelled line each */}
+            <span className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-sm font-normal">
+              <RobotFact label="Type">
+                <span className="font-semibold" style={{ color: `var(--cat-${r.category})` }}>
+                  {r.category.toUpperCase()}
+                </span>
+              </RobotFact>
+              <RobotFact label="Base model">
+                {r.product_name}
+                {r.hardware_revision && <span className="text-muted"> {r.hardware_revision}</span>}
+              </RobotFact>
+              <RobotFact
+                label="Attachments"
+                title={r.attachments.map((x) => `${x.name}${attachmentUnit(x) ? ` (${attachmentUnit(x)})` : ''}`).join('\n') || undefined}
+              >
+                {r.attachments.length ? r.attachments.map((x) => `${x.name}${x.revision_name ? ` ${x.revision_name}` : ''}`).join(', ') : <span className="text-muted">None</span>}
+              </RobotFact>
+              <RobotFact label="Site" title={r.site ? [r.site.name, r.site.city, `since ${fmtWhen(r.site.deployed_since)}`].filter(Boolean).join(' · ') : undefined}>
+                {r.site ? (
+                  <Link href={`/sites/${r.site.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-accent-text hover:underline">
+                    {r.site.name}
+                  </Link>
+                ) : (
+                  <span className="text-muted">Not deployed</span>
+                )}
+              </RobotFact>
+            </span>
           </span>
         </span>
       ),
@@ -316,26 +350,32 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
       key: 'status',
       header: 'Status',
       sortKey: 'last_seen_at',
-      className: 'whitespace-nowrap',
+      className: 'hidden md:table-cell',
       cell: (r) => (
-        <span className="block">
+        <span className="block w-32">
           <RobotStatusBadge lastSeenAt={r.last_seen_at} />
-          <span className="mt-0.5 block text-sm text-muted">
+          <span className="mt-1 block text-sm text-muted">
             <Activity r={r} now={now} />
           </span>
         </span>
       ),
     },
-    { key: 'owner', header: 'Owner', cell: (r) => (r.owner_company ? <span className="block max-w-48 truncate" title={r.owner_company}>{r.owner_company}</span> : <Dash />) },
+    {
+      key: 'owner',
+      header: 'Owner',
+      className: 'hidden xl:table-cell',
+      cell: (r) => (r.owner_company ? <span className="line-clamp-2 block w-32 break-words" title={r.owner_company}>{r.owner_company}</span> : <Dash />),
+    },
     {
       key: 'battery',
       header: 'Battery',
       sortKey: 'battery_pct',
+      className: 'hidden xl:table-cell',
       cell: (r) =>
         r.battery_pct === null ? (
           <Dash />
         ) : (
-          <span className="flex w-28 items-center gap-2">
+          <span className="flex w-24 items-center gap-2">
             <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
               <span
                 className={cn('block h-full rounded-full', r.battery_pct < 20 ? 'bg-fault' : r.battery_pct < 40 ? 'bg-warn' : 'bg-ok')}
@@ -346,12 +386,12 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
           </span>
         ),
     },
-    { key: 'health', header: 'Health', cell: (r) => <HealthDots health={r.health} /> },
+    { key: 'health', header: 'Health', className: 'hidden 2xl:table-cell', cell: (r) => <HealthDots health={r.health} /> },
     {
       key: 'alerts',
       header: 'Alerts',
       sortKey: 'unacked_critical_events',
-      className: 'whitespace-nowrap',
+      className: 'hidden whitespace-nowrap sm:table-cell',
       cell: (r) =>
         r.unacked_critical_events ? (
           <Link href={`/robots/${r.robot_id}?tab=events`} onClick={(e) => e.stopPropagation()} aria-label={`${r.unacked_critical_events} unacknowledged critical alerts on ${r.robot_id}`}>
@@ -368,7 +408,7 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
       header: 'Missions',
       sortKey: 'total_missions',
       align: 'right',
-      className: 'whitespace-nowrap',
+      className: 'hidden whitespace-nowrap sm:table-cell',
       cell: (r) => (
         <span className="block">
           <span className="font-semibold tabular-nums">{r.total_missions}</span>
@@ -386,7 +426,7 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
       key: 'data',
       header: 'Last data',
       sortKey: 'last_upload_at',
-      className: 'whitespace-nowrap text-xs',
+      className: 'hidden whitespace-nowrap 2xl:table-cell',
       cell: (r) => (r.last_upload_at ? <Ago iso={r.last_upload_at} now={now} /> : <span className="text-muted">None yet</span>),
     },
   ];
@@ -425,9 +465,8 @@ function Ago({ iso, now }: { iso: string; now: number }) {
 /** Last seen in words and the exact time below it: "2 days ago" / "27 Oct 2026, 1:40 pm". */
 function LastSeen({ iso, now }: { iso: string | null; now: number }) {
   return iso ? (
-    <time dateTime={iso} className="block">
+    <time dateTime={iso} className="block" title={fmtWhen(iso, now)}>
       Seen {fmtAgo(iso, now).toLowerCase()}
-      <span className="block">{fmtWhen(iso, now)}</span>
     </time>
   ) : (
     <span className="text-muted">Never connected</span>
@@ -439,11 +478,11 @@ function HealthDots({ health }: { health: DeviceHealthDto }) {
   const bad = DEVICES.filter(([k]) => health[k] === 'fault' || health[k] === 'warning');
   const unknown = DEVICES.every(([k]) => !health[k]);
   return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap" title={DEVICES.map(([k, n]) => `${n}: ${health[k] ?? 'not reported'}`).join('\n')}>
+    <span className="flex flex-wrap items-center gap-1.5 whitespace-nowrap" title={DEVICES.map(([k, n]) => `${n}: ${health[k] ?? 'not reported'}`).join('\n')}>
       {DEVICES.map(([k, n]) => (
         <span key={k} className={cn('size-2.5 rounded-full', health[k] ? HEALTH_DOT[health[k]!] : 'bg-border')} aria-hidden title={n} />
       ))}
-      <span className={cn('ml-1 text-xs', bad.length ? 'font-medium text-fault' : 'text-muted')}>
+      <span className={cn('basis-full text-xs', bad.length ? 'font-medium text-fault' : 'text-muted')}>
         {unknown ? 'Not reported' : bad.length === 1 ? bad[0][1] : bad.length ? `${bad.length} issues` : 'All OK'}
       </span>
     </span>
@@ -457,3 +496,15 @@ const DEVICES: [keyof DeviceHealthDto, string][] = [
   ['gps', 'GPS'],
 ];
 const HEALTH_DOT = { ok: 'bg-ok', warning: 'bg-warn', fault: 'bg-fault' } as const;
+
+/** One labelled line under the robot ID in the list: "Base model  Saibya Rev A". */
+function RobotFact({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
+  return (
+    <>
+      <span className="text-muted">{label}</span>
+      <span className="min-w-0 truncate font-medium text-fg" title={title}>
+        {children}
+      </span>
+    </>
+  );
+}

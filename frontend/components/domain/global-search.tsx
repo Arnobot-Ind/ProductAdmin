@@ -4,8 +4,10 @@ import type { SearchResultDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Bot, Boxes, Building2, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useCan, useCanAnywhere } from '@/lib/auth';
+import { ACTIONS, matchPages, NAV, visibleNav } from './nav';
 import { cn } from '@/lib/cn';
 import { useDebounced } from '@/lib/hooks';
 
@@ -19,11 +21,20 @@ interface Hit {
 }
 
 /**
- * The top bar's search: any robot (by ID, serial number, product or owner), organization or product, from every page.
- * "/" focuses it; arrows and Enter pick a result. Built for a large fleet: the server returns the best few of each kind.
+ * The top bar's search, from every page: the app's pages and common actions (by name or everyday words, e.g. "alerts"
+ * or "add site", only those the user may open), then any robot (by ID, nickname, serial number, base model or
+ * owner), organization or base model. "/" focuses it; arrows and Enter pick a result. Pages are matched in the
+ * browser at once; for a large fleet the server returns the best few of each kind.
  */
 export function GlobalSearch() {
   const router = useRouter();
+  const can = useCan();
+  const canAnywhere = useCanAnywhere();
+  // Every page in the menu and every action the user may use, each with the menu section it belongs to.
+  const pages = useMemo(() => {
+    const allowed = (i: { perm?: string; anyOf?: string[]; scoped?: string }) => (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))) && (!i.scoped || canAnywhere(i.scoped));
+    return [...visibleNav(NAV, can, canAnywhere).flatMap((g) => g.items.map((i) => ({ ...i, section: g.section }))), ...ACTIONS.filter(allowed)];
+  }, [can, canAnywhere]);
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -56,7 +67,9 @@ export function GlobalSearch() {
   }, []);
 
   const d = q ? res.data : undefined;
+  const pageHits = matchPages(pages, text.trim()).slice(0, 6);
   const hits: Hit[] = [
+    ...pageHits.map((p) => ({ key: `page-${p.label}`, href: p.href, title: p.label, sub: `${p.section} · ${p.description}`, Icon: p.Icon, group: 'Pages & actions' })),
     ...(d?.robots ?? []).map((r) => ({
       key: `r-${r.robot_id}`,
       href: `/robots/${r.robot_id}`,
@@ -83,7 +96,7 @@ export function GlobalSearch() {
         role="combobox"
         aria-expanded={open && !!q}
         aria-controls={listId}
-        aria-label="Search robots, organizations and base models"
+        aria-label="Search pages, robots, organizations and base models"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -97,7 +110,7 @@ export function GlobalSearch() {
           if (e.key === 'Enter' && hits[active]) (e.preventDefault(), go(hits[active]));
           if (e.key === 'Escape') (setOpen(false), input.current?.blur());
         }}
-        placeholder="Search robot, nickname, serial, owner…"
+        placeholder="Search pages, robots, sites, owners…"
         className="h-10 w-full rounded-lg border border-border bg-surface-2 pr-10 pl-9 text-base focus:border-accent focus:bg-surface focus:outline-none"
         autoComplete="off"
         spellCheck={false}
@@ -105,9 +118,9 @@ export function GlobalSearch() {
       <kbd className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 rounded border border-border px-1.5 text-xs text-muted" aria-hidden>
         /
       </kbd>
-      {open && q && (
+      {open && text.trim() && (
         <ul id={listId} role="listbox" className="absolute z-50 mt-1 max-h-[70vh] w-full overflow-auto rounded-xl border border-border bg-surface py-1 shadow-xl">
-          {res.isLoading ? (
+          {hits.length === 0 && (res.isLoading || !q) ? (
             <li className="px-4 py-3 text-sm text-muted">Searching…</li>
           ) : hits.length === 0 ? (
             <li className="px-4 py-3 text-sm text-muted">Nothing matches “{q}”.</li>

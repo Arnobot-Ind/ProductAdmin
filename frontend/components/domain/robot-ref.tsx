@@ -24,7 +24,7 @@ export function useRobotDirectory() {
 /** "saibya02 · Khavda patrol 1 — UGV · Saibya · Sprayer, Thermal camera": what a robot is, in one line, for tooltips. */
 export function robotSummary(id: string, r?: RobotDirectoryEntryDto): string {
   if (!r) return id;
-  const parts = [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? `Attachments: ${r.attachments.join(', ')}` : null, r.description, r.owner_company ? `Owner: ${r.owner_company}` : null];
+  const parts = [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? `Attachments: ${r.attachments.join(', ')}` : null, r.description, r.owner_company ? `Owner: ${r.owner_company}` : null, r.site_name ? `Site: ${r.site_name}` : null];
   return `${id}${r.nickname ? ` · ${r.nickname}` : ''}\n${parts.filter(Boolean).join('\n')}`;
 }
 

@@ -37,6 +37,7 @@ export function DataTable<T>({
   onRowClick,
   empty,
   dense,
+  compact,
   rowClassName,
 }: {
   columns: Column<T>[];
@@ -48,6 +49,8 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   empty?: ReactNode;
   dense?: boolean;
+  /** Narrower side padding, so a wide table fits the screen without scrolling sideways. */
+  compact?: boolean;
   rowClassName?: (row: T) => string | undefined;
 }) {
   return (
@@ -57,7 +60,7 @@ export function DataTable<T>({
         <thead className="sticky top-0 z-10 bg-surface-2">
           <tr>
             {columns.map((c) => (
-              <HeaderCell key={c.key} column={c} sort={sort} onSort={onSort} />
+              <HeaderCell key={c.key} column={c} sort={sort} onSort={onSort} compact={compact} />
             ))}
           </tr>
         </thead>
@@ -76,7 +79,7 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => {
-                  const cls = cn(dense ? 'px-4 py-2' : 'px-4 py-3', alignClass(c.align), c.className, c.sticky && 'sticky left-0 z-[1] bg-surface shadow-[1px_0_0_var(--border)]');
+                  const cls = cn(compact ? 'px-2.5 py-3' : dense ? 'px-4 py-2' : 'px-4 py-3', alignClass(c.align), c.className, c.sticky && 'sticky left-0 z-[1] bg-surface shadow-[1px_0_0_var(--border)]');
                   return c.rowHeader ? (
                     <th key={c.key} scope="row" className={cn(cls, 'font-medium')}>
                       {c.cell(row)}
@@ -100,11 +103,11 @@ function alignClass(a?: 'left' | 'right' | 'center') {
   return a === 'right' ? 'text-right' : a === 'center' ? 'text-center' : 'text-left';
 }
 
-function HeaderCell<T>({ column, sort, onSort }: { column: Column<T>; sort?: SortState | null; onSort?: (s: SortState) => void }) {
+function HeaderCell<T>({ column, sort, onSort, compact }: { column: Column<T>; sort?: SortState | null; onSort?: (s: SortState) => void; compact?: boolean }) {
   const active = sort && column.sortKey && sort.key === column.sortKey;
   const ariaSort: ThHTMLAttributes<HTMLTableCellElement>['aria-sort'] = active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : column.sortKey ? 'none' : undefined;
   const cls = cn(
-    'px-4 py-3 text-sm font-semibold text-muted',
+    compact ? 'px-2.5 py-3 text-sm font-semibold text-muted' : 'px-4 py-3 text-sm font-semibold text-muted',
     alignClass(column.align),
     column.className,
     column.sticky && 'sticky left-0 z-[2] bg-surface-2 shadow-[1px_0_0_var(--border)]',

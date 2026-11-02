@@ -22,6 +22,10 @@ export const ACTION_LABEL: Record<string, string> = {
   'robot.assigned': 'Assigned robot',
   'robot.note_added': 'Added a robot note',
   'robot.note_removed': 'Removed a robot note',
+  'robot.deployed': 'Deployed robot',
+  'robot.deployment_ended': 'Ended a deployment',
+  'site.created': 'Added a site',
+  'site.updated': 'Edited a site',
   'data.viewed': 'Opened recording',
   'data.downloaded': 'Downloaded',
   'data.deleted': 'Deleted recording',
@@ -39,6 +43,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'catalog.software_updated': 'Edited catalogue software',
   'catalog.software_deleted': 'Deleted catalogue software',
   'catalog.software_restored': 'Restored catalogue software',
+  'catalog.software_version_added': 'Recorded a software version',
+  'catalog.software_version_removed': 'Removed a software version',
   'credential.created': 'Stored credential',
   'credential.rotated': 'Rotated credential',
   'credential.revoked': 'Revoked credential',
@@ -51,6 +57,18 @@ export function auditSummary(e: AuditEntryDto): string {
   switch (e.action) {
     case 'robot.assigned':
       return `${e.robot_id}: ${s('from_company') || '—'} → ${s('to_company')}${d.revoked_robot_grants ? ` · ${s('revoked_robot_grants')} robot role(s) revoked` : ''}${s('reason') ? ` · ${s('reason')}` : ''}`;
+    case 'catalog.software_version_added':
+      return `${s('code')} ${s('version')}${s('commit_id') ? ` · ${s('commit_id').slice(0, 7)}` : ''}`;
+    case 'catalog.software_version_removed':
+      return s('version');
+    case 'robot.deployed':
+      return `${e.robot_id}: ${s('from_site') || '—'} → ${s('site')}`;
+    case 'robot.deployment_ended':
+      return `${e.robot_id}: left ${s('site')}`;
+    case 'site.created':
+      return s('name');
+    case 'site.updated':
+      return `${s('name')}: ${((d.fields as string[]) ?? []).join(', ')}`;
     case 'grant.added':
     case 'grant.revoked':
       return `${s('user_email')} · ${s('role')} @ ${d.scope_type === 'company' ? `organization ${e.company_name ?? s('scope_id')}` : `${s('scope_type')}${s('scope_id') ? ` ${s('scope_id')}` : ''}`}${s('reason') ? ` · ${s('reason')}` : ''}`;

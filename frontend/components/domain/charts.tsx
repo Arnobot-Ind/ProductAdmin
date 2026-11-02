@@ -306,6 +306,52 @@ export function ShareBar({ parts, label, large }: { parts: { label: string; valu
   );
 }
 
+// ── a small daily results chart for a dashboard tile ────────────────────────
+
+/**
+ * Mission results per day as thin stacked columns (completed at the base, then aborted, then failed), no axis:
+ * the shape of the period at a glance. A tooltip gives each day's numbers; the legend carries the totals.
+ */
+export function MiniResultColumns({ rows, height = 72 }: { rows: (DayRow & { completed: number; aborted: number; failed: number })[]; height?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(1, ...rows.map((d) => d.completed + d.aborted + d.failed));
+  const sum = (k: 'completed' | 'aborted' | 'failed') => rows.reduce((n, d) => n + d[k], 0);
+  const parts = RESULTS;
+  return (
+    <div>
+      <div className="relative flex items-end gap-[2px]" style={{ height }} role="img" aria-label={`Missions per day: ${parts.map((p) => `${sum(p.key)} ${p.label.toLowerCase()}`).join(', ')}`}>
+        {rows.map((d, i) => {
+          const total = d.completed + d.aborted + d.failed;
+          return (
+            <div key={d.date} className="relative flex h-full min-w-0 flex-1 flex-col justify-end" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              {total === 0 ? (
+                <div className="h-[2px] rounded-full bg-border" />
+              ) : (
+                <div className={cn('flex flex-col-reverse gap-[1px] transition-opacity', hover !== null && hover !== i && 'opacity-60')} style={{ height: `${(total / max) * 100}%` }}>
+                  {parts.map((p, j) =>
+                    d[p.key] > 0 ? (
+                      <div key={p.key} className={cn(j === parts.map((x) => d[x.key] > 0).lastIndexOf(true) && 'rounded-t-[3px]')} style={{ flexGrow: d[p.key], minHeight: 2, background: p.color }} />
+                    ) : null,
+                  )}
+                </div>
+              )}
+              {hover === i && (
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-max -translate-x-1/2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg shadow-md">
+                  <span className="block font-semibold">{dayLabel(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                  {total === 0 ? 'No missions' : parts.map((p) => `${d[p.key]} ${p.label.toLowerCase()}`).join(' · ')}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+        <Legend items={parts.map((p) => ({ label: p.label, color: p.color, value: sum(p.key) }))} />
+      </div>
+    </div>
+  );
+}
+
 // ── compare magnitude across items: horizontal bars, largest first ─────────
 
 /**
@@ -316,23 +362,31 @@ export function RankBars({
   rows,
   empty,
   scaleMax,
+  color = 'var(--accent)',
+  keepOrder,
 }: {
-  rows: { key: string; label: ReactNode; value: number; display: string; detail?: string }[];
+  /** `color` per row overrides the list's colour (e.g. a category colour). */
+  rows: { key: string; label: ReactNode; value: number; display: string; detail?: string; color?: string }[];
   empty?: string;
   scaleMax?: number;
+  /** One hue for every bar (default the accent; a status colour when the bars count problems). */
+  color?: string;
+  /** Show the rows in the order given (e.g. grouped) instead of largest first. */
+  keepOrder?: boolean;
 }) {
-  const sorted = [...rows].sort((a, b) => b.value - a.value);
+  const sorted = keepOrder ? rows : [...rows].sort((a, b) => b.value - a.value);
   const largest = Math.max(0, ...sorted.map((r) => r.value));
   if (largest === 0) return <p className="text-sm text-muted">{empty ?? 'Nothing recorded in this period.'}</p>;
   const max = scaleMax ?? largest;
   return (
     <ul className="flex flex-col gap-3">
       {sorted.map((r) => (
-        <li key={r.key} className="grid grid-cols-[minmax(6rem,10rem)_1fr] items-center gap-3" title={r.detail ?? r.display}>
+        <li key={r.key} className="grid grid-cols-[minmax(5rem,8rem)_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)]" title={r.detail ?? r.display}>
           <span className="truncate font-mono text-sm">{r.label}</span>
           {/* The bar keeps its true length (longest = 70 % of the track); the value sits at its tip and never squeezes it. */}
           <span className="flex min-w-0 items-center gap-2">
-            <span className="h-5 shrink-0 rounded-r-[4px]" style={{ width: `${r.value > 0 ? Math.max(1, (r.value / max) * 70) : 0}%`, background: 'var(--accent)' }} aria-hidden />
+            {/* On a narrow screen the bar gives way (never the number), keeping bars in proportion as far as it can. */}
+            <span className="h-5 min-w-[2px] shrink rounded-r-[4px]" style={{ width: `${r.value > 0 ? Math.max(1, (r.value / max) * 70) : 0}%`, background: r.color ?? color }} aria-hidden />
             <span className="text-sm font-semibold whitespace-nowrap tabular-nums">{r.display}</span>
           </span>
         </li>

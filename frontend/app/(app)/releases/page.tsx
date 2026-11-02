@@ -1,24 +1,24 @@
 'use client';
 
-import type { ReleaseComponent, ReleaseDto } from '@arnobot/message-schema';
+import type { ReleaseDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
-import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/field';
-import { Badge, CopyButton, EmptyState, InlineAlert, Mono, PageHeader, QueryView, Time } from '@/components/ui/misc';
+import { ConfirmDialog } from '@/components/ui/dialog';
+import { Checkbox, Field, Select } from '@/components/ui/field';
+import { Badge, CopyButton, EmptyState, Mono, PageHeader, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { api, downloadUrl, errorMessage } from '@/lib/api';
+import { api, downloadUrl } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { fmtBytes } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useProducts } from '@/lib/queries';
-import { isCommitId, SourceLink } from '@/components/domain/source-link';
+import { SourceLink } from '@/components/domain/source-link';
+import { RegisterReleaseDialog } from '@/components/domain/release-dialog';
 import { RELEASE_COMPONENTS } from '@/lib/schema';
 
-const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$/;
 const capital = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 /** Spec §9: one release record per software / firmware version; every version is kept. */
@@ -158,7 +158,7 @@ export default function ReleasesPage() {
           )
         }
       </QueryView>
-      <RegisterReleaseDialog open={adding} onClose={() => setAdding(false)} />
+      {adding && <RegisterReleaseDialog onClose={() => setAdding(false)} />}
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
@@ -170,138 +170,5 @@ export default function ReleasesPage() {
         confirmLabel="Delete"
       />
     </>
-  );
-}
-
-function RegisterReleaseDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const products = useProducts(open);
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [f, setF] = useState({ product_id: '', component: 'software' as ReleaseComponent, version: '', signature: '', signature_algo: 'ed25519', sha256: '', requires_min_version: '', notes: '', repo_url: '', commit_id: '' });
-  const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const other: ReleaseComponent = f.component === 'software' ? 'firmware' : 'software';
-
-  const m = useMutation({
-    mutationFn: () => {
-      const fd = new FormData();
-      fd.set('product_id', f.product_id);
-      fd.set('component', f.component);
-      fd.set('version', f.version.trim());
-      fd.set('signature', f.signature.trim());
-      if (f.signature_algo.trim()) fd.set('signature_algo', f.signature_algo.trim());
-      if (f.sha256.trim()) fd.set('sha256', f.sha256.trim().toLowerCase());
-      if (f.requires_min_version.trim()) {
-        fd.set('requires_component', other);
-        fd.set('requires_min_version', f.requires_min_version.trim());
-      }
-      if (f.notes.trim()) fd.set('notes', f.notes.trim());
-      if (f.repo_url.trim()) fd.set('repo_url', f.repo_url.trim());
-      if (f.commit_id.trim()) fd.set('commit_id', f.commit_id.trim());
-      if (file) fd.set('file', file);
-      return api.upload<ReleaseDto>('/releases', fd);
-    },
-    onSuccess: (r) => {
-      toast.success(`Registered ${r.product_code} ${r.component} ${r.version}`);
-      void qc.invalidateQueries({ queryKey: ['releases'] });
-      setFile(null);
-      setF((x) => ({ ...x, version: '', signature: '', sha256: '', requires_min_version: '', notes: '', commit_id: '' }));
-      onClose();
-    },
-    onError: (e) => setError(errorMessage(e)),
-  });
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!f.product_id) return setError('Choose a product');
-    if (!SEMVER.test(f.version.trim())) return setError('Version must be semantic, e.g. 1.4.0');
-    if (!f.signature.trim()) return setError('The Arnobot signature is required');
-    if (!file && !/^[a-f0-9]{64}$/i.test(f.sha256.trim())) return setError('Upload the package, or enter its SHA-256 checksum');
-    if (f.sha256.trim() && !/^[a-f0-9]{64}$/i.test(f.sha256.trim())) return setError('SHA-256 must be 64 hex characters');
-    if (f.requires_min_version.trim() && !SEMVER.test(f.requires_min_version.trim())) return setError('Minimum version must be semantic, e.g. 0.9.0');
-    if (f.repo_url.trim() && !/^https?:\/\/\S+$/i.test(f.repo_url.trim())) return setError('The GitHub link must start with https://');
-    if (f.commit_id.trim() && !isCommitId(f.commit_id.trim())) return setError('A commit ID is 7–64 letters a–f and digits, e.g. 3f9c2ab');
-    setError(null);
-    m.mutate();
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title="Register release"
-      description="The server computes the SHA-256 of the uploaded package. If you also enter one, they must match."
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" form="release-form" loading={m.isPending}>
-            Register
-          </Button>
-        </>
-      }
-    >
-      <form id="release-form" onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
-        <Field label="Base model" required>
-          <Select
-            value={f.product_id}
-            onChange={(e) => {
-              // Start from the product's own repository; it can be changed for this release.
-              const repo = products.data?.find((p) => p.id === e.target.value)?.repo_url ?? '';
-              setF({ ...f, product_id: e.target.value, repo_url: f.repo_url || repo });
-            }}
-            data-autofocus
-          >
-            <option value="">Choose…</option>
-            {products.data?.filter((p) => !p.deleted_at).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Component" required>
-          <Select value={f.component} onChange={(e) => setF({ ...f, component: e.target.value as ReleaseComponent })}>
-            {RELEASE_COMPONENTS.map((c) => (
-              <option key={c} value={c}>
-                {capital(c)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Version" required hint="Semantic version, e.g. 1.4.0">
-          <Input value={f.version} onChange={(e) => setF({ ...f, version: e.target.value })} className="font-mono" />
-        </Field>
-        <Field label={`Requires ${other} ≥`} hint="Optional minimum version of the other component">
-          <Input value={f.requires_min_version} onChange={(e) => setF({ ...f, requires_min_version: e.target.value })} className="font-mono" placeholder="e.g. 0.9.0" />
-        </Field>
-        <Field label="Update package" className="sm:col-span-2">
-          <Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="py-1.5" />
-        </Field>
-        <Field label="SHA-256 (optional check)" className="sm:col-span-2">
-          <Input value={f.sha256} onChange={(e) => setF({ ...f, sha256: e.target.value })} className="font-mono" spellCheck={false} />
-        </Field>
-        <Field label="Signature" required className="sm:col-span-2" hint="Arnobot signature of the package (base64)">
-          <Textarea value={f.signature} onChange={(e) => setF({ ...f, signature: e.target.value })} className="font-mono" spellCheck={false} />
-        </Field>
-        <Field label="Signature algorithm">
-          <Input value={f.signature_algo} onChange={(e) => setF({ ...f, signature_algo: e.target.value })} />
-        </Field>
-        <Field label="GitHub link" hint="Optional: the repository (or tag / release page) this was built from">
-          <Input value={f.repo_url} onChange={(e) => setF({ ...f, repo_url: e.target.value })} placeholder="https://github.com/…" spellCheck={false} />
-        </Field>
-        <Field label="Commit ID" hint="Optional, e.g. 3f9c2ab (short or full)">
-          <Input value={f.commit_id} onChange={(e) => setF({ ...f, commit_id: e.target.value })} className="font-mono" spellCheck={false} />
-        </Field>
-        <Field label="Notes" className="sm:col-span-2">
-          <Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
-        </Field>
-        {error && (
-          <div className="sm:col-span-2">
-            <InlineAlert tone="fault">{error}</InlineAlert>
-          </div>
-        )}
-      </form>
-    </Dialog>
   );
 }

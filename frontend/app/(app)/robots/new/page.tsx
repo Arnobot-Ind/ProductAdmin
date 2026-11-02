@@ -1,5 +1,6 @@
 'use client';
 
+import { sitePlace, useSites } from '@/components/domain/sites';
 import type { AttachmentDetailDto, AttachmentDto, HardwareRevisionDto, ProductDto, RobotAttachmentRefDto, RobotCategory, RobotRegisteredDto } from '@arnobot/message-schema';
 import { CategoryPicker } from '@/components/domain/category-picker';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -38,6 +39,8 @@ export default function RegisterRobotPage() {
   const [fit, setFit] = useState<Map<string, Fitting>>(new Map());
   /** '' = Arnobot (the default owner). */
   const [ownerId, setOwnerId] = useState('');
+  const [siteId, setSiteId] = useState('');
+  const sites = useSites();
   const [tried, setTried] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<RobotRegisteredDto | null>(null);
@@ -113,6 +116,7 @@ export default function RegisterRobotPage() {
         description: description.trim() || undefined,
         attachments: attachChoice === 'some' ? fitIds.map((id) => ({ attachment_id: id, hardware_revision_id: fit.get(id)!.revision || null, serial_number: fit.get(id)!.serial.trim() || null })) : [],
         company_id: ownerId || undefined,
+        site_id: siteId || undefined,
       }),
     onSuccess: (r) => {
       setResult(r);
@@ -165,6 +169,7 @@ export default function RegisterRobotPage() {
                 { label: 'Serial number (auto-generated, permanent)', value: <Mono>{r.serial_number}</Mono> },
                 { label: 'Nickname', value: r.nickname ?? '—' },
                 { label: 'Owner', value: r.owner_company ?? 'Arnobot' },
+                { label: 'Deployed at', value: r.site ? r.site.name : 'Not deployed yet' },
               ]}
             />
           </Card>
@@ -187,6 +192,7 @@ export default function RegisterRobotPage() {
                 setResult(null);
                 setNotes('');
                 setOwnerId('');
+                setSiteId('');
                 reset('');
                 setNickname('');
                 setDescription('');
@@ -330,7 +336,7 @@ export default function RegisterRobotPage() {
             )}
           </Step>
 
-          <Step n={4} title="Name and owner">
+          <Step n={4} title="Name, owner and site">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nickname" hint="Optional. Shown next to the Robot ID everywhere, e.g. Khavda patrol 1.">
                 <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} />
@@ -350,6 +356,18 @@ export default function RegisterRobotPage() {
                       ))}
                     </optgroup>
                   )}
+                </Select>
+              </Field>
+              <Field label="Deployed at" hint="Optional. The site it goes to; you can also deploy it later from its page." className="sm:col-span-2">
+                <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+                  <option value="">Not deployed yet</option>
+                  {(sites.data ?? []).map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name}
+                      {sitePlace(st) ? ` · ${sitePlace(st)}` : ''}
+                      {st.company_name ? ` (${st.company_name})` : ''}
+                    </option>
+                  ))}
                 </Select>
               </Field>
               <Field label="Short description" hint="Optional. One or two lines: what it does and where." className="sm:col-span-2">
