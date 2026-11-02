@@ -33,6 +33,7 @@ import { robotRoutes } from './routes/robots';
 import { robotLogRoutes } from './routes/robot-log';
 import { noteSearchRoutes } from './routes/notes-search';
 import { attachmentRoutes } from './routes/attachments';
+import { siteRoutes } from './routes/sites';
 import { telemetryRoutes } from './routes/telemetry';
 import { userRoutes } from './routes/users';
 import { sessionCookieName } from './services/auth.service';
@@ -132,6 +133,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       robotLogRoutes(api, ctx);
       noteSearchRoutes(api, ctx);
       attachmentRoutes(api, ctx);
+      siteRoutes(api, ctx);
       hardwareRoutes(api, ctx);
       telemetryRoutes(api, ctx);
       reportRoutes(api, ctx);

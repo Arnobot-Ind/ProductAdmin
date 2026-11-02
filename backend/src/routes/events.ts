@@ -1,4 +1,4 @@
-import { EVENT_SEVERITIES, EVENT_TYPES, type ActiveFaultDto, type EventCalendarDayDto, type EventDto, type Paginated } from '../shared';
+import { EVENT_SEVERITIES, EVENT_TYPES, ROBOT_CATEGORIES, type ActiveFaultDto, type EventCalendarDayDto, type EventDto, type Paginated } from '../shared';
 import type { Queryable } from '../db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -55,15 +55,48 @@ export async function activeFaults(db: Queryable, w: Where): Promise<ActiveFault
   }));
 }
 
-const listQuery = z.object({
+/** Filters shared by the event list and its calendar (Needs attention filters both the same way). */
+const filterFields = {
   robot: robotIdSchema.optional(),
   type: z.enum(EVENT_TYPES).optional(),
   severity: z.enum(EVENT_SEVERITIES).optional(),
+  /** Several severities, comma-separated, e.g. "critical,warning". */
+  severities: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(EVENT_SEVERITIES)).optional()),
   unacked: optionalBool,
+  /** Only events someone has acknowledged. */
+  acked: optionalBool,
+  /** Robots of this category / base model (code). */
+  category: z.enum(ROBOT_CATEGORIES).optional(),
+  product: z.string().max(50).optional(),
+  /** Words in the robot ID, nickname, code or message. */
+  q: z.string().trim().max(100).optional(),
+};
+const listQuery = z.object({
+  ...filterFields,
   from: isoDateTime.optional(),
   to: isoDateTime.optional(),
   ...pageQuery,
 });
+
+function applyFilters(q: { [K in keyof typeof filterFields]?: z.infer<(typeof filterFields)[K]> }, w: Where): Where {
+  if (q.robot) w.add('e.robot_id = ?', q.robot);
+  if (q.type) w.add('e.type = ?', q.type);
+  if (q.severity) w.add('e.severity = ?', q.severity);
+  if (q.severities?.length) w.add('e.severity = ANY(?::text[])', q.severities);
+  if (q.unacked) w.add('e.acknowledged_at IS NULL');
+  if (q.acked) w.add('e.acknowledged_at IS NOT NULL');
+  if (q.category) w.add('EXISTS (SELECT 1 FROM robots fr JOIN products fp ON fp.id = fr.product_id WHERE fr.robot_id = e.robot_id AND fp.category = ?)', q.category);
+  if (q.product) w.add('EXISTS (SELECT 1 FROM robots fr JOIN products fp ON fp.id = fr.product_id WHERE fr.robot_id = e.robot_id AND fp.code = ?)', q.product);
+  if (q.q) {
+    const like = w.param(`%${q.q.replace(/[\\%_]/g, '\\$&')}%`);
+    w.add(`(e.robot_id ILIKE ${like} OR e.code ILIKE ${like} OR e.message ILIKE ${like} OR EXISTS (SELECT 1 FROM robots nr WHERE nr.robot_id = e.robot_id AND nr.nickname ILIKE ${like}))`);
+  }
+  return w;
+}
 
 /** Event log (spec §3 row 13): append-only; acknowledgement is the only change allowed. */
 export function eventRoutes(f: FastifyInstance, app: AppContext): void {
@@ -71,10 +104,7 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
   const tag = 'Events';
 
   const list = (q: z.infer<typeof listQuery>, w: Where): Promise<Paginated<EventDto>> => {
-    if (q.robot) w.add('e.robot_id = ?', q.robot);
-    if (q.type) w.add('e.type = ?', q.type);
-    if (q.severity) w.add('e.severity = ?', q.severity);
-    if (q.unacked) w.add('e.acknowledged_at IS NULL');
+    applyFilters(q, w);
     if (q.from) w.add('e.ts >= ?', q.from);
     if (q.to) w.add('e.ts < ?', q.to);
     return paginate(db, EVENT_SELECT, w, 'e.ts DESC, e.id', q.page, q.limit, toEvent) as Promise<Paginated<EventDto>>;
@@ -96,11 +126,11 @@ export function eventRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'Events across robots the user may read, counted per IST day of a month (total, critical, warning, unacknowledged)',
     tag,
     access: { can: 'robot.details', target: anyScope() },
-    query: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') }),
+    query: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM'), ...filterFields }),
     handler: async ({ query, user }): Promise<EventCalendarDayDto[]> => {
       const [y, m] = query.month.split('-').map(Number);
       const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
-      const w = app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts');
+      const w = applyFilters(query, app.perms.applyDataScope(new Where(), app.perms.robotScope(user, 'robot.details'), 'e.robot_id', 'e.ts'));
       w.add('e.ts >= ?', `${query.month}-01T00:00:00+05:30`).add('e.ts < ?', `${next}-01T00:00:00+05:30`);
       const rows = await db.query<EventCalendarDayDto>(
         `SELECT (e.ts AT TIME ZONE 'Asia/Kolkata')::date::text AS date, count(*)::int AS total,

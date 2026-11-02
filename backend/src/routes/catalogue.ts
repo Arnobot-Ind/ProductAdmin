@@ -25,7 +25,7 @@ const toProduct = (r: Record<string, unknown>): ProductDto => ({
 });
 
 const MEDIA_SELECT = `
-SELECT pm.id, pm.product_id, pm.attachment_id, pm.kind, pm.position, pm.caption, f.filename, f.content_type, f.size_bytes, pm.created_at, u.name AS created_by_name
+SELECT pm.id, pm.product_id, pm.attachment_id, pm.software_product_id, pm.kind, pm.position, pm.caption, f.filename, f.content_type, f.size_bytes, pm.created_at, u.name AS created_by_name
 FROM product_media pm JOIN files f ON f.id = pm.file_id LEFT JOIN users u ON u.id = pm.created_by`;
 const toMedia = (r: Record<string, unknown>): ProductMediaDto => ({ ...(r as unknown as ProductMediaDto), created_at: iso(r.created_at as Date)! });
 /** Photos: raster images only (an SVG could carry script). 3D: binary glTF, which the browser viewer reads. */
@@ -220,6 +220,18 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
         return `attachments/${id}/media`;
       },
     },
+    {
+      base: '/software-products/:id',
+      column: 'software_product_id',
+      what: 'software',
+      folder: async (id: string, tx: Queryable) => {
+        assertUuid(id);
+        const s = (await tx.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM software_products WHERE id = $1', [id])).rows[0];
+        if (!s) throw notFound('software');
+        if (s.deleted_at) throw conflict('software is deleted');
+        return `software/${id}/media`;
+      },
+    },
   ] as const;
   for (const o of mediaOwners) {
     route(f, app, {
@@ -326,7 +338,8 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       return app.documents.forAttachment(params.id, db, query.include_deleted ?? false);
     },
   });
-  for (const o of mediaOwners) {
+  // Hardware revisions: base models and attachments only (software keeps a version history instead).
+  for (const o of mediaOwners.filter((x) => x.column !== 'software_product_id')) {
     route(f, app, {
       method: 'POST',
       path: `${o.base}/revisions`,

@@ -4,7 +4,7 @@
  * robot assignment in organizations.ts. Every route here is platform-scoped staff work: customers never reach it.
  */
 import { withTransaction, type Queryable } from '../db';
-import { CLIENT_CREDENTIAL_KINDS, CLIENT_STATUSES, SOFTWARE_KINDS, type ClientCredentialDto, type ClientCredentialRevealDto, type ClientFeatureDto, type ClientProfileDto, type SoftwareInstallDto, type SoftwareProductDto, type UserRefDto } from '../shared';
+import { CLIENT_CREDENTIAL_KINDS, CLIENT_STATUSES, SOFTWARE_KINDS, type ClientCredentialDto, type ClientCredentialRevealDto, type ClientFeatureDto, type ClientProfileDto, type SoftwareDetailDto, type SoftwareInstallAtDto, type SoftwareInstallDto, type SoftwareProductDto, type SoftwareVersionDto, type UserRefDto } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
@@ -45,6 +45,38 @@ const productBody = z.object({
   repo_url: repoUrlField.optional(),
   commit_id: commitIdField.optional(),
 });
+const VERSION_SELECT = `
+SELECT v.id, v.version, v.commit_id, v.released_at, v.notes, u.name AS created_by_name,
+       (SELECT count(*)::int FROM software_installs i WHERE i.software_id = v.software_product_id AND lower(i.version) = lower(v.version) AND i.deleted_at IS NULL) AS install_count
+FROM software_versions v LEFT JOIN users u ON u.id = v.created_by`;
+const toVersion = (r: Record<string, unknown>): SoftwareVersionDto => ({ ...(r as unknown as SoftwareVersionDto), released_at: iso(r.released_at as Date)! });
+
+/**
+ * Keeps a software item's version history in step with its "latest version" (0027): a version named as latest is
+ * recorded once, and the item's latest version / commit always follow the newest recorded release.
+ */
+async function recordVersion(tx: Queryable, softwareId: string, v: { version: string; commit_id?: string | null; released_at?: Date; notes?: string | null }, userId: string): Promise<string | null> {
+  const exists = (await tx.query('SELECT 1 FROM software_versions WHERE software_product_id = $1 AND lower(version) = lower($2) AND deleted_at IS NULL', [softwareId, v.version])).rowCount;
+  const id = exists
+    ? null
+    : (
+        await tx.query<{ id: string }>(
+          'INSERT INTO software_versions (software_product_id, version, commit_id, released_at, notes, created_by) VALUES ($1, $2, $3, coalesce($4, now()), $5, $6) RETURNING id',
+          [softwareId, v.version, v.commit_id ?? null, v.released_at ?? null, v.notes ?? null, userId],
+        )
+      ).rows[0].id;
+  await syncLatest(tx, softwareId);
+  return id;
+}
+async function syncLatest(tx: Queryable, softwareId: string): Promise<void> {
+  await tx.query(
+    `UPDATE software_products s SET latest_version = v.version, commit_id = coalesce(v.commit_id, CASE WHEN s.latest_version = v.version THEN s.commit_id END)
+     FROM (SELECT version, commit_id FROM software_versions WHERE software_product_id = $1 AND deleted_at IS NULL ORDER BY released_at DESC, created_at DESC LIMIT 1) v
+     WHERE s.id = $1 AND (s.latest_version IS DISTINCT FROM v.version OR s.commit_id IS DISTINCT FROM coalesce(v.commit_id, s.commit_id))`,
+    [softwareId],
+  );
+}
+
 const installBody = z.object({
   software_id: uuidSchema,
   robot_id: robotIdSchema.nullable().optional(),
@@ -232,6 +264,7 @@ export function clientAdminRoutes(f: FastifyInstance, app: AppContext): void {
             user.id,
           ])
         ).rows[0].id;
+        if (body.latest_version) await recordVersion(tx, id, { version: body.latest_version, commit_id: body.commit_id ?? null }, user.id);
         await app.audit.record({ action: 'catalog.software_created', actor: user, target: { type: 'software', id }, detail: { code: body.code, name: body.name }, req }, tx);
         return productById(id, tx);
       }),
@@ -255,6 +288,10 @@ export function clientAdminRoutes(f: FastifyInstance, app: AppContext): void {
           sets.push(`${k} = $${values.length}`);
         }
         if (sets.length) await tx.query(`UPDATE software_products SET ${sets.join(', ')} WHERE id = $1`, values);
+        // A new latest version typed in here goes into the history too (with the commit given alongside).
+        if (body.latest_version && body.latest_version.toLowerCase() !== (before.latest_version ?? '').toLowerCase()) {
+          await recordVersion(tx, params.id, { version: body.latest_version, commit_id: body.commit_id ?? null }, user.id);
+        }
         await app.audit.record({ action: 'catalog.software_updated', actor: user, target: { type: 'software', id: params.id }, detail: { code: before.code, changes: body }, req }, tx);
         return productById(params.id, tx);
       }),
@@ -278,6 +315,95 @@ export function clientAdminRoutes(f: FastifyInstance, app: AppContext): void {
         }),
     });
   }
+
+  // ── one software item: its page, version history, where it is installed, documents ─────────
+  route(f, app, {
+    method: 'GET',
+    path: '/software-products/:id',
+    summary: 'One software item with its whole version history (newest first)',
+    tag,
+    access: manage,
+    handler: async ({ params }): Promise<SoftwareDetailDto> => {
+      const p = await productById(params.id, db);
+      const updated = (await db.query<{ updated_at: Date }>('SELECT updated_at FROM software_products WHERE id = $1', [params.id])).rows[0].updated_at;
+      const versions = (await db.query(`${VERSION_SELECT} WHERE v.software_product_id = $1 AND v.deleted_at IS NULL ORDER BY v.released_at DESC, v.created_at DESC`, [params.id])).rows.map(toVersion);
+      return { ...p, versions, updated_at: iso(updated)! };
+    },
+  });
+
+  route(f, app, {
+    method: 'POST',
+    path: '/software-products/:id/versions',
+    summary: 'Record a new version (with its commit and what changed); the newest release becomes the latest version',
+    tag,
+    access: manage,
+    status: 201,
+    body: z.object({
+      version: z.string().trim().min(1).max(64),
+      commit_id: commitIdField.optional(),
+      released_at: isoDate.optional(),
+      notes: nullableText(4000).optional(),
+    }),
+    handler: ({ params, body, user, req }) =>
+      withTransaction(db, async (tx) => {
+        const p = await productById(params.id, tx);
+        if (p.deleted_at) throw conflict('software is deleted; restore it first');
+        if ((await tx.query('SELECT 1 FROM software_versions WHERE software_product_id = $1 AND lower(version) = lower($2) AND deleted_at IS NULL', [params.id, body.version])).rowCount) {
+          throw conflict(`version ${body.version} is already recorded`);
+        }
+        const released = body.released_at ? new Date(`${body.released_at}T12:00:00+05:30`) : undefined;
+        if (released && released.getTime() > Date.now() + 86_400_000) throw badRequest('the release date is in the future');
+        const id = (await recordVersion(tx, params.id, { version: body.version, commit_id: body.commit_id ?? null, released_at: released, notes: body.notes ?? null }, user.id))!;
+        await app.audit.record({ action: 'catalog.software_version_added', actor: user, target: { type: 'software', id: params.id }, detail: { code: p.code, version: body.version, commit_id: body.commit_id ?? null }, req }, tx);
+        return toVersion((await tx.query(`${VERSION_SELECT} WHERE v.id = $1`, [id])).rows[0]);
+      }),
+  });
+
+  route(f, app, {
+    method: 'DELETE',
+    path: '/software-versions/:id',
+    summary: 'Remove a version recorded by mistake (kept in the database; the latest version follows the newest remaining)',
+    tag,
+    access: manage,
+    handler: ({ params, user, req }) =>
+      withTransaction(db, async (tx) => {
+        assertUuid(params.id);
+        const v = (await tx.query<{ software_product_id: string; version: string }>('UPDATE software_versions SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING software_product_id, version', [params.id])).rows[0];
+        if (!v) throw notFound('software version');
+        await syncLatest(tx, v.software_product_id);
+        await app.audit.record({ action: 'catalog.software_version_removed', actor: user, target: { type: 'software', id: v.software_product_id }, detail: { version: v.version }, req }, tx);
+        return { ok: true };
+      }),
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/software-products/:id/installs',
+    summary: 'Where this software is installed, across all clients',
+    tag,
+    access: manage,
+    handler: async ({ params }): Promise<SoftwareInstallAtDto[]> => {
+      await productById(params.id, db);
+      const rows = await db.query(
+        `SELECT x.*, c.name AS company_name FROM (${INSTALL_SELECT} WHERE i.software_id = $1 AND i.deleted_at IS NULL) x JOIN companies c ON c.id = x.company_id ORDER BY c.name, x.robot_id NULLS FIRST, x.host_label`,
+        [params.id],
+      );
+      return rows.rows.map((r) => ({ ...toInstall(r), company_name: r.company_name as string }));
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
+    path: '/software-products/:id/documents',
+    summary: 'Documents of a software item (manuals, install guides, release notes …)',
+    tag,
+    access: manage,
+    query: z.object(includeDeleted),
+    handler: async ({ params, query }) => {
+      await productById(params.id, db);
+      return app.documents.forSoftware(params.id, db, query.include_deleted ?? false);
+    },
+  });
 
   // ── software installs ─────────────────────────────────────────────────────
   const installById = async (id: string, q: Queryable): Promise<SoftwareInstallDto> => {

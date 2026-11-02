@@ -15,10 +15,11 @@ const createFields = z
     hardware_revision_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
     robot_id: robotIdSchema.optional().or(z.literal('').transform(() => undefined)),
     attachment_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
+    software_product_id: uuidSchema.optional().or(z.literal('').transform(() => undefined)),
     note: optionalText(1000),
   })
-  .refine((v) => [v.product_id, v.hardware_revision_id, v.robot_id, v.attachment_id].filter(Boolean).length === 1, {
-    message: 'attach the document to exactly one of product_id, hardware_revision_id, robot_id or attachment_id',
+  .refine((v) => [v.product_id, v.hardware_revision_id, v.robot_id, v.attachment_id, v.software_product_id].filter(Boolean).length === 1, {
+    message: 'attach the document to exactly one of product_id, hardware_revision_id, robot_id, attachment_id or software_product_id',
   });
 const versionFields = z.object({ note: optionalText(1000) });
 
@@ -80,6 +81,9 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
           ).rows[0];
           if (!r) throw notFound('hardware revision');
           prefix = `${r.base}/revisions/${body.hardware_revision_id}/docs`;
+        } else if (body.software_product_id) {
+          if (!(await tx.query('SELECT 1 FROM software_products WHERE id = $1 AND deleted_at IS NULL', [body.software_product_id])).rowCount) throw notFound('software');
+          prefix = `software/${body.software_product_id}/docs`;
         } else if (body.attachment_id) {
           if (!(await tx.query('SELECT 1 FROM attachments WHERE id = $1 AND deleted_at IS NULL', [body.attachment_id])).rowCount) throw notFound('attachment');
           prefix = `attachments/${body.attachment_id}/docs`;
@@ -90,9 +94,9 @@ export function documentRoutes(f: FastifyInstance, app: AppContext): void {
         }
         const docId = (
           await tx.query<{ id: string }>(
-            `INSERT INTO documents (doc_type, title, product_id, hardware_revision_id, robot_id, attachment_id, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-            [body.doc_type, body.title, body.product_id ?? null, body.hardware_revision_id ?? null, body.robot_id ?? null, body.attachment_id ?? null, user.id],
+            `INSERT INTO documents (doc_type, title, product_id, hardware_revision_id, robot_id, attachment_id, software_product_id, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+            [body.doc_type, body.title, body.product_id ?? null, body.hardware_revision_id ?? null, body.robot_id ?? null, body.attachment_id ?? null, body.software_product_id ?? null, user.id],
           )
         ).rows[0].id;
         const fileId = await files.store(file, `${prefix}/${docId}/v1`, user.id, tx);

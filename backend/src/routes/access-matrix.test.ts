@@ -25,6 +25,7 @@ import { organizationRoutes } from './organizations';
 import { releaseRoutes } from './releases';
 import { reportRoutes } from './reports';
 import { robotRoutes } from './robots';
+import { siteRoutes } from './sites';
 import { telemetryRoutes } from './telemetry';
 import { userRoutes } from './users';
 
@@ -47,6 +48,7 @@ beforeAll(() => {
     dashboardRoutes,
     catalogueRoutes,
     robotRoutes,
+    siteRoutes,
     hardwareRoutes,
     telemetryRoutes,
     reportRoutes,

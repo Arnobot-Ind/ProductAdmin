@@ -143,6 +143,7 @@ export async function computeDailyDistance(db: Queryable, robotId: string, spans
 }
 
 export function reportRoutes(f: FastifyInstance, app: AppContext): void {
+
   const { db, robots } = app;
   const tag = 'Reports';
   const distanceCache = new Map<string, { value: Promise<DailyDistanceDto[]>; until: number }>();
