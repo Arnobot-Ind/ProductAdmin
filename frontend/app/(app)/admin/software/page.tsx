@@ -1,33 +1,29 @@
 'use client';
 
-import { isCommitId, SourceLink } from '@/components/domain/source-link';
-import type { SoftwareKind, SoftwareProductDto } from '@arnobot/message-schema';
+import { SourceLink } from '@/components/domain/source-link';
+import { KIND_LABELS, ProductDialog } from '@/components/domain/software';
+import type { SoftwareProductDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppWindow, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
-import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/field';
+import { ConfirmDialog } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/field';
 import { Badge, EmptyState, InlineAlert, Mono, PageHeader, QueryView, Time } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { useDocumentTitle } from '@/lib/hooks';
-import { SOFTWARE_KINDS } from '@/lib/schema';
 
-const KIND_LABELS: Record<SoftwareKind, string> = {
-  desktop_app: 'Desktop app',
-  web_app: 'Web app',
-  robot_software: 'Robot software',
-  firmware: 'Firmware',
-  service: 'Service',
-};
 
 /** The Arnobot software clients can run. Each client's installs and licences are on its organization page. */
 export default function SoftwarePage() {
   useDocumentTitle('Software');
   const can = useCan();
+  const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
   const [includeDeleted, setIncludeDeleted] = useState(false);
@@ -81,6 +77,7 @@ export default function SoftwarePage() {
               rows={list}
               rowKey={(p) => p.id}
               rowClassName={(p) => (p.deleted_at ? 'opacity-60' : undefined)}
+              onRowClick={(p) => router.push(`/admin/software/${p.id}`)}
               columns={[
                 {
                   key: 'n',
@@ -88,7 +85,9 @@ export default function SoftwarePage() {
                   rowHeader: true,
                   cell: (p) => (
                     <span>
-                      <span className="font-semibold">{p.name}</span>
+                      <Link href={`/admin/software/${p.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-accent-text hover:underline">
+                        {p.name}
+                      </Link>
                       {p.description && <span className="block text-xs text-muted">{p.description}</span>}
                     </span>
                   ),
@@ -139,93 +138,5 @@ export default function SoftwarePage() {
         confirmLabel="Delete software"
       />
     </>
-  );
-}
-
-function ProductDialog({ product, onClose }: { product: SoftwareProductDto | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [f, setF] = useState({
-    code: product?.code ?? '',
-    name: product?.name ?? '',
-    kind: product?.kind ?? ('desktop_app' as SoftwareKind),
-    description: product?.description ?? '',
-    latest_version: product?.latest_version ?? '',
-    repo_url: product?.repo_url ?? '',
-    commit_id: product?.commit_id ?? '',
-  });
-  const set = (patch: Partial<typeof f>) => setF({ ...f, ...patch });
-  const m = useMutation({
-    mutationFn: () => {
-      const body = {
-        name: f.name.trim(),
-        kind: f.kind,
-        description: f.description.trim() || null,
-        latest_version: f.latest_version.trim() || null,
-        repo_url: f.repo_url.trim() || null,
-        commit_id: f.commit_id.trim() || null,
-      };
-      return product ? api.patch<SoftwareProductDto>(`/software-products/${product.id}`, body) : api.post<SoftwareProductDto>('/software-products', { ...body, code: f.code.trim() });
-    },
-    onSuccess: (p) => {
-      toast.success(product ? `${p.name} updated` : `${p.name} added`);
-      void qc.invalidateQueries({ queryKey: ['software-products'] });
-      void qc.invalidateQueries({ queryKey: ['organizations'] });
-      onClose();
-    },
-    onError: toast.error,
-  });
-  const codeBad = !product && !!f.code && !/^[a-z][a-z0-9_]*$/.test(f.code.trim());
-  const repoBad = !!f.repo_url.trim() && !/^https?:\/\/\S+$/i.test(f.repo_url.trim());
-  const commitBad = !!f.commit_id.trim() && !isCommitId(f.commit_id.trim());
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={product ? `Edit ${product.name}` : 'New software'}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={!f.name.trim() || (!product && !f.code.trim()) || codeBad || repoBad || commitBad}>
-            {product ? 'Save' : 'Add'}
-          </Button>
-        </>
-      }
-    >
-      <form className="grid gap-4 sm:grid-cols-2" onSubmit={(e) => e.preventDefault()} autoComplete="off">
-        <Field label="Name" required>
-          <Input value={f.name} onChange={(e) => set({ name: e.target.value })} data-autofocus />
-        </Field>
-        <Field
-          label="Code"
-          required={!product}
-          hint={product ? 'Codes never change.' : 'Lowercase letters, digits and _. Cannot be changed or reused later.'}
-          error={codeBad ? 'Lowercase letters, digits and _, starting with a letter' : null}
-        >
-          <Input value={f.code} onChange={(e) => set({ code: e.target.value })} className="font-mono" disabled={!!product} placeholder="gcs_desktop" />
-        </Field>
-        <Field label="Kind" required>
-          <Select value={f.kind} onChange={(e) => set({ kind: e.target.value as SoftwareKind })}>
-            {SOFTWARE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABELS[k]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Latest version" hint="Installs on an older version show “update available”.">
-          <Input value={f.latest_version} onChange={(e) => set({ latest_version: e.target.value })} className="font-mono" placeholder="1.0.0" />
-        </Field>
-        <Field label="GitHub link" hint="Optional: repository or release page of the latest version" error={repoBad ? 'A web link starting with https://' : null}>
-          <Input value={f.repo_url} onChange={(e) => set({ repo_url: e.target.value })} placeholder="https://github.com/…" spellCheck={false} />
-        </Field>
-        <Field label="Commit ID" hint="Optional, of the latest version" error={commitBad ? '7–64 letters a–f and digits' : null}>
-          <Input value={f.commit_id} onChange={(e) => set({ commit_id: e.target.value })} className="font-mono" spellCheck={false} placeholder="3f9c2ab" />
-        </Field>
-        <Field label="Description" className="sm:col-span-2">
-          <Textarea rows={2} value={f.description} onChange={(e) => set({ description: e.target.value })} />
-        </Field>
-      </form>
-    </Dialog>
   );
 }

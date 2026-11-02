@@ -215,6 +215,26 @@ export interface SoftwareProductDto {
   created_at: string;
   deleted_at: string | null;
 }
+/** One version of a catalogue software (0027): its commit and what changed. */
+export interface SoftwareVersionDto {
+  id: string;
+  version: string;
+  commit_id: string | null;
+  released_at: string;
+  notes: string | null;
+  created_by_name: string | null;
+  /** Installs (at clients) on exactly this version now. */
+  install_count: number;
+}
+/** A software item's page: the catalogue entry with its whole version history, newest first. */
+export interface SoftwareDetailDto extends SoftwareProductDto {
+  versions: SoftwareVersionDto[];
+  updated_at: string;
+}
+/** Where a software item is installed, across clients. */
+export interface SoftwareInstallAtDto extends SoftwareInstallDto {
+  company_name: string;
+}
 export type LicenceState = 'none' | 'valid' | 'expiring' | 'expired';
 export interface SoftwareInstallDto {
   id: string;
@@ -328,9 +348,10 @@ export interface ProductDto {
 /** A photo, the 3D model or one photo of the 360° series of a product. The file is served by GET /product-media/:id/file. */
 export interface ProductMediaDto {
   id: string;
-  /** Exactly one of the two: a base model's or an attachment's picture. */
+  /** Exactly one of these: a base model's, an attachment's or a software item's picture. */
   product_id: string | null;
   attachment_id: string | null;
+  software_product_id: string | null;
   kind: ProductMediaKind;
   /** Order within a 360° series. */
   position: number;
@@ -406,6 +427,8 @@ export interface RobotListItemDto extends MissionSummaryDto {
   hardware_revision: string | null;
   /** The base model's first photo. */
   product_cover_photo_id: string | null;
+  /** Where the robot is deployed now (0026); null when not deployed. */
+  site: RobotSiteRefDto | null;
   owner_company: string | null;
   status: RobotStatus;
   last_seen_at: string | null;
@@ -441,6 +464,51 @@ export interface RobotAttachmentRefDto {
   /** Which revision and which unit is fitted, when recorded. */
   revision_name: string | null;
   serial_number: string | null;
+}
+/** The site a robot is deployed at now, in a few words. */
+export interface RobotSiteRefDto {
+  id: string;
+  name: string;
+  city: string | null;
+  deployed_since: string;
+}
+/** A place robots are deployed to (0026): a solar park, a plant, a campus. */
+export interface SiteDto {
+  id: string;
+  name: string;
+  /** Whose site, usually the customer's. */
+  company_id: string | null;
+  company_name: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  notes: string | null;
+  /** Robots deployed there now, and all robots ever deployed there. */
+  robots_now: number;
+  robots_ever: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+/** One period of a robot at a site; current while ended_at is null. */
+export interface RobotDeploymentDto {
+  id: string;
+  robot_id: string;
+  site_id: string;
+  site_name: string;
+  site_city: string | null;
+  deployed_at: string;
+  deployed_by_name: string | null;
+  purpose: string | null;
+  notes: string | null;
+  ended_at: string | null;
+  ended_by_name: string | null;
+  end_note: string | null;
 }
 /** An attachment in the catalogue (equipment that can be fitted on a vehicle). */
 export interface AttachmentDto {
@@ -494,6 +562,10 @@ export interface RobotDirectoryEntryDto {
   category: RobotCategory;
   attachments: string[];
   owner_company: string | null;
+  /** Site it is deployed at now. */
+  site_name: string | null;
+  /** Software version it reports now (null = not reported yet). */
+  sw_ver: string | null;
 }
 export interface RobotDetailDto extends RobotListItemDto {
   product_id: string;
@@ -691,12 +763,13 @@ export interface DocumentDto {
   id: string;
   doc_type: DocumentType;
   title: string;
-  /** Where the document is attached (spec §4: product, revision, or one-off robot; or an attachment). */
-  source: 'product' | 'revision' | 'robot' | 'attachment';
+  /** Where the document is attached (spec §4: product, revision, or one-off robot; or an attachment or software). */
+  source: 'product' | 'revision' | 'robot' | 'attachment' | 'software';
   product_id: string | null;
   hardware_revision_id: string | null;
   robot_id: string | null;
   attachment_id: string | null;
+  software_product_id: string | null;
   source_label: string;
   latest: DocumentVersionDto | null;
   versions: DocumentVersionDto[];
