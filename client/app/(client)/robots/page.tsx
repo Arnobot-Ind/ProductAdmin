@@ -13,6 +13,7 @@ import { useMe } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useNow } from '@/lib/hooks';
+import { fmtSerial } from '@/lib/format';
 
 const FILTERS: { id: 'all' | RobotStatus; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -35,7 +36,11 @@ export default function PortalRobotsPage() {
   });
   const all = q.data?.items ?? [];
   const term = search.trim().toLowerCase();
-  const robots = all.filter((r) => (status === 'all' || r.status === status) && (!term || r.robot_id.includes(term) || r.product_name.toLowerCase().includes(term)));
+  // A serial number can be typed with or without dashes; an old robot name still finds the robot.
+  const digits = term.replace(/[\s-]/g, '');
+  const matches = (r: (typeof all)[number]) =>
+    (!!digits && r.robot_id.includes(digits)) || r.previous_ids.some((p) => p.includes(term)) || r.product_name.toLowerCase().includes(term) || !!r.nickname?.toLowerCase().includes(term);
+  const robots = all.filter((r) => (status === 'all' || r.status === status) && (!term || matches(r)));
   const count = (id: 'all' | RobotStatus) => (id === 'all' ? all.length : all.filter((r) => r.status === id).length);
 
   return (
@@ -53,7 +58,7 @@ export default function PortalRobotsPage() {
             <label className="relative w-full sm:w-64">
               <span className="sr-only">Search robots</span>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by robot or model" className="pl-8" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by serial number, name or model" className="pl-8" />
             </label>
             <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-1.5">
               {FILTERS.map((f) => (
@@ -84,7 +89,7 @@ export default function PortalRobotsPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-mono text-lg font-bold">{r.robot_id.toUpperCase()}</p>
+                        <p className="font-mono text-lg font-bold">{fmtSerial(r.robot_id)}</p>
                         <p className="truncate text-sm text-muted">{r.product_name}</p>
                       </div>
                       <RobotStatusBadge lastSeenAt={r.last_seen_at} />

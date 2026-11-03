@@ -9,6 +9,7 @@ import { Field, Select } from '@/components/ui/field';
 import { EmptyState, ErrorState, LoadingBlock, Pagination } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { fmtSerial } from '@/lib/format';
 
 const fmtIst = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -44,7 +45,7 @@ export function ClientEvents({ robotId, robots }: { robotId?: string; robots?: R
               <option value="">All robots</option>
               {(robots ?? []).map((r) => (
                 <option key={r.robot_id} value={r.robot_id}>
-                  {r.robot_id.toUpperCase()}
+                  {fmtSerial(r.robot_id)}
                 </option>
               ))}
             </Select>
@@ -93,7 +94,7 @@ export function ClientEvents({ robotId, robots }: { robotId?: string; robots?: R
                       header: 'Robot',
                       cell: (e: ClientEventDto) => (
                         <Link href={`/robots/${e.robot_id}?tab=events`} className="font-mono font-semibold text-accent-text hover:underline">
-                          {e.robot_id.toUpperCase()}
+                          {fmtSerial(e.robot_id)}
                         </Link>
                       ),
                     },

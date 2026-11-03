@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCanAnywhere, useMe } from '@/lib/auth';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtSerial } from '@/lib/format';
 
 const fmtIst = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Never';
@@ -31,7 +32,7 @@ function Status({ u }: { u: UserDto }) {
 function robotsLabel(u: UserDto) {
   const grants = u.grants.filter((g) => !g.revoked_at);
   if (grants.some((g) => g.scope_type === 'company')) return 'All';
-  const robots = grants.filter((g) => g.scope_type === 'robot').map((g) => g.scope_id!.toUpperCase());
+  const robots = grants.filter((g) => g.scope_type === 'robot').map((g) => fmtSerial(g.scope_id!));
   return robots.length ? robots.join(', ') : <span className="text-muted">None</span>;
 }
 

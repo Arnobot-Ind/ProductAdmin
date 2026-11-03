@@ -7,6 +7,7 @@ import { Badge, EmptyState } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { fmtDate } from '@/lib/format';
+import { fmtSerial } from '@/lib/format';
 
 export function useClientSoftware(enabled = true) {
   return useQuery({ queryKey: ['portal', 'software'], queryFn: () => api.get<ClientSoftwareDto[]>('/client/software'), enabled, staleTime: 5 * 60_000 });
@@ -51,7 +52,7 @@ export function SoftwareTable({ items, showRobot = true }: { items: ClientSoftwa
                 cell: (s: ClientSoftwareDto) =>
                   s.robot_id ? (
                     <Link href={`/robots/${s.robot_id}`} className="font-mono font-semibold text-accent-text hover:underline">
-                      {s.robot_id.toUpperCase()}
+                      {fmtSerial(s.robot_id)}
                     </Link>
                   ) : (
                     <span className="text-muted">—</span>

@@ -127,3 +127,13 @@ export function todayDate(): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/**
+ * A robot's serial number for people: 1005000000216 → "1-005-000-0002-16" (category · base model · main attachment ·
+ * running number · random). Anything else (an old name in an old record) is shown as it is.
+ */
+export function fmtSerial(serial: string | null | undefined): string {
+  if (!serial) return DASH;
+  const m = /^([12])([0-9]{3})([0-9]{3})([0-9]{4})([0-9]{2})$/.exec(serial);
+  return m ? m.slice(1).join('-') : serial;
+}

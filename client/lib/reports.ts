@@ -30,6 +30,7 @@ import {
   table,
   titleBlock,
 } from './pdf-chrome';
+import { fmtSerial } from './format';
 
 export interface ReportRobot {
   robot_id: string;
@@ -38,7 +39,7 @@ export interface ReportRobot {
   owner_company?: string | null;
 }
 
-const robotLine = (r: ReportRobot) => `Robot ${r.robot_id.toUpperCase()} · ${r.product_name} · SN ${r.serial_number}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
+const robotLine = (r: ReportRobot) => `Robot ${fmtSerial(r.robot_id)} · ${r.product_name}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
 const statusText = (r: string) => (r === 'in_progress' ? 'in progress' : r);
 const statusColor = (r: string): Rgb => (r === 'completed' ? GREEN : r === 'in_progress' ? AMBER : RED);
 

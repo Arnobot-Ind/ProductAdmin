@@ -4,8 +4,8 @@ import { CLIENT_FEATURES, type LiveStateDto, type RobotDetailDto } from '@arnobo
 import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, type ReactNode } from 'react';
 import { RobotStatusBadge } from '@/components/common/status';
 import { ClientEvents } from '@/components/client/client-events';
 import { DetectionsTab } from '@/components/client/detections';
@@ -21,6 +21,7 @@ import { fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { BesideBack } from '@/components/ui/back-button';
 import { Band, BandFact, BandMeter } from '@/components/ui/band';
+import { fmtSerial } from '@/lib/format';
 
 // Leaflet is client-only.
 const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
@@ -47,8 +48,14 @@ type TabId = (typeof TABS)[number]['id'];
  */
 export default function PortalRobotPage() {
   const { robotId } = useParams<{ robotId: string }>();
-  useDocumentTitle(robotId.toUpperCase());
+  useDocumentTitle(fmtSerial(robotId));
   const robot = useQuery({ queryKey: ['robot', robotId, 'detail'], queryFn: () => api.get<RobotDetailDto>(`/robots/${robotId}`), refetchInterval: 60_000 });
+  // An old address (/robots/saibya02) opens the robot; the address bar then switches to its serial number.
+  const router = useRouter();
+  const serial = robot.data?.robot_id;
+  useEffect(() => {
+    if (serial && serial !== robotId) router.replace(`/robots/${serial}${window.location.search}`);
+  }, [serial, robotId, router]);
   return <QueryView query={robot} rows={8}>{(r) => <RobotView robot={r} />}</QueryView>;
 }
 
@@ -67,7 +74,7 @@ function RobotView({ robot }: { robot: RobotDetailDto }) {
     queryFn: () => api.get<LiveStateDto>(`/robots/${robot.robot_id}/live`),
     refetchInterval: 30_000,
   });
-  const name = robot.robot_id.toUpperCase();
+  const name = fmtSerial(robot.robot_id);
 
   return (
     <div className="flex flex-col gap-5">
