@@ -117,7 +117,6 @@ function Overview({ d }: { d: DashboardDto }) {
 
         {/* Stretches to the left column's height, so Most frequent problems ends level with Totals. */}
         <div className="flex min-w-0 flex-col">
-          <h2 className="mb-3 text-base font-semibold">Needs a person</h2>
           <AlertLine d={d} />
           <TopProblems d={d} />
         </div>
@@ -177,7 +176,11 @@ function Panel({ title, headline, href, link, className, children }: { title: st
   return (
     <section className={cn('min-w-0 rounded-xl border border-border bg-surface p-4', className)}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className="text-base font-semibold">
+          <Link href={href} className="hover:underline">
+            {title}
+          </Link>
+        </h3>
         <Link href={href} className="inline-flex items-center gap-1 text-sm font-medium text-accent-text hover:underline">
           {link} <ArrowRight className="size-3.5" aria-hidden />
         </Link>
@@ -227,16 +230,19 @@ function TopProblems({ d }: { d: DashboardDto }) {
           <CheckCircle2 className="size-4 text-ok" aria-hidden /> Nothing keeps coming back right now.
         </p>
       ) : (
-        <RankBars
-          rows={top.map(([key, x]) => ({
-            key,
-            label: <span className="font-sans font-medium">{x.title}</span>,
-            value: x.count,
-            display: `${x.count.toLocaleString('en-IN')}×`,
-            detail: `${x.title}: ${x.count} time(s) on ${x.robots.size} robot(s): ${[...x.robots].join(', ')}`,
-          }))}
-          color="var(--chart-critical)"
-        />
+        // The whole list opens Needs attention, where these alerts are reviewed.
+        <Link href="/overview/attention" title="Review these problems in Needs attention" className="-mx-2 block rounded-lg px-2 py-1 hover:bg-surface-2">
+          <RankBars
+            rows={top.map(([key, x]) => ({
+              key,
+              label: <span className="font-sans font-medium">{x.title}</span>,
+              value: x.count,
+              display: `${x.count.toLocaleString('en-IN')}×`,
+              detail: `${x.title}: ${x.count} time(s) on ${x.robots.size} robot(s): ${[...x.robots].join(', ')}`,
+            }))}
+            color="var(--chart-critical)"
+          />
+        </Link>
       )}
       {rows.length > top.length && <p className="mt-2 text-xs text-muted">and {rows.length - top.length} more kinds</p>}
     </Panel>
