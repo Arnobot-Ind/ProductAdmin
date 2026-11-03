@@ -7,8 +7,13 @@
 export const MESSAGE_FORMAT_VERSION = 1;
 export const SUPPORTED_MESSAGE_VERSIONS = [1] as const;
 
-export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission'] as const;
+export const MESSAGE_TYPES = ['hello', 'live', 'telemetry', 'event', 'mission', 'detection'] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
+
+/** What kind of robot a product is: ground (UGV) or aerial (UAV). Every product is one of the two (0025). */
+export const ROBOT_CATEGORIES = ['ugv', 'uav'] as const;
+export type RobotCategory = (typeof ROBOT_CATEGORIES)[number];
+export const ROBOT_CATEGORY_LABEL: Record<RobotCategory, string> = { ugv: 'UGV', uav: 'UAV' };
 
 /** Spec §7: computed from last-seen time, never stored. */
 export const STATUS_THRESHOLDS = {
@@ -60,6 +65,9 @@ export const CREDENTIAL_KINDS = [
   'gcs_api_token',
 ] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
+/** How an SSH credential's secret is used (0025). */
+export const SSH_AUTH_METHODS = ['password', 'private_key'] as const;
+export type SshAuthMethod = (typeof SSH_AUTH_METHODS)[number];
 /** Kinds that exist once per camera slot (1–4). */
 export const PER_CAMERA_CREDENTIAL_KINDS: readonly CredentialKind[] = ['camera_admin', 'camera_operator', 'camera_rtsp_url'];
 
@@ -74,6 +82,21 @@ export const DOCUMENT_TYPES = [
   'other',
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+/** Sources merged into a robot's activity log (GET /robots/:robotId/log), in filter-chip order. */
+export const ROBOT_LOG_KINDS = ['note', 'event', 'mission', 'hardware', 'maintenance', 'software', 'ownership', 'document', 'audit', 'rejection', 'message'] as const;
+export type RobotLogKind = (typeof ROBOT_LOG_KINDS)[number];
+
+/**
+ * Product media (0025): photos shown on the robot page, one 3D model (.glb) of the product, and a 360° view:
+ * a series of photos taken all around the robot, shown in order as you drag.
+ */
+export const PRODUCT_MEDIA_KINDS = ['photo', 'model_3d', 'spin'] as const;
+export type ProductMediaKind = (typeof PRODUCT_MEDIA_KINDS)[number];
+
+/** Robot log severity filter: what each choice matches in RobotLogEntryDto.level. */
+export const LOG_LEVEL_GROUPS = { critical: ['critical', 'fault', 'error'], warning: ['warning'], info: ['info', 'ok'] } as const;
+export type LogLevelGroup = keyof typeof LOG_LEVEL_GROUPS;
 
 /** Spec §9. */
 export const RELEASE_COMPONENTS = ['software', 'firmware'] as const;
@@ -114,6 +137,10 @@ export const CLIENT_FEATURES = {
 /** What a camera detection is about (detections.kind, 0022). */
 export const DETECTION_KINDS = ['human', 'wildlife', 'fire', 'vegetation'] as const;
 export type DetectionKind = (typeof DETECTION_KINDS)[number];
+/** What the robot itself reports (`detection` message); vegetation comes only from imports. */
+export const ROBOT_DETECTION_KINDS = ['human', 'wildlife', 'fire'] as const;
+/** Largest detection snapshot accepted (annotated JPEG, ~100–300 KB in practice). */
+export const DETECTION_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const DETECTION_STATUSES = ['confirmed', 'rejected'] as const;
 export type DetectionStatus = (typeof DETECTION_STATUSES)[number];
 

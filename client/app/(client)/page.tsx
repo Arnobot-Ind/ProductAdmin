@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration, fmtRelative } from '@/lib/format';
 import { useDocumentTitle, useNow } from '@/lib/hooks';
 import { Band } from '@/components/ui/band';
+import { fmtSerial } from '@/lib/format';
 
 // Leaflet is client-only.
 const ReportMap = dynamic(() => import('@/components/client/report-map').then((m) => m.ReportMap), {
@@ -126,7 +127,7 @@ function Dashboard({ data }: { data: FleetReportDto }) {
 
       {data.robots.length > 1 && (
         <Card title="Distance driven per robot">
-          <RankBars rows={data.robots.map((r) => ({ key: r.robot_id, label: r.robot_id.toUpperCase(), value: r.driven_m, display: fmtDistance(r.driven_m) }))} empty="No driving recorded in this period." />
+          <RankBars rows={data.robots.map((r) => ({ key: r.robot_id, label: fmtSerial(r.robot_id), value: r.driven_m, display: fmtDistance(r.driven_m) }))} empty="No driving recorded in this period." />
         </Card>
       )}
 
@@ -369,7 +370,7 @@ function FleetMap({ robots }: { robots: FleetReportDto['robots'] }) {
   const json = JSON.stringify(
     robots.flatMap((r, i) => {
       const p = lives[i]?.data?.position;
-      return p ? [{ lat: p.lat, lon: p.lon, label: r.robot_id.toUpperCase() }] : [];
+      return p ? [{ lat: p.lat, lon: p.lon, label: fmtSerial(r.robot_id) }] : [];
     }),
   );
   // Same array while no robot moved, so the map only re-fits when a position changes.
@@ -409,7 +410,7 @@ function RobotsTable({ robots, missions }: { robots: FleetReportDto['robots']; m
           rowHeader: true,
           cell: (r) => (
             <Link href={`/robots/${r.robot_id}`} className="font-mono font-semibold text-accent-text hover:underline">
-              {r.robot_id.toUpperCase()}
+              {fmtSerial(r.robot_id)}
             </Link>
           ),
         },

@@ -13,12 +13,17 @@ import type {
   EventSeverity,
   EventType,
   HealthLevel,
+  LogLevelGroup,
   MissionFileKind,
   MissionState,
+  ProductMediaKind,
   ReleaseComponent,
+  RobotCategory,
+  RobotLogKind,
   RobotStatus,
   ScopeType,
   SoftwareKind,
+  SshAuthMethod,
 } from './constants';
 import type { GeoLineString } from './messages';
 
@@ -129,6 +134,8 @@ export interface OrganizationDto {
   id: string;
   name: string;
   kind: OrganizationKind;
+  /** Automatic and permanent: 0 = Arnobot, customers 1, 2, 3… (shown as the customer number C-0001). */
+  org_no: number;
   contact_name: string | null;
   contact_email: string | null;
   notes: string | null;
@@ -202,10 +209,33 @@ export interface SoftwareProductDto {
   kind: SoftwareKind;
   description: string | null;
   latest_version: string | null;
+  /** Where the latest version was built from (both optional). */
+  repo_url: string | null;
+  commit_id: string | null;
   /** Active installs across all clients. */
   install_count: number;
   created_at: string;
   deleted_at: string | null;
+}
+/** One version of a catalogue software (0027): its commit and what changed. */
+export interface SoftwareVersionDto {
+  id: string;
+  version: string;
+  commit_id: string | null;
+  released_at: string;
+  notes: string | null;
+  created_by_name: string | null;
+  /** Installs (at clients) on exactly this version now. */
+  install_count: number;
+}
+/** A software item's page: the catalogue entry with its whole version history, newest first. */
+export interface SoftwareDetailDto extends SoftwareProductDto {
+  versions: SoftwareVersionDto[];
+  updated_at: string;
+}
+/** Where a software item is installed, across clients. */
+export interface SoftwareInstallAtDto extends SoftwareInstallDto {
+  company_name: string;
 }
 export type LicenceState = 'none' | 'valid' | 'expiring' | 'expired';
 export interface SoftwareInstallDto {
@@ -297,15 +327,44 @@ export interface AuditEntryDto {
 
 // ── catalogue ───────────────────────────────────────────────────────────────
 export interface ProductDto {
+  /** Base model number (0028): automatic, permanent, part of every robot serial number (3 digits, e.g. 005). */
+  model_no: number;
   id: string;
   code: string;
   name: string;
   description: string | null;
+  /** UGV (ground) or UAV (aerial). */
+  category: RobotCategory;
+  /** The product's software repository. */
+  repo_url: string | null;
+  /** First photo (for thumbnails) and the 3D model, if uploaded. */
+  cover_photo_id: string | null;
+  model_3d_id: string | null;
+  photo_count: number;
+  /** Photos in the 360° series (0 = none). */
+  spin_count: number;
   next_running_number: number;
   robot_count: number;
   revision_count: number;
   created_at: string;
   deleted_at: string | null;
+}
+/** A photo, the 3D model or one photo of the 360° series of a product. The file is served by GET /product-media/:id/file. */
+export interface ProductMediaDto {
+  id: string;
+  /** Exactly one of these: a base model's, an attachment's or a software item's picture. */
+  product_id: string | null;
+  attachment_id: string | null;
+  software_product_id: string | null;
+  kind: ProductMediaKind;
+  /** Order within a 360° series. */
+  position: number;
+  caption: string | null;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+  created_by_name: string | null;
 }
 export interface RevisionComponentDto {
   id: string;
@@ -316,7 +375,9 @@ export interface RevisionComponentDto {
 }
 export interface HardwareRevisionDto {
   id: string;
-  product_id: string;
+  /** Exactly one of the two: a revision of a base model or of an attachment. */
+  product_id: string | null;
+  attachment_id: string | null;
   name: string;
   description: string | null;
   components: RevisionComponentDto[];
@@ -335,6 +396,7 @@ export interface CompanyDto {
   id: string;
   name: string;
   kind: OrganizationKind;
+  org_no: number;
   created_at: string;
 }
 
@@ -361,7 +423,23 @@ export interface RobotListItemDto extends MissionSummaryDto {
   serial_number: string;
   product_code: string;
   product_name: string;
+  category: RobotCategory;
+  /** Short name people use for the robot (e.g. "Khavda patrol 1"), and what it is for, in a line. */
+  nickname: string | null;
+  description: string | null;
+  /** Attachments fitted now. */
+  attachments: RobotAttachmentRefDto[];
   hardware_revision: string | null;
+  /** The base model's first photo. */
+  product_cover_photo_id: string | null;
+  /** Base model number (part of the serial). */
+  model_no: number;
+  /** The attachment the robot was built with (its number is part of the serial); null = none (000). */
+  main_attachment: { id: string; name: string; attachment_no: number } | null;
+  /** What the robot was called before serial numbers became its identity (old Robot ID, old serial). */
+  previous_ids: string[];
+  /** Where the robot is deployed now (0026); null when not deployed. */
+  site: RobotSiteRefDto | null;
   owner_company: string | null;
   status: RobotStatus;
   last_seen_at: string | null;
@@ -387,8 +465,132 @@ export interface RobotListItemDto extends MissionSummaryDto {
   created_at: string;
   deleted_at: string | null;
 }
+/** An attachment fitted on a robot now: enough to tell which one it is without opening it. */
+export interface RobotAttachmentRefDto {
+  id: string;
+  name: string;
+  model_number: string | null;
+  /** The attachment's first photo. */
+  cover_photo_id: string | null;
+  /** Which revision and which unit is fitted, when recorded. */
+  revision_name: string | null;
+  serial_number: string | null;
+}
+/** The site a robot is deployed at now, in a few words. */
+export interface RobotSiteRefDto {
+  id: string;
+  name: string;
+  city: string | null;
+  deployed_since: string;
+}
+/** A place robots are deployed to (0026): a solar park, a plant, a campus. */
+export interface SiteDto {
+  id: string;
+  name: string;
+  /** Automatic and permanent within its organization (shown with the organization's number: 0001-01). */
+  site_no: number;
+  /** Its organization's number (the first part of the site number). */
+  org_no: number | null;
+  /** Whose site, usually the customer's. */
+  company_id: string | null;
+  company_name: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  notes: string | null;
+  /** Robots deployed there now, and all robots ever deployed there. */
+  robots_now: number;
+  robots_ever: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+/** One period of a robot at a site; current while ended_at is null. */
+export interface RobotDeploymentDto {
+  id: string;
+  robot_id: string;
+  site_id: string;
+  site_name: string;
+  site_city: string | null;
+  deployed_at: string;
+  deployed_by_name: string | null;
+  purpose: string | null;
+  notes: string | null;
+  ended_at: string | null;
+  ended_by_name: string | null;
+  end_note: string | null;
+}
+/** An attachment in the catalogue (equipment that can be fitted on a vehicle). */
+export interface AttachmentDto {
+  /** Attachment number (0028): automatic, permanent, part of the serial of robots built with it (3 digits, e.g. 001). */
+  attachment_no: number;
+  id: string;
+  name: string;
+  /** Which vehicles it fits; null = both. */
+  category: RobotCategory | null;
+  description: string | null;
+  manufacturer: string | null;
+  model_number: string | null;
+  /** Its software repository, if it runs software of its own. */
+  repo_url: string | null;
+  cover_photo_id: string | null;
+  model_3d_id: string | null;
+  photo_count: number;
+  spin_count: number;
+  revision_count: number;
+  /** Robots it is fitted on now. */
+  robot_count: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+/** An attachment with its hardware revisions (its page). */
+export interface AttachmentDetailDto extends AttachmentDto {
+  revisions: HardwareRevisionDto[];
+}
+/** One fitting of an attachment on a robot (current when removed_at is null). */
+export interface RobotAttachmentDto {
+  id: string;
+  robot_id: string;
+  attachment_id: string;
+  name: string;
+  description: string | null;
+  /** Which revision of the attachment, and which unit, was fitted. */
+  hardware_revision_id: string | null;
+  revision_name: string | null;
+  serial_number: string | null;
+  fitted_at: string;
+  fitted_by_name: string | null;
+  notes: string | null;
+  removed_at: string | null;
+  removed_by_name: string | null;
+  removal_note: string | null;
+}
+/** Every robot the user may see, in a few words: the admin panel shows these wherever a robot ID appears. */
+export interface RobotDirectoryEntryDto {
+  robot_id: string;
+  nickname: string | null;
+  description: string | null;
+  product_name: string;
+  category: RobotCategory;
+  attachments: string[];
+  owner_company: string | null;
+  /** Site it is deployed at now. */
+  site_name: string | null;
+  /** Software version it reports now (null = not reported yet). */
+  sw_ver: string | null;
+}
 export interface RobotDetailDto extends RobotListItemDto {
   product_id: string;
+  product_description: string | null;
+  /** The product's software repository. */
+  repo_url: string | null;
+  /** The robot's most recent event. */
+  last_event: { ts: string; severity: EventSeverity; code: string | null; message: string } | null;
   hardware_revision_id: string | null;
   running_number: number;
   notes: string | null;
@@ -508,6 +710,11 @@ export interface CredentialMetaDto {
   slot: number | null;
   label: string | null;
   username: string | null;
+  /** SSH only: where and how to connect. The password or private key is the secret. */
+  host: string | null;
+  port: number | null;
+  auth_method: SshAuthMethod | null;
+  proxy: string | null;
   key_version: number;
   created_at: string;
   created_by_name: string | null;
@@ -519,6 +726,10 @@ export interface CredentialRevealDto {
   id: string;
   kind: CredentialKind;
   username: string | null;
+  host: string | null;
+  port: number | null;
+  auth_method: SshAuthMethod | null;
+  proxy: string | null;
   secret: string;
 }
 export interface IngestKeyDto {
@@ -569,11 +780,13 @@ export interface DocumentDto {
   id: string;
   doc_type: DocumentType;
   title: string;
-  /** Where the document is attached (spec §4: product, revision, or one-off robot). */
-  source: 'product' | 'revision' | 'robot';
+  /** Where the document is attached (spec §4: product, revision, or one-off robot; or an attachment or software). */
+  source: 'product' | 'revision' | 'robot' | 'attachment' | 'software';
   product_id: string | null;
   hardware_revision_id: string | null;
   robot_id: string | null;
+  attachment_id: string | null;
+  software_product_id: string | null;
   source_label: string;
   latest: DocumentVersionDto | null;
   versions: DocumentVersionDto[];
@@ -674,6 +887,28 @@ export interface MissionDetailDto extends MissionListItemDto {
 }
 
 // ── events ──────────────────────────────────────────────────────────────────
+/** One IST day of the fleet's event calendar (Overview → Events). */
+export interface EventCalendarDayDto {
+  date: string;
+  total: number;
+  critical: number;
+  warning: number;
+  unacked: number;
+}
+/**
+ * A fault or alert that is still active: the latest event with its code is not an "… cleared" (info) event.
+ * `device` is the health device it concerns, when the code says so (GIGA → controller, LIDAR → lidar …).
+ */
+export interface ActiveFaultDto {
+  event_id: string;
+  robot_id: string;
+  code: string;
+  device: 'controller' | 'lidar' | 'cameras' | 'gps' | 'battery' | 'other';
+  severity: EventSeverity;
+  message: string;
+  since: string;
+  acknowledged_at: string | null;
+}
 export interface EventDto {
   id: string;
   msg_id: string | null;
@@ -703,17 +938,43 @@ export interface ReleaseDto {
   requires_component: ReleaseComponent | null;
   requires_min_version: string | null;
   notes: string | null;
+  /** Where it was built from (both optional). */
+  repo_url: string | null;
+  commit_id: string | null;
   created_at: string;
   created_by_name: string | null;
   deleted_at: string | null;
 }
 
 // ── dashboard / realtime ────────────────────────────────────────────
+/** One category's share of the fleet (dashboard, per category). */
+export interface CategorySummaryDto {
+  robots: number;
+  by_status: Record<RobotStatus, number>;
+  /** Robots with a device fault or an active critical fault. */
+  with_faults: number;
+  missions: { total: number; completed: number; aborted: number; failed: number; in_progress: number };
+  /** Distance and time on missions, all time. */
+  mission_distance_m: number;
+  mission_duration_s: number;
+}
 export interface DashboardDto {
+  /** Server time the figures were computed at. */
+  generated_at: string;
   robots_total: number;
   by_status: Record<RobotStatus, number>;
+  by_category: Record<RobotCategory, CategorySummaryDto>;
   unacked_critical_events: number;
+  unacked_warning_events: number;
   unacked_events: number;
+  /** Faults and alerts still active right now, most severe and newest first. */
+  active_faults: ActiveFaultDto[];
+  /** Unacknowledged critical events, newest first (at most 20). */
+  critical_events: EventDto[];
+  /** Unacknowledged critical events grouped by robot and code: how many, and the newest one (at most 20 groups). */
+  critical_event_groups: { robot_id: string; code: string | null; count: number; latest: EventDto }[];
+  /** All missions ever, by result. */
+  missions_total: { completed: number; failed: number; aborted: number; in_progress: number };
   robots_with_fault: { robot_id: string; devices: string[] }[];
   missions_last_7d: { completed: number; failed: number; aborted: number; in_progress: number };
   recent_missions: MissionListItemDto[];
@@ -724,6 +985,7 @@ export interface DashboardDto {
   fleet: {
     robot_id: string;
     product_name: string;
+    category: RobotCategory;
     status: RobotStatus;
     lat: number | null;
     lon: number | null;
@@ -912,6 +1174,12 @@ export interface ArchiveRobotLinkDto {
   recording_session_id: string | null;
   pending_files: number;
   pending_bytes: number;
+  /** Sessions waiting to upload, when the uploader counts whole sessions (the duct-cleaning Pi's cloud_upload.py). */
+  pending_sessions: number | null;
+  /** Session being uploaded right now, when the uploader says so. */
+  uploading_session_id: string | null;
+  /** Whether the uploader reached the server on its last round (cloud_upload.py), null if not reported. */
+  uploader_online: boolean | null;
   alerts: ArchiveAlertDto[];
   /** A file was stored in the last 2 minutes. */
   sending_data: boolean;
@@ -1065,6 +1333,18 @@ export interface MissionStatsDto {
   distance_m: number;
   duration_s: number;
 }
+/** Missions over a period (Missions page): totals, per robot, and per hour / day / month depending on the period's length. */
+export interface MissionPeriodStatsDto {
+  from: string | null;
+  to: string | null;
+  totals: MissionStatsDto;
+  /** Robots that flew missions in the period, most missions first. */
+  robots: { robot_id: string; category: RobotCategory; total: number; completed: number; aborted: number; failed: number }[];
+  /** hour: periods up to 2 days; day: up to 92 days; month: longer (and all time). */
+  granularity: 'hour' | 'day' | 'month';
+  /** One row per bucket, empty ones included. `start` is the IST hour, day (YYYY-MM-DD) or month (YYYY-MM). */
+  buckets: { start: string; completed: number; aborted: number; failed: number; in_progress: number }[];
+}
 /** A mission as the client portal shows it: name, times, result. No paths, files or GCS report. */
 export interface ClientMissionDto {
   mission_id: string;
@@ -1105,6 +1385,7 @@ export interface FleetReportDto {
   robots: {
     robot_id: string;
     product_name: string;
+    category: RobotCategory;
     status: RobotStatus;
     last_seen_at: string | null;
     battery_pct: number | null;
@@ -1115,7 +1396,28 @@ export interface FleetReportDto {
     moving_s: number;
   }[];
   /** One row per IST day of the period, all robots together. */
-  daily: { date: string; missions: number; completed: number; aborted: number; failed: number; distance_m: number; driven_m: number }[];
+  daily: {
+    date: string;
+    missions: number;
+    completed: number;
+    aborted: number;
+    failed: number;
+    distance_m: number;
+    driven_m: number;
+    /** Distance and time moving per category (UGV: driving, UAV: flight). */
+    by_category: Record<RobotCategory, { driven_m: number; moving_s: number }>;
+  }[];
+}
+
+/** Fleet distance and time moving per IST hour and category, for periods of up to two days (dashboard). */
+export interface FleetHourlyDto {
+  from: string;
+  to: string;
+  hours: {
+    /** Start of the IST hour, e.g. 2026-10-29T14:00:00+05:30. */
+    hour: string;
+    by_category: Record<RobotCategory, { driven_m: number; moving_s: number }>;
+  }[];
 }
 
 // ── system status (Settings page) ──────────────────────────────────────────
@@ -1196,4 +1498,81 @@ export interface DetectionListDto extends Paginated<DetectionItemDto> {
   cameras: string[];
   /** First and last detection of the robot the user may see (any period): where the data is. */
   available: { first: string; last: string } | null;
+}
+
+// ── robot activity log ─────────────────────────────────────────────────────
+/** One line of a robot's activity log; `level` is an event severity, or ok / warning / critical / info for the rest. */
+export interface RobotLogEntryDto {
+  ts: string | null;
+  kind: RobotLogKind;
+  level: string;
+  title: string;
+  body: string | null;
+  /** ID of the source row (event, mission, document, …). */
+  ref: string;
+  /** Who did it, when known (audit entries), or "acknowledged" for events. */
+  actor: string | null;
+}
+/** One IST day of a robot's activity calendar (Recordings tabs): what was recorded and what happened that day. */
+export interface RobotActivityDayDto {
+  date: string;
+  recordings: number;
+  recording_bytes: number;
+  missions: number;
+  /** Failed or aborted missions. */
+  missions_bad: number;
+  events: number;
+  events_critical: number;
+  /** Confirmed people detections. */
+  detections: number;
+  /** Activity log entries the user may see (raw robot messages not counted), and how many are warnings or worse. */
+  log: number;
+  log_warnings: number;
+}
+
+export interface RobotLogDto extends Paginated<RobotLogEntryDto> {
+  /** Entries per kind for the current date / text filters. */
+  counts: Partial<Record<RobotLogKind, number>>;
+  /** Kinds this user may see (raw messages and audit entries need extra permissions). */
+  available: RobotLogKind[];
+  /** Entries per severity group for the current date / text / kind filters. */
+  level_counts: Record<LogLevelGroup, number>;
+}
+/** A dated note in a robot's journal (0025). Notes are never edited: a correction is a new note. */
+export interface RobotNoteDto {
+  id: string;
+  robot_id: string;
+  body: string;
+  pinned: boolean;
+  created_at: string;
+  created_by_name: string | null;
+}
+/** Global search (the box in the top bar): the best matches of each kind the user may see. */
+export interface SearchResultDto {
+  robots: { robot_id: string; nickname: string | null; serial_number: string; product_name: string; category: RobotCategory; owner_company: string | null; attachments: string[] }[];
+  organizations: { id: string; name: string; kind: 'internal' | 'customer'; org_no: number }[];
+  products: { id: string; name: string; code: string; category: RobotCategory }[];
+}
+/** One IST day of the audit log calendar. */
+export interface AuditCalendarDayDto {
+  date: string;
+  total: number;
+  /** Refused (denied) or failed requests. */
+  problems: number;
+}
+/** One IST day of the ingest calendar: messages accepted and rejected. */
+export interface IngestCalendarDayDto {
+  date: string;
+  accepted: number;
+  rejected: number;
+}
+export interface IngestSummaryDto {
+  accepted_24h: number;
+  rejected_24h: number;
+  last_accepted_at: string | null;
+  last_rejected_at: string | null;
+  /** Accepted messages per type, last 24 h. */
+  by_type_24h: { type: string; n: number }[];
+  /** Rejections per error, last 7 days. */
+  rejected_by_error_7d: { error: string; n: number }[];
 }

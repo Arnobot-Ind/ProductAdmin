@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/field';
 import { LoadingBlock } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { fmtSerial } from '@/lib/format';
 
 /**
  * What a colleague gets in the portal (0021): which robots (all of the organization's, now and later, or chosen ones)
@@ -77,7 +78,7 @@ export function AccessEditor({ value, onChange, organizationFeatures }: { value:
                 key={r.robot_id}
                 label={
                   <span>
-                    <span className="font-mono font-semibold">{r.robot_id.toUpperCase()}</span> <span className="text-muted">· {r.product_name}</span>
+                    <span className="font-mono font-semibold">{fmtSerial(r.robot_id)}</span> <span className="text-muted">· {r.product_name}</span>
                   </span>
                 }
                 checked={chosen.has(r.robot_id)}
