@@ -40,7 +40,7 @@ function handleUnauthenticated(): void {
   window.location.assign(`/login?next=${next}`);
 }
 
-async function request<T>(method: string, path: string, body?: unknown, init: { query?: Query; raw?: boolean } = {}): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, init: { query?: Query; raw?: boolean; base?: string } = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   // CSRF defence: the API requires this header on every non-GET request.
   if (method !== 'GET') headers['X-Requested-With'] = 'pms-admin';
@@ -54,7 +54,7 @@ async function request<T>(method: string, path: string, body?: unknown, init: { 
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}${qs(init.query)}`, { method, headers, body: payload, credentials: 'include', cache: 'no-store' });
+    res = await fetch(`${init.base ?? API_BASE}${path}${qs(init.query)}`, { method, headers, body: payload, credentials: 'include', cache: 'no-store' });
   } catch {
     throw new ApiError(0, 'network_error', 'Cannot reach the PMS API. Check that the backend is running.');
   }
@@ -72,6 +72,7 @@ async function request<T>(method: string, path: string, body?: unknown, init: { 
   if (!res.ok) {
     const err = (json as ApiErrorBody | undefined)?.error;
     if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') handleUnauthenticated();
+    if (res.status === 413 && !err) throw new ApiError(413, 'payload_too_large', 'The file is too large to upload.');
     throw new ApiError(res.status, err?.code ?? `http_${res.status}`, err?.message ?? (res.statusText || 'Request failed'), err?.details);
   }
   return json as T;
@@ -83,7 +84,11 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
   del: <T>(path: string, body?: unknown) => request<T>('DELETE', path, body),
-  upload: <T>(path: string, form: FormData) => request<T>('POST', path, form),
+  /**
+   * File uploads go straight to the backend's own address in production: the hosting proxy in front of /api/v1 on
+   * the panel's domain refuses request bodies above ~5 MB (HTTP 413). The backend allows this for uploads only.
+   */
+  upload: <T>(path: string, form: FormData) => request<T>('POST', path, form, { base: DIRECT_API }),
 };
 
 /**

@@ -31,6 +31,7 @@ import { useToast } from "@/components/ui/toast";
 import { api, errorMessage, sameOriginUrl } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { shrinkImage } from "@/lib/image-shrink";
 import { fmtBytes } from "@/lib/format";
 
 /*
@@ -437,20 +438,29 @@ export function ProductMediaCard({
           )
         : files;
     setBusy({ kind, done: 0, total: list.length });
+    let shrunk = 0;
     try {
       for (let i = 0; i < list.length; i++) {
+        // Photos and 360° frames over 2 MB are made smaller in the browser first (the server refuses bigger ones).
+        let file = list[i];
+        if (kind !== "model_3d") {
+          const r = await shrinkImage(file);
+          file = r.file;
+          if (r.shrunk) shrunk++;
+        }
         const fd = new FormData();
         fd.set("kind", kind);
-        fd.set("file", list[i]);
+        fd.set("file", file);
         await api.upload<ProductMediaDto>(`/${owner}/${productId}/media`, fd);
         setBusy({ kind, done: i + 1, total: list.length });
       }
+      const note = shrunk ? ` (${shrunk} made smaller to under 2 MB)` : "";
       toast.success(
         kind === "model_3d"
           ? "3D model uploaded"
           : kind === "spin"
-            ? `360° view: ${list.length} photos added`
-            : `${list.length} photo${list.length === 1 ? "" : "s"} uploaded`,
+            ? `360° view: ${list.length} photos added${note}`
+            : `${list.length} photo${list.length === 1 ? "" : "s"} uploaded${note}`,
       );
     } catch (e) {
       toast.error(e);
@@ -499,7 +509,7 @@ export function ProductMediaCard({
         <MediaHeader
           id="pm-photos"
           title="Photos"
-          hint={`${owner === "products" ? "Shown on the page of every robot of this base model" : owner === "attachments" ? "Shown on this page and with the attachment on every robot that has it fitted" : "Screenshots and pictures of the software"}. PNG, JPEG, WebP, GIF or AVIF.`}
+          hint={`${owner === "products" ? "Shown on the page of every robot of this base model" : owner === "attachments" ? "Shown on this page and with the attachment on every robot that has it fitted" : "Screenshots and pictures of the software"}. PNG, JPEG, WebP, GIF or AVIF, at most 2 MB each: bigger photos are made smaller automatically before upload.`}
           canWrite={canWrite}
           busy={!!busy}
           accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
@@ -528,10 +538,11 @@ export function ProductMediaCard({
                   <button
                     type="button"
                     onClick={() => setRemoving(p)}
-                    aria-label={`Remove ${p.filename}`}
-                    className="absolute top-1.5 right-1.5 rounded-md bg-surface/90 p-1.5 opacity-0 shadow group-hover:opacity-100 focus:opacity-100"
+                    aria-label={`Delete ${p.filename}`}
+                    title="Delete this photo"
+                    className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-md bg-surface/95 px-1.5 py-1 text-xs font-semibold text-fault shadow hover:bg-fault-bg"
                   >
-                    <Trash2 className="size-4 text-fault" aria-hidden />
+                    <Trash2 className="size-3.5" aria-hidden /> Delete
                   </button>
                 )}
                 {i === 0 ? (
@@ -567,7 +578,7 @@ export function ProductMediaCard({
             <MediaHeader
               id="pm-spin"
               title="360° view from a photo series"
-              hint={`Walk around the ${thing} and take a photo every 10–15° (24–36 photos), same height and distance. Name the files in order (01.jpg, 02.jpg …). Up to 120 photos.`}
+              hint={`Walk around the ${thing} and take a photo every 10–15° (24–36 photos), same height and distance. Name the files in order (01.jpg, 02.jpg …). Up to 120 photos; any over 2 MB are made smaller automatically.`}
               canWrite={canWrite}
               busy={!!busy}
               accept="image/png,image/jpeg,image/webp"
