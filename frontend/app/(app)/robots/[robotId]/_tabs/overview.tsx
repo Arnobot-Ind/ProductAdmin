@@ -99,7 +99,9 @@ function Freshness({ live }: { live: LiveStateDto }) {
         {fresh && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />}
         <span className={cn('relative inline-flex size-2.5 rounded-full', fresh ? 'bg-ok' : live.status === 'stale' ? 'bg-warn' : 'bg-offline')} />
       </span>
-      {live.state_ts ? (
+      {live.status === 'offline' ? (
+        <span className="font-medium text-fg">Offline: showing where it was last seen. Battery, signal and other live values return when it reports again.</span>
+      ) : live.state_ts ? (
         <>
           Live data from <Time iso={live.state_ts} /> ({fmtRelative(live.state_ts, now)})
         </>
@@ -119,15 +121,28 @@ function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDt
   const problems = DEVICES.filter((d) => live.health[d.key] === 'fault' || live.health[d.key] === 'warning').length;
   const healthKnown = DEVICES.some((d) => live.health[d.key]) || active.length > 0;
   const e = robot.last_event;
+  const offline = live.status === 'offline';
   return (
     <div className="flex flex-col gap-6">
       <Freshness live={live} />
 
+      {/* Offline: live values would be out of date, so they show a dash until the robot reports again. */}
       <section aria-label="Last reported" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <BatteryTile live={live} />
-        <SignalTile dbm={live.signal_dbm} />
-        <ArmedTile armed={live.armed} mode={live.mode} />
-        <MotionTile speed={live.position?.speed_mps ?? null} heading={live.position?.heading_deg ?? null} />
+        {offline ? (
+          <>
+            <OfflineTile label="Battery" icon={<BatteryMedium className="size-4" />} />
+            <OfflineTile label="Wi-Fi signal" icon={<SignalBars bars={0} tone="muted" small />} />
+            <OfflineTile label="Armed / mode" icon={<ShieldCheck className="size-4" />} />
+            <OfflineTile label="Speed / heading" icon={<Gauge className="size-4" />} />
+          </>
+        ) : (
+          <>
+            <BatteryTile live={live} />
+            <SignalTile dbm={live.signal_dbm} />
+            <ArmedTile armed={live.armed} mode={live.mode} />
+            <MotionTile speed={live.position?.speed_mps ?? null} heading={live.position?.heading_deg ?? null} />
+          </>
+        )}
       </section>
 
       <section aria-label="Where and when" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -142,8 +157,10 @@ function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDt
         <TopicCard icon={<Clock3 className="size-5" />} title="Last seen">
           <LastSeen iso={live.last_seen_at} stacked className="text-base text-fg" />
         </TopicCard>
-        <TopicCard icon={<Bell className="size-5" />} title="Last event" tone={e?.severity === 'critical' ? 'fault' : undefined} href={`/robots/${id}?tab=events`}>
-          {e ? (
+        <TopicCard icon={<Bell className="size-5" />} title="Last event" tone={!offline && e?.severity === 'critical' ? 'fault' : undefined} href={`/robots/${id}?tab=events`}>
+          {offline ? (
+            <OfflineDash />
+          ) : e ? (
             <>
               <span className="block font-semibold text-fg">{e.code ? humanize(e.code.toLowerCase()) : humanize(e.severity)}</span>
               {/* Robots report the end of a problem as "<CODE> cleared". */}
@@ -156,8 +173,10 @@ function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDt
             'No events yet'
           )}
         </TopicCard>
-        <TopicCard icon={<Cpu className="size-5" />} title="Health" tone={!healthKnown ? undefined : problems || active.length ? 'fault' : 'ok'} href={`/robots/${id}?tab=health`}>
-          {active.length ? (
+        <TopicCard icon={<Cpu className="size-5" />} title="Health" tone={offline || !healthKnown ? undefined : problems || active.length ? 'fault' : 'ok'} href={`/robots/${id}?tab=health`}>
+          {offline ? (
+            <OfflineDash />
+          ) : active.length ? (
             <ul className="flex flex-col gap-0.5">
               {active.slice(0, 3).map((f) => (
                 <li key={f.event_id} className="font-medium">
@@ -284,11 +303,28 @@ function PositionCard({ live, robotId }: { live: LiveStateDto; robotId: string }
 
 // ── metric tiles ────────────────────────────────────────────────────────────
 
+/** A live value while the robot is offline: a dash instead of an out-of-date number. */
+function OfflineDash() {
+  return (
+    <span className="block">
+      <span className="block text-2xl font-semibold text-muted">—</span>
+      <span className="block text-sm text-muted">Offline</span>
+    </span>
+  );
+}
+function OfflineTile({ label, icon }: { label: string; icon: ReactNode }) {
+  return (
+    <Tile label={label} icon={<span className="text-muted">{icon}</span>} title="Not shown while the robot is offline">
+      <OfflineDash />
+    </Tile>
+  );
+}
+
 function Tile({ href, label, icon, children, title }: { href?: string; label: string; icon: ReactNode; children: ReactNode; title?: string }) {
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-medium text-muted">
+        <p className="flex items-center gap-2 text-base font-semibold text-fg">
           <span aria-hidden>{icon}</span>
           {label}
         </p>
