@@ -36,6 +36,8 @@ export interface NavItem {
   keywords?: string;
   /** Permission held in any scope (customers hold theirs on their organization). */
   scoped?: string;
+  /** Kept out of the side menu and the app menu: the page opens from links to it (e.g. the dashboard) and its address. */
+  hidden?: boolean;
 }
 
 export interface NavGroup {
@@ -53,7 +55,7 @@ export const NAV: NavGroup[] = [
     Icon: Gauge,
     items: [
       { href: '/', label: 'Dashboard', description: 'Key fleet numbers and the most urgent items', keywords: 'home overview summary fleet health kpi', Icon: LayoutDashboard },
-      { href: '/overview/attention', label: 'Needs attention', description: 'Faults, critical events, offline robots, warranties', keywords: 'alerts faults errors warnings problems review acknowledge warranty critical issues', Icon: Siren },
+      { href: '/overview/attention', label: 'Needs attention', description: 'Faults, critical events, offline robots, warranties', keywords: 'alerts faults errors warnings problems review acknowledge warranty critical issues', Icon: Siren, hidden: true },
       { href: '/overview/map', label: 'Fleet map', description: 'Where every robot last reported its position', keywords: 'map location gps position where', Icon: MapIcon },
       { href: '/overview/missions', label: 'Missions', description: 'Mission results across the fleet this week', keywords: 'missions trips jobs results completed aborted failed calendar', Icon: Route },
       { href: '/overview/events', label: 'Events', description: 'The latest events from every robot', keywords: 'events log history alerts calendar', Icon: ListChecks },
@@ -105,7 +107,7 @@ export const NAV: NavGroup[] = [
 
 /** The menu groups and pages the user may open (a group without any is left out). */
 export function visibleNav(nav: NavGroup[], can: (p: string) => boolean, canAnywhere: (p: string) => boolean): NavGroup[] {
-  return nav.map((g) => ({ ...g, items: g.items.filter((i) => (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))) && (!i.scoped || canAnywhere(i.scoped))) })).filter((g) => g.items.length);
+  return nav.map((g) => ({ ...g, items: g.items.filter((i) => !i.hidden && (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))) && (!i.scoped || canAnywhere(i.scoped))) })).filter((g) => g.items.length);
 }
 
 /** Things people come to do, found by the top search next to the pages (e.g. "register" or "add site"). */
