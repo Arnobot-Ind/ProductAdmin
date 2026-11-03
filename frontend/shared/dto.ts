@@ -1514,6 +1514,53 @@ export interface RobotLogEntryDto {
   actor: string | null;
 }
 /** One IST day of a robot's activity calendar (Recordings tabs): what was recorded and what happened that day. */
+/** Fleet activity calendar (Activity page): one IST day of a month, across the robots the user may see. */
+export interface FleetActivityDayDto {
+  date: string;
+  /** Robots with any mission, alert, recording, software update or repair that day. */
+  robots: number;
+  missions: number;
+  /** Failed or aborted missions. */
+  missions_bad: number;
+  driven_m: number;
+  alerts_critical: number;
+  alerts_warning: number;
+}
+/** What one robot did on one IST day (Activity page). */
+export interface RobotDayActivityDto {
+  robot_id: string;
+  nickname: string | null;
+  product_name: string;
+  category: RobotCategory;
+  owner_company: string | null;
+  missions: number;
+  completed: number;
+  aborted: number;
+  failed: number;
+  /** Started that day, no end yet. */
+  in_progress: number;
+  /** Distance driven on that day's missions. */
+  driven_m: number;
+  /** Time spent on missions (s). */
+  run_s: number;
+  /** First mission start and last mission end of the day. */
+  first_at: string | null;
+  last_at: string | null;
+  alerts_critical: number;
+  alerts_warning: number;
+  /** The day's warnings and critical alerts by code, most frequent first (at most 5). */
+  problems: { code: string | null; type: string; severity: 'warning' | 'critical'; message: string; count: number }[];
+  recordings: number;
+  software: { sw_ver: string | null; fw_ver: string | null; at: string }[];
+  repairs: { description: string; repaired_by: string }[];
+  /** Hardware parts fitted or removed that day. */
+  parts_changed: number;
+}
+export interface FleetDayActivityDto {
+  date: string;
+  robots: RobotDayActivityDto[];
+  totals: { robots: number; missions: number; missions_bad: number; driven_m: number; run_s: number; alerts_critical: number; alerts_warning: number };
+}
 export interface RobotActivityDayDto {
   date: string;
   recordings: number;
