@@ -94,16 +94,23 @@ function Freshness({ live }: { live: LiveStateDto }) {
   const now = useNow(1000);
   const fresh = live.status === 'online';
   const offline = live.status === 'offline';
-  // Large and bold, so anyone opening the robot sees at once how fresh the data is (or that it is offline).
+  // Large and bold in a coloured box, so anyone opening the robot sees at once how fresh the data is:
+  // light red while offline, light amber while the data is a few minutes old, light green while live.
   return (
-    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-lg font-semibold text-fg sm:text-xl" aria-live="polite">
-      <span className="relative flex size-3.5" aria-hidden>
+    <p
+      className={cn(
+        'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-5 py-4 text-xl font-bold text-fg sm:text-2xl',
+        offline ? 'border-fault/40 bg-fault-bg' : fresh ? 'border-ok/40 bg-ok-bg' : 'border-warn/40 bg-warn-bg',
+      )}
+      aria-live="polite"
+    >
+      <span className="relative flex size-4" aria-hidden>
         {fresh && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />}
-        <span className={cn('relative inline-flex size-3.5 rounded-full', fresh ? 'bg-ok' : live.status === 'stale' ? 'bg-warn' : 'bg-offline')} />
+        <span className={cn('relative inline-flex size-4 rounded-full', fresh ? 'bg-ok' : offline ? 'bg-fault' : 'bg-warn')} />
       </span>
       {live.state_ts ? (
         <span>
-          {offline ? 'Last data from' : 'Live data from'} <Time iso={live.state_ts} /> <span className="text-muted">({fmtRelative(live.state_ts, now)})</span>
+          {offline ? 'Offline · last data from' : 'Live data from'} <Time iso={live.state_ts} /> <span className="font-semibold text-muted">({fmtRelative(live.state_ts, now)})</span>
         </span>
       ) : (
         <span>No live data received yet</span>
@@ -112,7 +119,7 @@ function Freshness({ live }: { live: LiveStateDto }) {
         ·
       </span>
       <span>
-        last message <span className="text-muted">{fmtRelative(live.last_seen_at, now)}</span>
+        last message <span className="font-semibold text-muted">{fmtRelative(live.last_seen_at, now)}</span>
       </span>
     </p>
   );
