@@ -12,6 +12,7 @@ import {
   Map as MapIcon,
   MapPinned,
   Package,
+  Plane,
   Route,
   ScrollText,
   Server,
@@ -69,6 +70,7 @@ export const NAV: NavGroup[] = [
       // Missions, events, videos and live status belong to one robot: they live on that robot's page.
       { href: '/robots', label: 'Robots', description: 'Every robot: live status, recordings, hardware and software', keywords: 'robots bots fleet list ugv uav vehicles drones status battery', Icon: Bot },
       { href: '/sites', label: 'Sites', description: 'Where robots are deployed: address, map, contact, robots there now and before', keywords: 'sites deploy deployment location customer place address contact', Icon: MapPinned, perm: 'robot.details' },
+      { href: '/drone', label: 'Drone live', description: "The drone's C12 camera, live through the H12 Pro remote", keywords: 'drone uav live video camera c12 h12 stream feed', Icon: Plane, perm: 'robot.details' },
       { href: '/downloads', label: 'Data export', description: 'Download video, GPS, IMU, LiDAR and encoder data', keywords: 'download export data video gps imu lidar zip recordings', Icon: Download, scoped: 'data.download' },
     ],
   },

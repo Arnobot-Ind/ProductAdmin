@@ -19,6 +19,8 @@ const csp = [
   `connect-src 'self' ${mediaOrigin} ${wsOrigin.origin} ${wsOrigin.origin.replace(/^http/, 'ws')} https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com`,
   "worker-src 'self' blob:",
   `media-src 'self' blob: ${mediaOrigin}`,
+  // The drone's live video player (app/(app)/drone): go2rtc on the Mumbai relay.
+  "frame-src https://drone.13-234-159-182.sslip.io",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
