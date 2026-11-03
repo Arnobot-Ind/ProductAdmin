@@ -53,12 +53,15 @@ export function RobotBuild({
   category,
   product,
   attachments,
+  mainAttachmentId,
   onFit,
   className,
 }: {
   category: RobotCategory;
-  product: { id?: string; name: string; revision: string | null; coverPhotoId: string | null };
+  product: { id?: string; name: string; revision: string | null; coverPhotoId: string | null; modelNo?: number };
   attachments: RobotAttachmentRefDto[];
+  /** The attachment the robot was built with: its number is part of the serial. */
+  mainAttachmentId?: string | null;
   /** Shows a "Fit attachment" button. */
   onFit?: () => void;
   className?: string;
@@ -74,8 +77,8 @@ export function RobotBuild({
           <>
             <span className="font-semibold" style={{ color: `var(--cat-${category})` }}>
               {category.toUpperCase()}
-            </span>{' '}
-            · {product.revision ?? 'revision not set'}
+            </span>
+            {product.modelNo !== undefined && <> · No. {String(product.modelNo).padStart(3, '0')}</>} · {product.revision ?? 'revision not set'}
           </>
         }
       />
@@ -86,7 +89,7 @@ export function RobotBuild({
           thumb={<Thumb photoId={a.cover_photo_id} icon={<Puzzle className="size-6" />} className="size-14" />}
           title={a.name}
           href={`/attachments/${a.id}`}
-          sub={attachmentUnit(a) || 'revision and serial not recorded'}
+          sub={[a.id === mainAttachmentId ? 'In the serial number' : null, attachmentUnit(a) || (a.id === mainAttachmentId ? null : 'revision and serial not recorded')].filter(Boolean).join(' · ')}
         />
       ))}
       {attachments.length === 0 && (

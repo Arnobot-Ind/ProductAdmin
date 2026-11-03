@@ -15,6 +15,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtSerial, fmtSiteNo } from '@/lib/format';
 import { useCompanies } from '@/lib/queries';
 
 type ProductDetail = ProductDto & { revisions: HardwareRevisionDto[] };
@@ -37,6 +38,8 @@ export default function RegisterRobotPage() {
   /** null = not chosen yet; 'none' = registered without an attachment; 'some' = the ticked ones in `fit`. */
   const [attachChoice, setAttachChoice] = useState<'none' | 'some' | null>(null);
   const [fit, setFit] = useState<Map<string, Fitting>>(new Map());
+  /** The attachment whose number goes into the serial ('' = the first ticked one). */
+  const [mainPick, setMainPick] = useState('');
   /** '' = Arnobot (the default owner). */
   const [ownerId, setOwnerId] = useState('');
   const [siteId, setSiteId] = useState('');
@@ -67,7 +70,13 @@ export default function RegisterRobotPage() {
   const companies = useCompanies();
   const internal = companies.data?.find((c) => c.kind === 'internal');
   const customers = (companies.data ?? []).filter((c) => c.kind !== 'internal').sort((a, b) => a.name.localeCompare(b.name));
-  const nextId = selected ? `${selected.code}${String(selected.next_running_number).padStart(2, '0')}` : null;
+  const mainId = attachChoice === 'some' ? (fit.has(mainPick) ? mainPick : (fitIds[0] ?? '')) : '';
+  // The serial the next robot of this combination gets (the server's own generator, nothing reserved).
+  const serialPreview = useQuery({
+    queryKey: ['robots', 'serial-preview', productId, mainId],
+    queryFn: () => api.get<{ serial_prefix: string; shown: string }>('/robots/serial-preview', { product_id: productId, main_attachment_id: mainId || undefined }),
+    enabled: !!productId && !!attachChoice,
+  });
 
   const errors = {
     category: !category ? 'Choose UGV or UAV' : null,
@@ -114,6 +123,7 @@ export default function RegisterRobotPage() {
         notes: notes.trim() || undefined,
         nickname: nickname.trim() || undefined,
         description: description.trim() || undefined,
+        main_attachment_id: mainId || undefined,
         attachments: attachChoice === 'some' ? fitIds.map((id) => ({ attachment_id: id, hardware_revision_id: fit.get(id)!.revision || null, serial_number: fit.get(id)!.serial.trim() || null })) : [],
         company_id: ownerId || undefined,
         site_id: siteId || undefined,
@@ -154,19 +164,19 @@ export default function RegisterRobotPage() {
     const r = result.robot;
     return (
       <>
-        <PageHeader eyebrow="Robot registered" title={<span className="font-mono">{r.robot_id}</span>} />
+        <PageHeader eyebrow="Robot registered" title={<span className="font-mono">{fmtSerial(r.robot_id)}</span>} />
         <div className="grid gap-6">
           <Card title="Identity">
             <RobotBuild
               className="mb-5"
               category={r.category}
-              product={{ name: r.product_name, revision: r.hardware_revision, coverPhotoId: r.product_cover_photo_id }}
+              product={{ name: r.product_name, revision: r.hardware_revision, coverPhotoId: r.product_cover_photo_id, modelNo: r.model_no }}
               attachments={r.attachments}
+              mainAttachmentId={r.main_attachment?.id}
             />
             <KeyValue
               items={[
-                { label: 'Robot ID (permanent)', value: <Mono>{r.robot_id}</Mono> },
-                { label: 'Serial number (auto-generated, permanent)', value: <Mono>{r.serial_number}</Mono> },
+                { label: 'Serial number (automatic, permanent)', value: <Mono>{fmtSerial(r.robot_id)}</Mono> },
                 { label: 'Nickname', value: r.nickname ?? '—' },
                 { label: 'Owner', value: r.owner_company ?? 'Arnobot' },
                 { label: 'Deployed at', value: r.site ? r.site.name : 'Not deployed yet' },
@@ -177,7 +187,7 @@ export default function RegisterRobotPage() {
             <OneTimeKey value={result.ingest_key}>
               <p className="text-sm text-muted">
                 The robot (or the GCS relaying for it) sends <Mono>Authorization: Bearer &lt;key&gt;</Mono> to the ingest endpoint
-                <Mono>POST /api/v1/ingest</Mono>. Messages must carry <Mono>&quot;robot_id&quot;: &quot;{r.robot_id}&quot;</Mono> and
+                <Mono>POST /api/v1/ingest</Mono>. Messages must carry the serial number without dashes, <Mono>&quot;robot_id&quot;: &quot;{r.robot_id}&quot;</Mono> and
                 <Mono>&quot;product&quot;: &quot;{r.product_code}&quot;</Mono>. The same key uploads camera video to{' '}
                 <Mono>PUT /api/v1/archive/upload</Mono> under <Mono>{r.robot_id}/sessions/…</Mono>.
               </p>
@@ -212,7 +222,7 @@ export default function RegisterRobotPage() {
       <PageHeader
         eyebrow="Robots"
         title="Register robot"
-        description="The PMS assigns both identifiers, and neither ever changes: the Robot ID (base model code + running number, e.g. saibya02, ductcleaning01) and a unique 8-digit serial number."
+        description="The PMS gives the robot its serial number, which never changes: category · base model · main attachment · running number · 2 random digits, e.g. 1-005-000-0002-16."
       />
       {products.error ? (
         <ErrorState error={products.error} onRetry={() => void products.refetch()} />
@@ -222,7 +232,7 @@ export default function RegisterRobotPage() {
             <CategoryPicker value={category} onChange={reset} />
           </Step>
 
-          <Step n={2} title="Base model" required hint="The vehicle this robot is built on. Its code starts the Robot ID." error={shown(errors.product)} disabled={!category}>
+          <Step n={2} title="Base model" required hint="The vehicle this robot is built on. Its number is part of the serial number." error={shown(errors.product)} disabled={!category}>
             {!category ? (
               <p className="text-base text-muted">Choose the category first.</p>
             ) : categoryProducts.length === 0 ? (
@@ -306,6 +316,24 @@ export default function RegisterRobotPage() {
                 {categoryAttachments.length === 0 && (
                   <p className="mt-2 text-sm text-muted">No {category.toUpperCase()} attachments defined yet. Add them under Base models &amp; attachments.</p>
                 )}
+                {fitIds.length > 1 && (
+                  <Field
+                    label="Main attachment (in the serial number)"
+                    hint="The robot's serial number records the attachment it is built with. It never changes, even if attachments are swapped later."
+                    className="mt-4 max-w-md"
+                  >
+                    <Select value={mainId} onChange={(e) => setMainPick(e.target.value)}>
+                      {fitIds.map((id) => {
+                        const a = attachments.data?.find((x) => x.id === id);
+                        return (
+                          <option key={id} value={id}>
+                            {a ? `${a.name} · No. ${String(a.attachment_no).padStart(3, '0')}` : '…'}
+                          </option>
+                        );
+                      })}
+                    </Select>
+                  </Field>
+                )}
                 {fitIds.length > 0 && (
                   <ul className="mt-4 divide-y divide-border rounded-xl border border-border">
                     {fitIds.map((id) => {
@@ -338,7 +366,7 @@ export default function RegisterRobotPage() {
 
           <Step n={4} title="Name, owner and site">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Nickname" hint="Optional. Shown next to the Robot ID everywhere, e.g. Khavda patrol 1.">
+              <Field label="Nickname" hint="Optional. Shown next to the serial number everywhere, e.g. Khavda patrol 1.">
                 <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} />
               </Field>
               <Field
@@ -363,7 +391,7 @@ export default function RegisterRobotPage() {
                   <option value="">Not deployed yet</option>
                   {(sites.data ?? []).map((st) => (
                     <option key={st.id} value={st.id}>
-                      {st.name}
+                      {fmtSiteNo(st.org_no, st.site_no)} · {st.name}
                       {sitePlace(st) ? ` · ${sitePlace(st)}` : ''}
                       {st.company_name ? ` (${st.company_name})` : ''}
                     </option>
@@ -382,14 +410,18 @@ export default function RegisterRobotPage() {
           {selected && (
             <section aria-labelledby="reg-preview" className="rounded-xl bg-surface-2 p-4">
               <h2 id="reg-preview" className="mb-3 text-lg font-semibold">
-                Will be registered as <span className="font-mono">{nextId}</span>
+                Will be registered as{' '}
+                <span className="font-mono">{!attachChoice ? `${selected.category === 'uav' ? 2 : 1}-${String(selected.model_no).padStart(3, '0')}-…` : (serialPreview.data?.shown ?? '…')}</span>
                 {nickname.trim() && ` · ${nickname.trim()}`}
-                <span className="block text-sm font-normal text-muted">The serial number is generated when you register (8 digits). The ID is the next free one, most likely this.</span>
+                <span className="block text-sm font-normal text-muted">
+                  Serial number: category · base model · main attachment · running number · 2 random digits (xx, set when you register). It never changes.
+                </span>
               </h2>
               <RobotBuild
                 category={selected.category}
-                product={{ name: selected.name, revision: product.data?.revisions.find((r) => r.id === revisionId)?.name ?? null, coverPhotoId: selected.cover_photo_id }}
+                product={{ name: selected.name, modelNo: selected.model_no, revision: product.data?.revisions.find((r) => r.id === revisionId)?.name ?? null, coverPhotoId: selected.cover_photo_id }}
                 attachments={attachChoice === 'some' ? preview : []}
+                mainAttachmentId={mainId || null}
               />
               {!attachChoice && <p className="mt-2 text-sm font-medium text-warn">Attachments not chosen yet.</p>}
             </section>

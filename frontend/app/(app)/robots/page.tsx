@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import { useSites } from '@/components/domain/sites';
 import { attachmentUnit, CategoryIcon, Thumb } from '@/components/domain/robot-build';
 import type { AttachmentDto, DashboardDto, DeviceHealthDto, Paginated, ProductDto, RobotListItemDto } from '@arnobot/message-schema';
@@ -115,7 +116,7 @@ export default function RobotsPage() {
         <form role="search" aria-label="Filter robots" className="grid gap-2 md:grid-cols-2 2xl:grid-cols-[minmax(16rem,2fr)_auto_repeat(4,minmax(9rem,1fr))_auto] 2xl:items-center" onSubmit={(e) => e.preventDefault()}>
           <div className="relative min-w-0 md:col-span-2 2xl:col-span-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search robot ID, nickname, serial number, owner, site or attachment" aria-label="Search robots" className="pl-9" type="search" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search serial number, nickname, owner, site or attachment" aria-label="Search robots" className="pl-9" type="search" />
           </div>
           <div role="group" aria-label="Category" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
             {(
@@ -178,7 +179,7 @@ export default function RobotsPage() {
             </Select>
           )}
           <Select value={sortParam} onChange={(e) => setParams({ sort: e.target.value === 'robot_id' ? null : e.target.value, page: null })} aria-label="Sort">
-            <option value="robot_id">Sort: Robot ID</option>
+            <option value="robot_id">Sort: Serial number</option>
             <option value="nickname">Sort: Nickname</option>
             <option value="-problems">Sort: Problems first</option>
             <option value="-last_seen_at">Sort: Seen most recently</option>
@@ -251,7 +252,7 @@ export default function RobotsPage() {
       ) : robots.data && robots.data.total === 0 && !filtered ? (
         <EmptyState
           title="No robots registered yet"
-          description="Register a robot to get its permanent Robot ID and ingest key. Until real robots are online, run the simulator (npm run sim)."
+          description="Register a robot to get its permanent serial number and ingest key. Until real robots are online, run the simulator (npm run sim)."
           action={can('robot.write') ? <LinkButton href="/robots/new" variant="primary">Register robot</LinkButton> : undefined}
         />
       ) : (
@@ -294,12 +295,12 @@ function robotColumns(now: number): Column<RobotListItemDto>[] {
       sortKey: 'robot_id',
       rowHeader: true,
       cell: (r) => (
-        <span className="flex w-[min(16rem,calc(100vw-6rem))] items-start gap-2.5" title={[`SN ${r.serial_number}`, r.description].filter(Boolean).join('\n')}>
+        <span className="flex w-[min(16rem,calc(100vw-6rem))] items-start gap-2.5" title={r.description ?? undefined}>
           <Thumb photoId={r.product_cover_photo_id} icon={<CategoryIcon category={r.category} className="size-5" />} className="mt-0.5 size-10" />
           <span className="block min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <Link href={`/robots/${r.robot_id}`} className="min-w-0 truncate text-accent-text hover:underline" onClick={(e) => e.stopPropagation()}>
-                <span className="font-mono font-semibold">{r.robot_id}</span>
+                <span className="font-mono font-semibold">{fmtSerial(r.robot_id)}</span>
               </Link>
               {r.deleted_at && <Badge tone="fault">Deleted</Badge>}
               {/* Phones have no Status or Alerts column: they ride along here. */}
@@ -497,7 +498,7 @@ const DEVICES: [keyof DeviceHealthDto, string][] = [
 ];
 const HEALTH_DOT = { ok: 'bg-ok', warning: 'bg-warn', fault: 'bg-fault' } as const;
 
-/** One labelled line under the robot ID in the list: "Base model  Saibya Rev A". */
+/** One labelled line under the serial number in the list: "Base model  Saibya Rev A". */
 function RobotFact({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
   return (
     <>

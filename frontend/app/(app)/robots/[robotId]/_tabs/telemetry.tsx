@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -216,7 +217,7 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
   }, [points]);
   return (
     <>
-      <GeoMap lines={lines} points={markers} className="h-80" ariaLabel={`GPS track of ${robotId}: ${points.length} points, about ${fmtDistance(dist)}`} />
+      <GeoMap lines={lines} points={markers} className="h-80" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
       <MapLegend items={[{ label: `Track · ${points.length} points · ≈ ${fmtDistance(dist)}`, color: 'var(--map-actual)' }]} />
     </>
   );

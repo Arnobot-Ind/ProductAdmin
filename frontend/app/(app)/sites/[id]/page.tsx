@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { fmtWhen } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtSiteNo } from '@/lib/format';
 
 export default function SitePage() {
   const { id } = useParams<{ id: string }>();
@@ -67,7 +68,7 @@ function SiteView({ s }: { s: SiteDto }) {
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-3">
-            {s.name} {s.deleted_at && <Badge tone="fault">Retired</Badge>}
+            {s.name} <span className="font-mono text-lg font-normal text-muted">{fmtSiteNo(s.org_no, s.site_no)}</span> {s.deleted_at && <Badge tone="fault">Retired</Badge>}
           </span>
         }
         description={[sitePlace(s), s.company_name].filter(Boolean).join(' · ') || undefined}

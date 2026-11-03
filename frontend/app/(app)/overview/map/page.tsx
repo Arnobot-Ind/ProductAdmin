@@ -4,6 +4,7 @@ import { RankBars } from '@/components/domain/charts';
 import { DashboardPage, FleetMap } from '@/components/domain/dashboard';
 import { Card } from '@/components/ui/misc';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtSerial } from '@/lib/format';
 
 export default function FleetMapPage() {
   useDocumentTitle('Fleet map');
@@ -16,7 +17,7 @@ export default function FleetMapPage() {
           <FleetMap d={d} title="Robot positions" fill />
           <Card title="Battery by robot" actions={<span className="text-sm text-muted">Last reported</span>} className="flex max-h-44 shrink-0 flex-col xl:max-h-none xl:self-start" bodyClassName="min-h-0 overflow-y-auto p-5">
             <RankBars
-              rows={d.fleet.filter((r) => r.battery_pct !== null).map((r) => ({ key: r.robot_id, label: r.robot_id, value: r.battery_pct!, display: `${Math.round(r.battery_pct!)} %` }))}
+              rows={d.fleet.filter((r) => r.battery_pct !== null).map((r) => ({ key: r.robot_id, label: fmtSerial(r.robot_id), value: r.battery_pct!, display: `${Math.round(r.battery_pct!)} %` }))}
               empty="No robot has reported a battery level yet."
               scaleMax={100}
             />

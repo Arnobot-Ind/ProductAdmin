@@ -15,6 +15,7 @@ import { DataTable } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { fmtDate } from '@/lib/format';
+import { fmtSerial } from '@/lib/format';
 
 /** Arnobot software the client runs: versions, where it is installed, seats and licence dates. */
 export function SoftwareTab({ org, canEdit }: { org: OrganizationDetailDto; canEdit: boolean }) {
@@ -187,10 +188,10 @@ function InstallDialog({ org, install, onClose }: { org: OrganizationDetailDto; 
         <Field label="Robot" hint="Only robots this organization owns now.">
           <Select value={f.robot_id} onChange={(e) => set({ robot_id: e.target.value })}>
             <option value="">Not bound to a robot</option>
-            {f.robot_id && !org.robots.some((r) => r.robot_id === f.robot_id) && <option value={f.robot_id}>{f.robot_id}</option>}
+            {f.robot_id && !org.robots.some((r) => r.robot_id === f.robot_id) && <option value={f.robot_id}>{fmtSerial(f.robot_id)}</option>}
             {org.robots.map((r) => (
               <option key={r.robot_id} value={r.robot_id}>
-                {r.robot_id}
+                {fmtSerial(r.robot_id)}
               </option>
             ))}
           </Select>

@@ -12,6 +12,7 @@ import { Badge, EmptyState, PageHeader, QueryView } from '@/components/ui/misc';
 import { DataTable } from '@/components/ui/table';
 import { useCan } from '@/lib/auth';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtSiteNo } from '@/lib/format';
 
 /** Every site robots are deployed to: where it is, whose it is, who to call, and how many robots are there now. */
 export default function SitesPage() {
@@ -23,7 +24,7 @@ export default function SitesPage() {
   const [adding, setAdding] = useState(false);
   const q = useSites(showRetired);
   const term = search.trim().toLowerCase();
-  const match = (s: SiteDto) => !term || [s.name, s.city, s.state, s.address, s.company_name, s.contact_name].some((v) => v?.toLowerCase().includes(term));
+  const match = (s: SiteDto) => !term || [s.name, s.city, s.state, s.address, s.company_name, s.contact_name, fmtSiteNo(s.org_no, s.site_no)].some((v) => v?.toLowerCase().includes(term));
 
   return (
     <>
@@ -74,6 +75,7 @@ export default function SitesPage() {
                       <Link href={`/sites/${s.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-accent-text hover:underline">
                         {s.name}
                       </Link>
+                      <span className="ml-2 font-mono text-sm text-muted">{fmtSiteNo(s.org_no, s.site_no)}</span>
                       {s.deleted_at && (
                         <>
                           {' '}

@@ -69,7 +69,10 @@ export function CategoryAttachments({ category, includeDeleted }: { category: Ro
                   <Link href={`/attachments/${a.id}`} className="text-base font-semibold text-accent-text hover:underline">
                     {a.name}
                   </Link>
-                  {a.model_number && <span className="text-sm text-muted">{a.model_number}</span>}
+                  <span className="text-sm text-muted">
+                    No. <span className="font-mono">{String(a.attachment_no).padStart(3, '0')}</span>
+                    {a.model_number && ` · ${a.model_number}`}
+                  </span>
                   {!a.category && <span className="text-xs text-muted">UGV &amp; UAV</span>}
                   {a.deleted_at && <span className="text-xs font-medium text-fault">Retired</span>}
                 </span>

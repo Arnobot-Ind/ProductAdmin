@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { ArchiveSessionDetailDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Download, Film, RotateCcw, Timer, Trash2, Upload, Video } from 'lucide-react';
@@ -37,7 +38,7 @@ export default function VideoPage() {
 /** One recording: watch the cameras. Downloads of any data live on the Data downloads page. */
 function VideoView({ d }: { d: ArchiveSessionDetailDto }) {
   const { session, cameras, access } = d;
-  useDocumentTitle(`${session.robot_id} · ${session.session_id}`);
+  useDocumentTitle(`${fmtSerial(session.robot_id)} · ${session.session_id}`);
   const params = useSearchParams();
   const t = params.get('t');
   const canAnywhere = useCanAnywhere();

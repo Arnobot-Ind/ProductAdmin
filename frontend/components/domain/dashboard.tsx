@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import { RobotRef } from '@/components/domain/robot-ref';
 
 import type { DashboardDto, FleetReportDto } from '@arnobot/message-schema';
@@ -158,7 +159,7 @@ export function FleetMap({ d, title = 'Fleet map', className, fill }: { d: Dashb
         lon: r.lon!,
         color: STATUS_COLOR[r.status],
         label: [
-          `${r.robot_id}${dir.get(r.robot_id)?.nickname ? ` · ${dir.get(r.robot_id)!.nickname}` : ''}`,
+          `${fmtSerial(r.robot_id)}${dir.get(r.robot_id)?.nickname ? ` · ${dir.get(r.robot_id)!.nickname}` : ''}`,
           `${r.category.toUpperCase()} · ${r.product_name}`,
           dir.get(r.robot_id)?.attachments.length ? dir.get(r.robot_id)!.attachments.join(', ') : null,
           `${r.status}${r.battery_pct !== null ? ` · ${Math.round(r.battery_pct)} %` : ''}`,

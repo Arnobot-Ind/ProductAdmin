@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { DocumentDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { DocumentsPanel, type OwnerOption } from '@/components/domain/documents-panel';
@@ -13,7 +14,7 @@ import { api } from '@/lib/api';
 export function DocumentsTab({ robot }: { robot: RobotDetailDto }) {
   const q = useQuery({ queryKey: ['robot', robot.robot_id, 'documents'], queryFn: () => api.get<DocumentDto[]>(`/robots/${robot.robot_id}/documents`) });
   const owners: OwnerOption[] = [
-    { label: `This robot only (${robot.robot_id}, one-off build)`, owner: { robot_id: robot.robot_id } },
+    { label: `This robot only (${fmtSerial(robot.robot_id)}, one-off build)`, owner: { robot_id: robot.robot_id } },
     ...(robot.hardware_revision_id ? [{ label: `${robot.product_name} ${robot.hardware_revision} (all robots of this revision)`, owner: { hardware_revision_id: robot.hardware_revision_id } }] : []),
     { label: `${robot.product_name} (all robots of this product)`, owner: { product_id: robot.product_id } },
   ];

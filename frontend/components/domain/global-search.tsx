@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { SearchResultDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Bot, Boxes, Building2, Search } from 'lucide-react';
@@ -10,6 +11,7 @@ import { useCan, useCanAnywhere } from '@/lib/auth';
 import { ACTIONS, matchPages, NAV, visibleNav } from './nav';
 import { cn } from '@/lib/cn';
 import { useDebounced } from '@/lib/hooks';
+import { fmtCustomerNo } from '@/lib/format';
 
 interface Hit {
   key: string;
@@ -73,12 +75,12 @@ export function GlobalSearch() {
     ...(d?.robots ?? []).map((r) => ({
       key: `r-${r.robot_id}`,
       href: `/robots/${r.robot_id}`,
-      title: r.nickname ? `${r.robot_id} · ${r.nickname}` : r.robot_id,
-      sub: [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? r.attachments.join(', ') : null, `SN ${r.serial_number}`, r.owner_company].filter(Boolean).join(' · '),
+      title: r.nickname ? `${fmtSerial(r.robot_id)} · ${r.nickname}` : fmtSerial(r.robot_id),
+      sub: [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? r.attachments.join(', ') : null, r.owner_company].filter(Boolean).join(' · '),
       Icon: Bot,
       group: 'Robots',
     })),
-    ...(d?.organizations ?? []).map((o) => ({ key: `o-${o.id}`, href: `/admin/organizations/${o.id}`, title: o.name, sub: o.kind === 'internal' ? 'Arnobot' : 'Customer', Icon: Building2, group: 'Organizations' })),
+    ...(d?.organizations ?? []).map((o) => ({ key: `o-${o.id}`, href: `/admin/organizations/${o.id}`, title: o.name, sub: o.kind === 'internal' ? 'Arnobot' : `Customer ${fmtCustomerNo(o.org_no) ?? ''}`.trim(), Icon: Building2, group: 'Organizations' })),
     ...(d?.products ?? []).map((p) => ({ key: `p-${p.id}`, href: `/products/${p.id}`, title: p.name, sub: `${p.category.toUpperCase()} base model · ${p.code}`, Icon: Boxes, group: 'Base models' })),
   ];
   const go = (h: Hit) => {

@@ -16,6 +16,7 @@ import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { fmtDate } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
+import { fmtCustomerNo } from '@/lib/format';
 
 /** Arnobot and its customers. Each customer organization owns robots and has its own team of users. */
 export default function OrganizationsPage() {
@@ -70,9 +71,12 @@ export default function OrganizationsPage() {
                   header: 'Organization',
                   rowHeader: true,
                   cell: (o) => (
-                    <Link href={`/admin/organizations/${o.id}`} className="font-semibold text-accent-text hover:underline">
-                      {o.name}
-                    </Link>
+                    <span>
+                      <Link href={`/admin/organizations/${o.id}`} className="font-semibold text-accent-text hover:underline">
+                        {o.name}
+                      </Link>
+                      {fmtCustomerNo(o.org_no) && <span className="block font-mono text-sm text-muted">{fmtCustomerNo(o.org_no)}</span>}
+                    </span>
                   ),
                 },
                 {

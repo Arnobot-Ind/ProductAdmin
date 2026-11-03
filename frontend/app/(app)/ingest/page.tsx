@@ -23,8 +23,16 @@ import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
 
 const LIMIT = 50;
-/** A robot filter is sent once it is a whole Robot ID (e.g. saibya01), not while it is half typed. */
-const robotFilter = (v: string) => (/^[a-z][a-z0-9_]*[0-9]+$/.test(v.trim().toLowerCase()) ? v.trim().toLowerCase() : undefined);
+/**
+ * A robot filter is sent once it is a whole serial number (dashes allowed, e.g. 1-005-000-0002-16), or an old Robot ID
+ * such as saibya02 (the server finds the robot), not while it is half typed.
+ */
+const robotFilter = (v: string) => {
+  const t = v.trim().toLowerCase();
+  const digits = t.replace(/[\s-]/g, '');
+  if (/^[12][0-9]{12}$/.test(digits)) return digits;
+  return /^[a-z][a-z0-9_]*[0-9]+$/.test(t) ? t : undefined;
+};
 
 export default function IngestPage() {
   useDocumentTitle('Ingest');
@@ -202,8 +210,8 @@ function MessagesTab({ day }: { day: string | null }) {
   return (
     <div className="flex flex-col gap-3">
       <form aria-label="Filter messages" className="grid gap-3 sm:grid-cols-3 sm:items-end" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Robot ID">
-          <Input value={robot} onChange={(e) => { setRobot(e.target.value); setPage(1); }} placeholder="e.g. saibya01" />
+        <Field label="Robot serial number">
+          <Input value={robot} onChange={(e) => { setRobot(e.target.value); setPage(1); }} placeholder="e.g. 1-005-000-0002-16" />
         </Field>
         <Field label="Type">
           <Select value={type} onChange={(e) => { setType(e.target.value); setPage(1); }}>
@@ -270,8 +278,8 @@ function RejectionsTab({ day, errors }: { day: string | null; errors: { error: s
   return (
     <div className="flex flex-col gap-3">
       <form aria-label="Filter rejected messages" className="grid gap-3 sm:grid-cols-3 sm:items-end" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Robot ID">
-          <Input value={robot} onChange={(e) => { setRobot(e.target.value); setPage(1); }} placeholder="e.g. saibya01" />
+        <Field label="Robot serial number">
+          <Input value={robot} onChange={(e) => { setRobot(e.target.value); setPage(1); }} placeholder="e.g. 1-005-000-0002-16" />
         </Field>
         <Field label="Reason">
           <Select value={error} onChange={(e) => { setError(e.target.value); setPage(1); }}>

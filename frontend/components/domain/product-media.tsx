@@ -13,6 +13,7 @@ import {
   Pause,
   Play,
   RotateCw,
+  Star,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -458,6 +459,17 @@ export function ProductMediaCard({
       refresh();
     }
   };
+  const makeMain = useMutation({
+    mutationFn: (m: ProductMediaDto) => api.post(`/product-media/${m.id}/main`, {}),
+    onSuccess: () => {
+      toast.success("Main photo changed");
+      refresh();
+      // Robots of this base model show it as their picture.
+      void qc.invalidateQueries({ queryKey: ["robot"] });
+      void qc.invalidateQueries({ queryKey: ["robots"] });
+    },
+    onError: toast.error,
+  });
   const remove = useMutation({
     mutationFn: (m: ProductMediaDto | "spin") =>
       m === "spin"
@@ -497,10 +509,13 @@ export function ProductMediaCard({
         />
         {photos.length ? (
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {photos.map((p) => (
+            {photos.map((p, i) => (
               <li
                 key={p.id}
-                className="group relative overflow-hidden rounded-lg border border-border bg-surface-2"
+                className={cn(
+                  "group relative overflow-hidden rounded-lg border bg-surface-2",
+                  i === 0 ? "border-accent ring-2 ring-accent" : "border-border",
+                )}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- authenticated API image */}
                 <img
@@ -518,6 +533,22 @@ export function ProductMediaCard({
                   >
                     <Trash2 className="size-4 text-fault" aria-hidden />
                   </button>
+                )}
+                {i === 0 ? (
+                  <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-white shadow">
+                    <Star className="size-3.5 fill-current" aria-hidden /> Main photo
+                  </span>
+                ) : (
+                  canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => makeMain.mutate(p)}
+                      disabled={makeMain.isPending}
+                      className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md bg-surface/95 px-2 py-0.5 text-xs font-semibold text-accent-text shadow hover:bg-accent-soft"
+                    >
+                      <Star className="size-3.5" aria-hidden /> Set as main
+                    </button>
+                  )
                 )}
               </li>
             ))}
