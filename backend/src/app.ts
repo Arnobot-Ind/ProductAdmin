@@ -31,6 +31,7 @@ import { auditRoutes } from './routes/audit';
 import { releaseRoutes } from './routes/releases';
 import { reportRoutes } from './routes/reports';
 import { robotRoutes } from './routes/robots';
+import { activityRoutes } from './routes/activity';
 import { robotLogRoutes } from './routes/robot-log';
 import { noteSearchRoutes } from './routes/notes-search';
 import { attachmentRoutes } from './routes/attachments';
@@ -175,6 +176,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       catalogueRoutes(api, ctx);
       robotRoutes(api, ctx);
       robotLogRoutes(api, ctx);
+      activityRoutes(api, ctx);
       noteSearchRoutes(api, ctx);
       attachmentRoutes(api, ctx);
       siteRoutes(api, ctx);
