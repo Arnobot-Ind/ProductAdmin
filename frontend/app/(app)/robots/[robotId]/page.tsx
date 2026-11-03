@@ -298,7 +298,10 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         </div>
       )}
 
-      <Tabs label="Robot record sections" items={sections.map((sec) => ({ id: sec.id, label: sec.label }))} value={section.id} onChange={(id) => openTab(sections.find((sec) => sec.id === id)!.tabs[0].id)} />
+      <Tabs
+        label="Robot record sections"
+        // Offline: the first section shows the last known values, and says so; "Live status" again once it reports.
+        items={sections.map((sec) => ({ id: sec.id, label: sec.id === 'status' && robot.status === 'offline' ? 'Last known status' : sec.label }))} value={section.id} onChange={(id) => openTab(sections.find((sec) => sec.id === id)!.tabs[0].id)} />
       {section.tabs.length > 1 && (
         <div role="group" aria-label={`${section.label} views`} className="mt-4 flex flex-wrap gap-2">
           {section.tabs.map((t) => (
