@@ -1,4 +1,4 @@
-import { canonicalRobotIds, SERIAL_RE } from './services/robots.service';
+import { canonicalRobotIds } from './services/robots.service';
 import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -137,7 +137,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
         const undash = (v: unknown) => (typeof v === 'string' && /^[12](?:-?[0-9]){12}$/.test(v) ? v.replace(/-/g, '') : v);
         if (params?.robotId) params.robotId = undash(params.robotId) as string;
         if (query?.robot) query.robot = undash(query.robot) as string;
-        const names = [params?.robotId, query?.robot].filter((v): v is string => typeof v === 'string' && !!v && !SERIAL_RE.test(v));
+        // Also a serial the robot had before (e.g. after its base model was renumbered in 0030).
+        const names = [params?.robotId, query?.robot].filter((v): v is string => typeof v === 'string' && !!v);
         if (!names.length) return;
         const map = await canonicalRobotIds(ctx.db, names);
         if (params?.robotId && map.has(params.robotId)) params.robotId = map.get(params.robotId)!;
