@@ -51,8 +51,12 @@ function ActivityMonth({ day, onDay }: { day: string; onDay: (d: string | null) 
       month={month}
       onMonth={setMonth}
       loading={q.isFetching && !q.data}
-      // Shaded by missions; a red dot marks days with critical alerts.
-      value={(c) => ({ n: byDay.get(c)?.missions ?? 0, alert: byDay.get(c)?.alerts_critical ?? 0 })}
+      // Green days (darker = more missions); red only for days with critical alerts. Warnings stay green.
+      scheme="status"
+      value={(c) => {
+        const x = byDay.get(c);
+        return { n: x?.missions ?? 0, alert: x?.alerts_critical ?? 0 };
+      }}
       label={(n) => plural(n, 'mission')}
       alertLabel="critical alerts"
       day={day}
