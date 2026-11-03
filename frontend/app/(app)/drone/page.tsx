@@ -6,12 +6,13 @@ import { useCan } from '@/lib/auth';
 import { useDocumentTitle } from '@/lib/hooks';
 
 /**
- * The drone's C12 camera, live, from the Mumbai relay: the H12 Pro remote carries it there through a reverse SSH
- * tunnel when its Settings → Internet link is on; go2rtc on the relay serves it over MSE, behind the relay's own login
+ * The drone's C12 camera and live stats, from the Mumbai relay: the H12 Pro remote carries its video and MAVLink there
+ * through reverse SSH tunnels when its Settings → Internet link is on; the relay's live page (go2rtc over MSE, and the
+ * stats from drone-telemetry.py) sits behind the relay's own login
  * (Arnobot-Ind/GCS: gcs/gcs_mobile/relay/ and gcs/gcs_mobile/docs/superpowers/specs/2026-11-02-internet-link-design.md).
  */
 const DRONE_VIDEO_ORIGIN = 'https://drone.13-234-159-182.sslip.io'; // also in next.config.ts frame-src
-const PLAYER = `${DRONE_VIDEO_ORIGIN}/stream.html?src=c12&mode=mse`;
+const PLAYER = `${DRONE_VIDEO_ORIGIN}/live.html`;
 
 export default function DroneLivePage() {
   useDocumentTitle('Drone live');
@@ -24,7 +25,7 @@ export default function DroneLivePage() {
       <PageHeader
         eyebrow="Drone · H12 Pro remote"
         title="Drone live"
-        description="The C12 camera, live through the Mumbai relay (about 1 s behind). It plays while the remote's Internet link is on and the drone is powered."
+        description="The C12 camera and the drone's live stats (mode, battery, GPS, attitude, health, remote, mission) through the Mumbai relay, about 1 s behind. Live while the remote's Internet link is on and the drone is powered."
         actions={
           <a href={PLAYER} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
             <ExternalLink className="size-4" aria-hidden /> Open in a new tab
@@ -34,8 +35,8 @@ export default function DroneLivePage() {
       <div className="overflow-hidden rounded-lg border border-border bg-black">
         <iframe
           src={PLAYER}
-          title="Drone camera, live"
-          className="aspect-video w-full"
+          title="Drone camera and stats, live"
+          className="h-[78vh] min-h-[560px] w-full"
           allow="autoplay; fullscreen"
           referrerPolicy="no-referrer"
         />
