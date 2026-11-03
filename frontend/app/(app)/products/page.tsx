@@ -34,7 +34,7 @@ export default function ProductsPage() {
       <PageHeader
         eyebrow="Hardware & software"
         title="Base models & attachments"
-        description="Two categories, UGV (ground) and UAV (aerial). Each has base models (the vehicle every robot is built on) and attachments (equipment fitted on a vehicle). Every base model and attachment gets a permanent number automatically; together they start each robot's serial number."
+        description="Two categories, UGV (ground) and UAV (aerial). Each has base models (the vehicle every robot is built on) and attachments (equipment fitted on a vehicle). Base models are numbered automatically within their category (UGV 001, 002… and UAV 001, 002…); attachments share one series for both. These permanent numbers start each robot's serial number."
         actions={
           can('catalog.write') ? (
             <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={() => setAdding(true)}>
