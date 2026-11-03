@@ -12,7 +12,6 @@ import {
   Map as MapIcon,
   MapPinned,
   Package,
-  Plane,
   Route,
   ScrollText,
   Server,
@@ -21,6 +20,7 @@ import {
   Siren,
   UserCog,
   Users,
+  CalendarDays,
 } from 'lucide-react';
 
 /** The app's pages, grouped as in the side menu. The menu and the top search read this one list. */
@@ -58,8 +58,9 @@ export const NAV: NavGroup[] = [
       { href: '/', label: 'Dashboard', description: 'Key fleet numbers and the most urgent items', keywords: 'home overview summary fleet health kpi', Icon: LayoutDashboard },
       { href: '/overview/attention', label: 'Needs attention', description: 'Faults, critical events, offline robots, warranties', keywords: 'alerts faults errors warnings problems review acknowledge warranty critical issues', Icon: Siren, hidden: true },
       { href: '/overview/map', label: 'Fleet map', description: 'Where every robot last reported its position', keywords: 'map location gps position where', Icon: MapIcon },
-      { href: '/overview/missions', label: 'Missions', description: 'Mission results across the fleet this week', keywords: 'missions trips jobs results completed aborted failed calendar', Icon: Route },
-      { href: '/overview/events', label: 'Events', description: 'The latest events from every robot', keywords: 'events log history alerts calendar', Icon: ListChecks },
+      { href: '/activity', label: 'Activity', description: 'Pick a day: what each robot did (missions, distance, alerts, updates, repairs)', keywords: 'activity day calendar daily report what happened missions distance errors alerts', Icon: CalendarDays },
+      { href: '/overview/missions', label: 'Missions', description: 'Mission results across the fleet this week', keywords: 'missions trips jobs results completed aborted failed calendar', Icon: Route, hidden: true },
+      { href: '/overview/events', label: 'Events', description: 'The latest events from every robot', keywords: 'events log history alerts calendar', Icon: ListChecks, hidden: true },
     ],
   },
   {
@@ -70,7 +71,6 @@ export const NAV: NavGroup[] = [
       // Missions, events, videos and live status belong to one robot: they live on that robot's page.
       { href: '/robots', label: 'Robots', description: 'Every robot: live status, recordings, hardware and software', keywords: 'robots bots fleet list ugv uav vehicles drones status battery', Icon: Bot },
       { href: '/sites', label: 'Sites', description: 'Where robots are deployed: address, map, contact, robots there now and before', keywords: 'sites deploy deployment location customer place address contact', Icon: MapPinned, perm: 'robot.details' },
-      { href: '/drone', label: 'Drone live', description: "The drone's C12 camera, live through the H12 Pro remote", keywords: 'drone uav live video camera c12 h12 stream feed', Icon: Plane, perm: 'robot.details' },
       { href: '/downloads', label: 'Data export', description: 'Download video, GPS, IMU, LiDAR and encoder data', keywords: 'download export data video gps imu lidar zip recordings', Icon: Download, scoped: 'data.download' },
     ],
   },
