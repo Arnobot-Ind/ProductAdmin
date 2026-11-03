@@ -93,22 +93,27 @@ export function HealthTab({ robot }: { robot: RobotDetailDto }) {
 function Freshness({ live }: { live: LiveStateDto }) {
   const now = useNow(1000);
   const fresh = live.status === 'online';
+  const offline = live.status === 'offline';
+  // Large and bold, so anyone opening the robot sees at once how fresh the data is (or that it is offline).
   return (
-    <p className="flex flex-wrap items-center gap-2 text-sm text-muted" aria-live="polite">
-      <span className="relative flex size-2.5" aria-hidden>
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-lg font-semibold text-fg sm:text-xl" aria-live="polite">
+      <span className="relative flex size-3.5" aria-hidden>
         {fresh && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />}
-        <span className={cn('relative inline-flex size-2.5 rounded-full', fresh ? 'bg-ok' : live.status === 'stale' ? 'bg-warn' : 'bg-offline')} />
+        <span className={cn('relative inline-flex size-3.5 rounded-full', fresh ? 'bg-ok' : live.status === 'stale' ? 'bg-warn' : 'bg-offline')} />
       </span>
-      {live.status === 'offline' ? (
-        <span className="font-medium text-fg">Offline: showing where it was last seen. Battery, signal and other live values return when it reports again.</span>
-      ) : live.state_ts ? (
-        <>
-          Live data from <Time iso={live.state_ts} /> ({fmtRelative(live.state_ts, now)})
-        </>
+      {live.state_ts ? (
+        <span>
+          {offline ? 'Last data from' : 'Live data from'} <Time iso={live.state_ts} /> <span className="text-muted">({fmtRelative(live.state_ts, now)})</span>
+        </span>
       ) : (
-        'No live data received yet'
+        <span>No live data received yet</span>
       )}
-      <span aria-hidden>·</span> last message {fmtRelative(live.last_seen_at, now)}
+      <span className="text-muted" aria-hidden>
+        ·
+      </span>
+      <span>
+        last message <span className="text-muted">{fmtRelative(live.last_seen_at, now)}</span>
+      </span>
     </p>
   );
 }
