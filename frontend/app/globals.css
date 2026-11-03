@@ -153,24 +153,15 @@
 }
 
 /*
- * Bands (dashboard hero, robot summary): a pale-blue panel in light mode, a deep blue one in dark mode. Their own
- * token values, so text, borders, meters and buttons inside read correctly on them.
+ * Bands (dashboard hero, robot summary): the normal card colours of the theme (light or dark), with a faint neutral
+ * dot pattern on the right.
  */
 .band {
-  --surface: #eef3ff;
-  --surface-2: #e2eafc;
-  --border: #cfdaf5;
-  --text-muted: #4a5878;
-  --band-dot: rgb(36 83 214 / 0.16);
+  --band-dot: rgb(15 23 42 / 0.07);
   color: var(--text);
 }
 [data-theme='dark'] .band {
-  --surface: #141c30;
-  --surface-2: #1c2742;
-  --border: #27345a;
-  --text: #f2f4fa;
-  --text-muted: #b3bfd9;
-  --band-dot: rgb(255 255 255 / 0.08);
+  --band-dot: rgb(255 255 255 / 0.06);
 }
 
 @theme inline {
