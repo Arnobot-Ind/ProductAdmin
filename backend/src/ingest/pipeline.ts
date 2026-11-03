@@ -3,7 +3,7 @@
  * Per message, in ONE transaction: validate → authorise robot → store-once (msg_id) → bump
  * last-seen → route by type → pg_notify (delivered on commit).
  */
-import { canonicalRobotIds, SERIAL_RE } from '../services/robots.service';
+import { canonicalRobotIds } from '../services/robots.service';
 import { isPgError, withTransaction, type Db } from '../db';
 import {
   SUPPORTED_MESSAGE_VERSIONS,
@@ -96,8 +96,9 @@ export class IngestPipeline {
     const msg = parsed.message;
     try {
       checkTimestamps(msg, Date.now());
-      // A robot or GCS set up before 0028 may still send the old Robot ID: it is stored under the serial number.
-      if (!SERIAL_RE.test(msg.robot_id)) {
+      // A robot or GCS set up earlier may still send an old Robot ID or an earlier serial: it is stored under the
+      // current serial number. (The usual case, a name the key is allowed for, needs no lookup.)
+      if (!client.robotIds.has(msg.robot_id)) {
         const serial = (await canonicalRobotIds(this.db, [msg.robot_id])).get(msg.robot_id);
         if (serial) msg.robot_id = serial;
       }
