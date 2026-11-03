@@ -8,11 +8,13 @@ import { useDocumentTitle } from '@/lib/hooks';
 /**
  * The drone's C12 camera and live stats, from the Mumbai relay: the H12 Pro remote carries its video and MAVLink there
  * through reverse SSH tunnels when its Settings → Internet link is on; the relay's live page (go2rtc over MSE, and the
- * stats from drone-telemetry.py) sits behind the relay's own login
+ * stats from drone-telemetry.py) has no login of its own: it sits under a random path (the link key below), so this page,
+ * behind the PMS login and robot.details, is how people reach it
  * (Arnobot-Ind/GCS: gcs/gcs_mobile/relay/ and gcs/gcs_mobile/docs/superpowers/specs/2026-11-02-internet-link-design.md).
  */
 const DRONE_VIDEO_ORIGIN = 'https://drone.13-234-159-182.sslip.io'; // also in next.config.ts frame-src
-const PLAYER = `${DRONE_VIDEO_ORIGIN}/live.html`;
+const DRONE_LINK = '420c6d9269626e5c9d5c2dce0532982a'; // the relay's link key (gcs_mobile relay/deploy.sh prints it; rotate there, then here)
+const PLAYER = `${DRONE_VIDEO_ORIGIN}/${DRONE_LINK}/live.html`;
 
 export default function DroneLivePage() {
   useDocumentTitle('Drone live');
@@ -42,7 +44,7 @@ export default function DroneLivePage() {
         />
       </div>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted">
-        <li>The relay asks for its own login the first time (user <code>drone</code>; ask the drone team for the password).</li>
+        <li>The link in &ldquo;Open in a new tab&rdquo; works without a login: keep it inside the team.</li>
         <li>The camera sends H.265: use Safari, or Chrome / Edge on a Mac or Windows PC with hardware video decoding. Firefox cannot play it.</li>
         <li>&ldquo;connection refused&rdquo; in the player means the remote is off or its Internet link is switched off.</li>
       </ul>
