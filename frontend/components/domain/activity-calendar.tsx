@@ -36,6 +36,9 @@ export const dayBounds = (day: string) => ({ from: `${day}T00:00:00+05:30`, to: 
 
 /** Shade steps (share of the busiest day this month). Level 0 = nothing that day. */
 const SHADES = ['', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent text-accent-fg'];
+/** Status colours (Activity page): green for a normal day (darker = busier), red only for days with critical alerts. */
+const GREENS = ['', 'bg-ok/20', 'bg-ok/40', 'bg-ok/65 text-surface', 'bg-ok text-surface'];
+const RED = 'bg-fault text-surface font-semibold';
 const level = (n: number, max: number) => (n <= 0 || max <= 0 ? 0 : Math.min(4, Math.ceil((n / max) * 4)));
 
 /**
@@ -133,6 +136,7 @@ export function MonthCalendar({
   alertLabel,
   day,
   onDay,
+  scheme = 'shade',
   children,
 }: {
   month: string;
@@ -143,8 +147,11 @@ export function MonthCalendar({
   alertLabel?: string;
   day: string | null;
   onDay: (day: string | null) => void;
+  /** 'shade': one hue by count, red dot when `alert` > 0. 'status': green days, red only when `alert` > 0 (critical). */
+  scheme?: 'shade' | 'status';
   children?: ReactNode;
 }) {
+  const status = scheme === 'status';
   const today = istToday();
   const thisMonth = today.slice(0, 7);
   const [y, m] = month.split('-').map(Number);
@@ -197,14 +204,14 @@ export function MonthCalendar({
                 className={cn(
                   'relative flex aspect-square flex-col items-center justify-center rounded-md text-sm tabular-nums transition-colors',
                   future ? 'cursor-default text-muted/40' : 'hover:ring-2 hover:ring-accent/40',
-                  SHADES[level(n, max)],
+                  status ? (alert > 0 ? RED : GREENS[level(n, max)]) : SHADES[level(n, max)],
                   !n && !future && 'text-muted',
                   c === today && 'font-bold underline underline-offset-2',
                   isSel && 'ring-2 ring-accent ring-offset-2 ring-offset-surface',
                 )}
               >
                 {Number(c.slice(8))}
-                {alert > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-fault" aria-hidden />}
+                {alert > 0 && !status && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-fault" aria-hidden />}
               </button>
             );
           })}
@@ -213,13 +220,24 @@ export function MonthCalendar({
           <span>
             {label(total)} on {active} day{active === 1 ? '' : 's'}
           </span>
-          <span className="inline-flex items-center gap-1" aria-hidden>
-            Less
-            {SHADES.slice(1).map((s) => (
-              <span key={s} className={cn('size-3 rounded-sm', s)} />
-            ))}
-            More
-          </span>
+          {status ? (
+            <span className="inline-flex items-center gap-3" aria-hidden>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-3 rounded-sm bg-ok/65" /> Normal
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-3 rounded-sm bg-fault" /> Critical
+              </span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1" aria-hidden>
+              Less
+              {SHADES.slice(1).map((s) => (
+                <span key={s} className={cn('size-3 rounded-sm', s)} />
+              ))}
+              More
+            </span>
+          )}
         </div>
       </div>
       {day && children}
