@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import type { AppContext } from '../context';
-import { badRequest, conflict, notFound } from '../lib/errors';
+import { ApiError, badRequest, conflict, notFound } from '../lib/errors';
 import { anyScope, platform, route } from '../lib/route';
 import { iso } from '../lib/sql';
 import { assertUuid, includeDeleted, nullableText, optionalBool, repoUrlField } from '../lib/validation';
@@ -32,6 +32,8 @@ const toMedia = (r: Record<string, unknown>): ProductMediaDto => ({ ...(r as unk
 const PHOTO_TYPES = /^image\/(png|jpe?g|webp|gif|avif)$/i;
 /** Enough for a smooth turn (36 = one photo every 10°, 72 = every 5°). */
 const MAX_SPIN = 120;
+/** Largest photo or 360° frame accepted. */
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const isGlb = (filename: string) => /\.glb$/i.test(filename);
 
 const componentsSchema = z
@@ -258,6 +260,9 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
         withTransaction(db, async (tx) => {
           const folder = await o.folder(params.id, tx);
           if (file && body.kind !== 'model_3d' && !PHOTO_TYPES.test(file.mimetype)) throw badRequest('a photo must be a PNG, JPEG, WebP, GIF or AVIF image');
+          // Photos and 360° frames are kept small (the panel shrinks them before upload): pages load fast everywhere.
+          if (file && body.kind !== 'model_3d' && file.size > MAX_PHOTO_BYTES)
+            throw new ApiError(413, 'payload_too_large', `a photo can be at most 2 MB (this one is ${(file.size / 1024 / 1024).toFixed(1)} MB)`);
           if (body.kind === 'spin' && (await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM product_media WHERE ${o.column} = $1 AND kind = 'spin' AND deleted_at IS NULL`, [params.id])).rows[0].n >= MAX_SPIN)
             throw badRequest(`a 360° series has at most ${MAX_SPIN} photos`);
           if (file && body.kind === 'model_3d' && !isGlb(file.filename)) throw badRequest('the 3D model must be a binary glTF file (.glb)');

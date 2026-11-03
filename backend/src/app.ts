@@ -68,6 +68,30 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
   });
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: ctx.cfg.maxUploadBytes } });
+
+  /**
+   * File uploads from the admin panel / client app go straight to this server (https://api.arnobot.in), not through
+   * the hosting proxy on the panel's own domain, which refuses request bodies above ~5 MB. The browser asks first
+   * (CORS preflight); it is granted only for these upload routes, only to POST, and only to the panel's and client
+   * app's own origins (ADMIN_ORIGIN, CLIENT_ORIGIN). The session cookie is SameSite=Lax on the parent domain, and the
+   * CSRF hook below still requires X-Requested-With: pms-admin and an allowed Origin.
+   */
+  const uploadPath = /^\/api\/v1\/(?:documents(?:\/[0-9a-f-]{36}\/versions)?|releases|(?:products|attachments|software-products)\/[0-9a-f-]{36}\/media)\/?$/;
+  const uploadOrigin = (origin: string | undefined) =>
+    !!origin && [...ctx.cfg.adminOrigins, ...ctx.cfg.clientOrigins].includes(origin);
+  app.addHook('onRequest', async (req, reply) => {
+    const origin = req.headers.origin;
+    if (!uploadOrigin(origin) || !uploadPath.test(req.url.split('?')[0])) return;
+    reply.header('Access-Control-Allow-Origin', origin).header('Access-Control-Allow-Credentials', 'true').header('Vary', 'Origin');
+    if (req.method === 'OPTIONS') {
+      return reply
+        .header('Access-Control-Allow-Methods', 'POST')
+        .header('Access-Control-Allow-Headers', 'X-Requested-With, Accept')
+        .header('Access-Control-Max-Age', '600')
+        .code(204)
+        .send();
+    }
+  });
   await app.register(rateLimit, {
     max: 600,
     timeWindow: '1 minute',
@@ -112,7 +136,8 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
       /**
        * CSRF defence in depth (the session cookie is also SameSite=Lax): every state-changing request
        * must carry `X-Requested-With: pms-admin` — a custom header cannot be sent cross-site without a
-       * CORS preflight, which is never granted — and a present Origin must be an allowed admin origin.
+       * CORS preflight, which is granted only to the panel's own origins for file uploads (see above) — and a
+       * present Origin must be an allowed admin origin.
        */
       api.addHook('onRequest', async (req, reply) => {
         if (SAFE_METHODS.has(req.method)) return;
