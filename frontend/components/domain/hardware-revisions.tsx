@@ -61,6 +61,7 @@ export function RevisionsCard({ owner, ownerId, revisions, readOnly }: { owner: 
 
   return (
     <Card
+      id="revisions"
       title="Hardware revisions"
       actions={
         <>

@@ -27,9 +27,9 @@ export function Badge({ tone = 'neutral', icon, children, className, title }: { 
   );
 }
 
-export function Card({ title, actions, children, className, bodyClassName }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string }) {
+export function Card({ id, title, actions, children, className, bodyClassName }: { id?: string; title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string }) {
   return (
-    <section className={cn('rounded-xl border border-border bg-surface shadow-sm', className)}>
+    <section id={id} className={cn('scroll-mt-24 rounded-xl border border-border bg-surface shadow-sm', className)}>
       {(title || actions) && (
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3.5">
           {title && <h2 className="text-base font-semibold">{title}</h2>}
