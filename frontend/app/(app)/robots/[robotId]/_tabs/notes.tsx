@@ -11,7 +11,6 @@ import { Card, EmptyState, Pagination, QueryView } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
-import { cn } from '@/lib/cn';
 import { fmtAgo, fmtWhen } from '@/lib/format';
 import { useDebounced, useNow } from '@/lib/hooks';
 
@@ -107,7 +106,7 @@ export function NotesTab({ robotId }: { robotId: string }) {
             <>
               <ol className="flex flex-col gap-3">
                 {d.items.map((n) => (
-                  <li key={n.id} className={cn('rounded-xl border bg-surface p-4 shadow-sm', n.pinned ? 'border-accent/50 bg-accent-soft/40' : 'border-border')}>
+                  <li key={n.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
                       <span>
                         {n.pinned && (
@@ -167,7 +166,7 @@ export function PinnedNotes({ robotId, onOpen }: { robotId: string; onOpen: () =
     <ul className="mt-3 flex flex-col gap-2" aria-label="Pinned notes">
       {pinned.map((n) => (
         <li key={n.id}>
-          <button type="button" onClick={onOpen} className="flex w-full items-start gap-2 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-left text-base hover:border-accent">
+          <button type="button" onClick={onOpen} className="flex w-full items-start gap-2 rounded-xl border border-border bg-surface px-4 py-2.5 text-left text-base shadow-sm hover:border-accent/50">
             <Pin className="mt-1 size-4 shrink-0 text-accent-text" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{n.body}</span>
             <span className="shrink-0 text-sm text-muted">{fmtWhen(n.created_at)}</span>
