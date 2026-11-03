@@ -28,9 +28,10 @@ const finite = z.number().finite();
 const lat = finite.min(-90).max(90);
 const lon = finite.min(-180).max(180);
 
+/** The robot's 13-digit serial number; robots set up before 0028 may still send their old Robot ID (e.g. saibya02). */
 export const robotIdSchema = z
   .string()
-  .regex(/^[a-z][a-z0-9_]*[0-9]+$/, 'robot_id must be product code + running number, e.g. saibya02');
+  .regex(/^(?:[12][0-9]{12}|[a-z][a-z0-9_]*[0-9]+)$/, 'robot_id must be the robot serial number, e.g. 1005000000216');
 
 export const healthLevel = lowerEnum(HEALTH_LEVELS);
 

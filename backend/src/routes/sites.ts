@@ -9,7 +9,7 @@ import { iso, Where } from '../lib/sql';
 import { assertUuid, includeDeleted, isoDateTime, nullableText, uuidSchema } from '../lib/validation';
 
 const SITE_SELECT = `
-SELECT s.id, s.name, s.company_id, c.name AS company_name, s.address, s.city, s.state, s.country, s.latitude, s.longitude,
+SELECT s.id, s.name, s.site_no, c.org_no, s.company_id, c.name AS company_name, s.address, s.city, s.state, s.country, s.latitude, s.longitude,
        s.contact_name, s.contact_phone, s.contact_email, s.notes, s.created_at, s.deleted_at,
        (SELECT count(*)::int FROM site_assignment_history d JOIN robots r ON r.robot_id = d.robot_id
         WHERE d.site_id = s.id AND d.valid_to IS NULL AND r.deleted_at IS NULL) AS robots_now,

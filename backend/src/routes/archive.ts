@@ -9,6 +9,7 @@
  * Files stream through the backend with Range support, so the bucket stays private and the browser never
  * sees a storage URL. Opening a recording and every download are written to the audit log.
  */
+import { formatSerial } from '../db/domain';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { PassThrough } from 'node:stream';
@@ -328,7 +329,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
 
       const robots = [...new Set(plan.map((p) => p.robotId))];
       const stamp = new Date().toISOString().slice(0, 10);
-      const name = `${robots.length === 1 ? robots[0] : 'arnobot'}_${plan.length === 1 ? plan[0].sessionId : `${plan.length}-recordings`}_${stamp}.zip`;
+      const name = `${robots.length === 1 ? formatSerial(robots[0]) : 'arnobot'}_${plan.length === 1 ? plan[0].sessionId : `${plan.length}-recordings`}_${stamp}.zip`;
       const bytes = plan.reduce((n, p) => n + p.files.reduce((m, x) => m + x.size_bytes, 0), 0);
       const restricted = [...groupsUsed].some((g) => SENSOR_GROUPS.has(g));
       for (const robotId of robots) {
@@ -365,7 +366,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
             for (const fl of p.files) {
               if (aborted) return;
               const obj = await archive.storage.get(fl.object_key);
-              await zip.add(`${p.robotId}/${p.sessionId}/${fl.name}`, obj.body, obj.lastModified ?? new Date());
+              await zip.add(`${formatSerial(p.robotId)}/${p.sessionId}/${fl.name}`, obj.body, obj.lastModified ?? new Date());
             }
           }
           if (!aborted) await zip.finish();

@@ -16,7 +16,7 @@ import { assignRobot } from '../services/ownership';
 import { toUser, USER_SELECT } from './users';
 
 const ORG_SELECT = `
-SELECT c.id, c.name, c.kind, c.contact_name, c.contact_email, c.notes, c.created_at, c.deleted_at,
+SELECT c.id, c.name, c.kind, c.org_no, c.contact_name, c.contact_email, c.notes, c.created_at, c.deleted_at,
        (SELECT count(*)::int FROM company_assignment_history h JOIN robots r ON r.robot_id = h.robot_id
         WHERE h.company_id = c.id AND h.valid_to IS NULL AND r.deleted_at IS NULL) AS robot_count,
        (SELECT count(*)::int FROM users u WHERE u.company_id = c.id AND u.deleted_at IS NULL) AS user_count,
@@ -64,7 +64,7 @@ export function organizationRoutes(f: FastifyInstance, app: AppContext): void {
     tag,
     access: { can: 'catalog.read', target: anyScope() },
     handler: async (): Promise<CompanyDto[]> =>
-      (await db.query('SELECT id, name, kind, created_at FROM companies WHERE deleted_at IS NULL ORDER BY kind, name')).rows.map((r) => ({ ...r, created_at: iso(r.created_at)! })),
+      (await db.query('SELECT id, name, kind, org_no, created_at FROM companies WHERE deleted_at IS NULL ORDER BY kind, name')).rows.map((r) => ({ ...r, created_at: iso(r.created_at)! })),
   });
 
   route(f, app, {

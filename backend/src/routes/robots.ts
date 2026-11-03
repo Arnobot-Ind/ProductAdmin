@@ -1,4 +1,4 @@
-import { registerRobot, withTransaction, type Queryable } from '../db';
+import { formatSerial, registerRobot, withTransaction, type Queryable } from '../db';
 import { CLIENT_FEATURES, ROBOT_CATEGORIES } from '../shared';
 import type {
   ConnectivityDto,
@@ -53,6 +53,11 @@ const registerBody = z.object({
   attachments: z
     .array(z.object({ attachment_id: uuidSchema, hardware_revision_id: uuidSchema.nullable().optional(), serial_number: nullableText(100).optional() }))
     .max(30),
+  /**
+   * Which of those attachments the robot is built with: its number goes into the serial (0028). Defaults to the
+   * first attachment listed; none (000) when no attachment is fitted.
+   */
+  main_attachment_id: uuidSchema.nullable().optional(),
   /** Site it is deployed at from the start (optional: it can be deployed later). */
   site_id: uuidSchema.nullable().optional(),
   /** Owner from the start; omitted = Arnobot. A customer owner needs ownership.write as well as robot.write. */
@@ -148,8 +153,11 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     if (q.owner) w.add('o.company_id = ?', q.owner);
     if (q.q) {
       const like = w.param(`%${q.q.replace(/[\\%_]/g, '\\$&')}%`);
+      // A serial typed with dashes or spaces ("1-005-000-0002") matches its digits.
+      const digits = q.q.replace(/[\s-]/g, '');
+      const serialLike = /^[0-9]+$/.test(digits) ? w.param(`%${digits}%`) : like;
       w.add(
-        `(r.robot_id ILIKE ${like} OR r.serial_number ILIKE ${like} OR r.nickname ILIKE ${like} OR r.description ILIKE ${like} OR r.notes ILIKE ${like} OR c.name ILIKE ${like}
+        `(r.robot_id LIKE ${serialLike} OR EXISTS (SELECT 1 FROM robot_previous_ids qp WHERE qp.robot_id = r.robot_id AND qp.previous_id ILIKE ${like}) OR r.nickname ILIKE ${like} OR r.description ILIKE ${like} OR r.notes ILIKE ${like} OR c.name ILIKE ${like}
           OR EXISTS (SELECT 1 FROM robot_attachments qa JOIN attachments qx ON qx.id = qa.attachment_id WHERE qa.robot_id = r.robot_id AND qa.removed_at IS NULL AND qx.name ILIKE ${like})
           OR EXISTS (SELECT 1 FROM site_assignment_history qd JOIN sites qs ON qs.id = qd.site_id WHERE qd.robot_id = r.robot_id AND qd.valid_to IS NULL AND (qs.name ILIKE ${like} OR qs.city ILIKE ${like})))`,
       );
@@ -182,8 +190,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
       const { w, order } = listWhere({ ...query, page: 1, limit: 1 }, user);
       const rows = (await db.query(`${ROBOT_SELECT} ${w.toSql()} ORDER BY ${order} LIMIT 10000`, w.params)).rows.map(toRobotListItem);
       const cols: [string, (r: RobotListItemDto) => unknown][] = [
-        ['robot_id', (r) => r.robot_id],
-        ['serial_number', (r) => r.serial_number],
+        ['serial_number', (r) => formatSerial(r.serial_number)],
         ['category', (r) => r.category.toUpperCase()],
         ['nickname', (r) => r.nickname],
         ['base_model', (r) => r.product_name],
@@ -217,6 +224,27 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
   });
 
   route(f, app, {
+    method: 'GET',
+    path: '/robots/serial-preview',
+    summary: 'The serial number the next robot of this base model and main attachment will get (random part not known yet)',
+    tag,
+    access: { can: 'robot.write', target: platform() },
+    query: z.object({ product_id: uuidSchema, main_attachment_id: uuidSchema.optional() }),
+    handler: async ({ query }) => {
+      // The generator itself, inside a transaction that is rolled back: nothing is reserved or written.
+      const c = await db.connect();
+      try {
+        await c.query('BEGIN');
+        const s = (await c.query<{ s: string }>('SELECT pms_new_robot_serial($1, $2) AS s', [query.product_id, query.main_attachment_id ?? null])).rows[0].s;
+        return { serial_prefix: s.slice(0, 11), shown: `${formatSerial(s).slice(0, -2)}xx` };
+      } finally {
+        await c.query('ROLLBACK').catch(() => undefined);
+        c.release();
+      }
+    },
+  });
+
+  route(f, app, {
     method: 'POST',
     path: '/robots',
     summary: 'Register a robot: allocates the permanent Robot ID and 8-digit serial number, opens ownership, issues its ingest key (shown once)',
@@ -233,9 +261,13 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
           if (!owner) throw notFound('organization');
           if (owner.kind !== 'internal' && !(await app.perms.can(user, 'ownership.write', { type: 'platform' }))) throw forbidden('requires ownership.write to register a robot for a customer');
         }
+        if (body.main_attachment_id && !body.attachments.some((a) => a.attachment_id === body.main_attachment_id)) {
+          throw badRequest('the main attachment must be one of the attachments fitted');
+        }
         const reg = await registerRobot(tx, {
           productId: body.product_id,
           hardwareRevisionId: body.hardware_revision_id ?? null,
+          mainAttachmentId: body.main_attachment_id ?? body.attachments[0]?.attachment_id ?? null,
           notes: body.notes ?? null,
           companyId: owner?.id ?? null,
           createdBy: user.id,

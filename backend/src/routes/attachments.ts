@@ -10,8 +10,8 @@ import { assertUuid, includeDeleted, isoDateTime, nullableText, optionalBool, re
 import { hardwareRevisions } from './catalogue';
 
 const ATTACHMENT_SELECT = `
-SELECT a.id, a.name, a.category, a.description, a.manufacturer, a.model_number, a.repo_url, a.created_at, a.deleted_at,
-       (SELECT pm.id FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.created_at LIMIT 1) AS cover_photo_id,
+SELECT a.id, a.attachment_no, a.name, a.category, a.description, a.manufacturer, a.model_number, a.repo_url, a.created_at, a.deleted_at,
+       (SELECT pm.id FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1) AS cover_photo_id,
        (SELECT pm.id FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'model_3d' AND pm.deleted_at IS NULL ORDER BY pm.created_at DESC LIMIT 1) AS model_3d_id,
        (SELECT count(*)::int FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL) AS photo_count,
        (SELECT count(*)::int FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'spin' AND pm.deleted_at IS NULL) AS spin_count,

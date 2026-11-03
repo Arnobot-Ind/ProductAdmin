@@ -10,8 +10,8 @@ import { iso } from '../lib/sql';
 import { assertUuid, includeDeleted, nullableText, optionalBool, repoUrlField } from '../lib/validation';
 
 const PRODUCT_SELECT = `
-SELECT p.id, p.code, p.name, p.description, p.category, p.repo_url, p.next_running_number, p.created_at, p.deleted_at,
-       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.created_at LIMIT 1) AS cover_photo_id,
+SELECT p.id, p.model_no, p.code, p.name, p.description, p.category, p.repo_url, p.next_running_number, p.created_at, p.deleted_at,
+       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1) AS cover_photo_id,
        (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'model_3d' AND pm.deleted_at IS NULL ORDER BY pm.created_at DESC LIMIT 1) AS model_3d_id,
        (SELECT count(*)::int FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL) AS photo_count,
        (SELECT count(*)::int FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'spin' AND pm.deleted_at IS NULL) AS spin_count,
@@ -287,6 +287,37 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       },
     });
   }
+  route(f, app, {
+    method: 'POST',
+    path: '/product-media/:id/main',
+    summary: 'Make this photo the main one (shown first, and as the picture of every robot of the base model)',
+    tag,
+    access: write,
+    handler: async ({ params }) => {
+      assertUuid(params.id);
+      return withTransaction(db, async (tx) => {
+        const m = (
+          await tx.query<{ owner: string; col: string }>(
+            `SELECT coalesce(product_id, attachment_id, software_product_id)::text AS owner,
+                    CASE WHEN product_id IS NOT NULL THEN 'product_id' WHEN attachment_id IS NOT NULL THEN 'attachment_id' ELSE 'software_product_id' END AS col
+             FROM product_media WHERE id = $1 AND kind = 'photo' AND deleted_at IS NULL FOR UPDATE`,
+            [params.id],
+          )
+        ).rows[0];
+        if (!m) throw notFound('photo');
+        // The chosen photo moves to the front; the others keep their order behind it.
+        await tx.query(
+          `UPDATE product_media pm SET position = o.n
+           FROM (SELECT id, row_number() OVER (ORDER BY (id = $1) DESC, position, created_at) AS n
+                 FROM product_media WHERE ${m.col} = $2::uuid AND kind = 'photo' AND deleted_at IS NULL) o
+           WHERE pm.id = o.id`,
+          [params.id, m.owner],
+        );
+        return { ok: true };
+      });
+    },
+  });
+
   route(f, app, {
     method: 'DELETE',
     path: '/product-media/:id',

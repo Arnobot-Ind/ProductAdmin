@@ -94,9 +94,12 @@ export function noteSearchRoutes(f: FastifyInstance, app: AppContext): void {
       const starts = `${query.q.replace(/[\\%_]/g, '\\$&')}%`;
       const w = app.perms.applyRobotScope(new Where(), app.perms.robotScope(user, 'robot.read'), 'r.robot_id').add('r.deleted_at IS NULL');
       const p1 = w.param(like);
+      // A serial typed with dashes or spaces matches its digits; old Robot IDs and serials still find the robot.
+      const digits = query.q.replace(/[\s-]/g, '');
+      const pDigits = w.param(/^[0-9]+$/.test(digits) ? `%${digits}%` : like);
       const p2 = w.param(starts);
       w.add(
-        `(r.robot_id ILIKE ${p1} OR r.serial_number ILIKE ${p1} OR r.nickname ILIKE ${p1} OR r.description ILIKE ${p1} OR c.name ILIKE ${p1} OR p.name ILIKE ${p1}
+        `(r.robot_id LIKE ${pDigits} OR EXISTS (SELECT 1 FROM robot_previous_ids sp WHERE sp.robot_id = r.robot_id AND sp.previous_id ILIKE ${p1}) OR r.nickname ILIKE ${p1} OR r.description ILIKE ${p1} OR c.name ILIKE ${p1} OR p.name ILIKE ${p1}
           OR EXISTS (SELECT 1 FROM robot_attachments qa JOIN attachments qx ON qx.id = qa.attachment_id WHERE qa.robot_id = r.robot_id AND qa.removed_at IS NULL AND qx.name ILIKE ${p1}))`,
       );
       const robots = (
@@ -111,7 +114,13 @@ export function noteSearchRoutes(f: FastifyInstance, app: AppContext): void {
         )
       ).rows as SearchResultDto['robots'];
       const organizations = (await app.perms.can(user, 'org.manage', { type: 'platform' }))
-        ? ((await db.query(`SELECT id, name, kind FROM companies WHERE deleted_at IS NULL AND name ILIKE $1 ORDER BY name LIMIT 5`, [like])).rows as SearchResultDto['organizations'])
+        ? ((
+            await db.query(
+              // A customer number finds its organization: C-0001, c1, 0001.
+              `SELECT id, name, kind, org_no FROM companies WHERE deleted_at IS NULL AND (name ILIKE $1 OR org_no = $2) ORDER BY name LIMIT 5`,
+              [like, /^c?-?\s*[0-9]{1,4}$/i.test(query.q.trim()) ? Number(query.q.trim().replace(/^c?-?\s*/i, '')) : null],
+            )
+          ).rows as SearchResultDto['organizations'])
         : [];
       const products = (await app.perms.can(user, 'catalog.read', { type: 'platform' }))
         ? ((await db.query(`SELECT id, name, code, category FROM products WHERE deleted_at IS NULL AND (name ILIKE $1 OR code ILIKE $1) ORDER BY name LIMIT 5`, [like])).rows as SearchResultDto['products'])

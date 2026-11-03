@@ -134,6 +134,8 @@ export interface OrganizationDto {
   id: string;
   name: string;
   kind: OrganizationKind;
+  /** Automatic and permanent: 0 = Arnobot, customers 1, 2, 3… (shown as the customer number C-0001). */
+  org_no: number;
   contact_name: string | null;
   contact_email: string | null;
   notes: string | null;
@@ -325,6 +327,8 @@ export interface AuditEntryDto {
 
 // ── catalogue ───────────────────────────────────────────────────────────────
 export interface ProductDto {
+  /** Base model number (0028): automatic, permanent, part of every robot serial number (3 digits, e.g. 005). */
+  model_no: number;
   id: string;
   code: string;
   name: string;
@@ -392,6 +396,7 @@ export interface CompanyDto {
   id: string;
   name: string;
   kind: OrganizationKind;
+  org_no: number;
   created_at: string;
 }
 
@@ -427,6 +432,12 @@ export interface RobotListItemDto extends MissionSummaryDto {
   hardware_revision: string | null;
   /** The base model's first photo. */
   product_cover_photo_id: string | null;
+  /** Base model number (part of the serial). */
+  model_no: number;
+  /** The attachment the robot was built with (its number is part of the serial); null = none (000). */
+  main_attachment: { id: string; name: string; attachment_no: number } | null;
+  /** What the robot was called before serial numbers became its identity (old Robot ID, old serial). */
+  previous_ids: string[];
   /** Where the robot is deployed now (0026); null when not deployed. */
   site: RobotSiteRefDto | null;
   owner_company: string | null;
@@ -476,6 +487,10 @@ export interface RobotSiteRefDto {
 export interface SiteDto {
   id: string;
   name: string;
+  /** Automatic and permanent within its organization (shown with the organization's number: 0001-01). */
+  site_no: number;
+  /** Its organization's number (the first part of the site number). */
+  org_no: number | null;
   /** Whose site, usually the customer's. */
   company_id: string | null;
   company_name: string | null;
@@ -512,6 +527,8 @@ export interface RobotDeploymentDto {
 }
 /** An attachment in the catalogue (equipment that can be fitted on a vehicle). */
 export interface AttachmentDto {
+  /** Attachment number (0028): automatic, permanent, part of the serial of robots built with it (3 digits, e.g. 001). */
+  attachment_no: number;
   id: string;
   name: string;
   /** Which vehicles it fits; null = both. */
@@ -1533,7 +1550,7 @@ export interface RobotNoteDto {
 /** Global search (the box in the top bar): the best matches of each kind the user may see. */
 export interface SearchResultDto {
   robots: { robot_id: string; nickname: string | null; serial_number: string; product_name: string; category: RobotCategory; owner_company: string | null; attachments: string[] }[];
-  organizations: { id: string; name: string; kind: 'internal' | 'customer' }[];
+  organizations: { id: string; name: string; kind: 'internal' | 'customer'; org_no: number }[];
   products: { id: string; name: string; code: string; category: RobotCategory }[];
 }
 /** One IST day of the audit log calendar. */
