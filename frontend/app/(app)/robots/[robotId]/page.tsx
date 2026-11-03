@@ -147,7 +147,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? params.get('day') : null;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [photos, setPhotos] = useState(false);
+  /** Whose pictures the photo manager shows: the base model's or one attachment's. */
+  const [media, setMedia] = useState<{ owner: 'products' | 'attachments'; id: string; name: string } | null>(null);
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -212,7 +213,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
             <div className="flex flex-col gap-2">
               <ProductPicture productId={robot.product_id} name={`${robot.product_name} · ${fmtSerial(robot.robot_id)}`} />
               {can('catalog.write') && (
-                <Button variant="secondary" size="sm" onClick={() => setPhotos(true)}>
+                <Button variant="secondary" size="sm" onClick={() => setMedia({ owner: 'products', id: robot.product_id, name: robot.product_name })}>
                   <ImagePlus className="size-4" aria-hidden /> Photos &amp; 360° view
                 </Button>
               )}
@@ -228,6 +229,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                 mainAttachmentId={robot.main_attachment?.id}
                 attachments={robot.attachments}
                 onFit={can('robot.write') && !robot.deleted_at ? () => openTab('attachments') : undefined}
+                onAttachmentMedia={(a) => setMedia({ owner: 'attachments', id: a.id, name: a.name })}
               />
               {robot.current_mission_id && (
                 <p className="mt-2 text-base">
@@ -365,13 +367,17 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />
       <Dialog
-        open={photos}
-        onClose={() => setPhotos(false)}
+        open={!!media}
+        onClose={() => setMedia(null)}
         size="xl"
-        title={`Photos of ${robot.product_name}`}
-        description={`The pictures belong to the base model ${robot.product_name}, so every ${robot.product_name} robot shows them. The main photo is the picture shown on this page and in lists.`}
+        title={media ? `Photos of ${media.name}` : ''}
+        description={
+          media?.owner === 'attachments'
+            ? `The pictures belong to the attachment ${media.name}, so every robot with it fitted shows them. The main photo is its picture on robot pages and in the attachments list.`
+            : `The pictures belong to the base model ${robot.product_name}, so every ${robot.product_name} robot shows them. The main photo is the picture shown on this page and in lists.`
+        }
       >
-        {photos && <ProductMediaCard productId={robot.product_id} name={robot.product_name} />}
+        {media && <ProductMediaCard owner={media.owner} productId={media.id} name={media.name} />}
       </Dialog>
       <ConfirmDialog
         open={deleting}

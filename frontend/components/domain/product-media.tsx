@@ -104,14 +104,17 @@ type View = "photos" | "spin" | "model";
 export function ProductPicture({
   productId,
   name,
+  owner = "products",
   className,
 }: {
   productId: string;
   name: string;
+  /** Whose pictures (a base model's by default, or an attachment's). */
+  owner?: MediaOwner;
   className?: string;
 }) {
   const can = useCan();
-  const q = useProductMedia(productId, can("catalog.read"));
+  const q = useProductMedia(productId, can("catalog.read"), owner);
   const [open, setOpen] = useState<View | null>(null);
   const { photos, spin, model } = split(q.data ?? []);
   const cover = photos[0] ?? spin[0];

@@ -1,7 +1,7 @@
 'use client';
 
 import type { RobotAttachmentRefDto, RobotCategory } from '@arnobot/message-schema';
-import { Plane, Plus, Puzzle, Truck } from 'lucide-react';
+import { ImagePlus, Plane, Plus, Puzzle, Truck } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { mediaUrl } from '@/components/domain/product-media';
@@ -26,11 +26,11 @@ export function Thumb({ photoId, icon, className }: { photoId: string | null | u
 export const CategoryIcon = ({ category, className }: { category: RobotCategory; className?: string }) =>
   category === 'uav' ? <Plane className={className} style={{ color: `var(--cat-uav)` }} aria-hidden /> : <Truck className={className} style={{ color: `var(--cat-ugv)` }} aria-hidden />;
 
-function BuildCard({ label, thumb, title, href, sub }: { label: string; thumb: ReactNode; title: string; href?: string; sub: ReactNode }) {
+function BuildCard({ label, thumb, title, href, sub, action }: { label: string; thumb: ReactNode; title: string; href?: string; sub: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-xl border border-border bg-surface p-2.5 pr-4 shadow-sm">
       {thumb}
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold tracking-wide text-muted uppercase">{label}</span>
         {href ? (
           <Link href={href} className="block truncate text-base font-semibold text-accent-text hover:underline">
@@ -40,6 +40,7 @@ function BuildCard({ label, thumb, title, href, sub }: { label: string; thumb: R
           <span className="block truncate text-base font-semibold">{title}</span>
         )}
         <span className="block truncate text-sm text-muted">{sub}</span>
+        {action}
       </span>
     </div>
   );
@@ -55,6 +56,7 @@ export function RobotBuild({
   attachments,
   mainAttachmentId,
   onFit,
+  onAttachmentMedia,
   className,
 }: {
   category: RobotCategory;
@@ -64,6 +66,8 @@ export function RobotBuild({
   mainAttachmentId?: string | null;
   /** Shows a "Fit attachment" button. */
   onFit?: () => void;
+  /** Shows a "Photos & 360°" button on each attachment (its own pictures, 360° view and 3D model). */
+  onAttachmentMedia?: (a: RobotAttachmentRefDto) => void;
   className?: string;
 }) {
   return (
@@ -90,6 +94,13 @@ export function RobotBuild({
           title={a.name}
           href={`/attachments/${a.id}`}
           sub={[a.id === mainAttachmentId ? 'In the serial number' : null, attachmentUnit(a) || (a.id === mainAttachmentId ? null : 'revision and serial not recorded')].filter(Boolean).join(' · ')}
+          action={
+            onAttachmentMedia && (
+              <button type="button" onClick={() => onAttachmentMedia(a)} className="mt-0.5 inline-flex items-center gap-1 text-sm font-medium text-accent-text hover:underline">
+                <ImagePlus className="size-3.5" aria-hidden /> Photos &amp; 360°
+              </button>
+            )
+          }
         />
       ))}
       {attachments.length === 0 && (
