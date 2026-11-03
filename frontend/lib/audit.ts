@@ -1,4 +1,5 @@
 import type { AuditEntryDto } from '@arnobot/message-schema';
+import { fmtSerial } from './format';
 
 /** Readable audit actions and one-line details (Audit log page, an organization's Activity tab). */
 export const ACTION_LABEL: Record<string, string> = {
@@ -56,15 +57,15 @@ export function auditSummary(e: AuditEntryDto): string {
   const s = (k: string) => (d[k] === undefined || d[k] === null ? '' : String(d[k]));
   switch (e.action) {
     case 'robot.assigned':
-      return `${e.robot_id}: ${s('from_company') || '—'} → ${s('to_company')}${d.revoked_robot_grants ? ` · ${s('revoked_robot_grants')} robot role(s) revoked` : ''}${s('reason') ? ` · ${s('reason')}` : ''}`;
+      return `${fmtSerial(e.robot_id)}: ${s('from_company') || '—'} → ${s('to_company')}${d.revoked_robot_grants ? ` · ${s('revoked_robot_grants')} robot role(s) revoked` : ''}${s('reason') ? ` · ${s('reason')}` : ''}`;
     case 'catalog.software_version_added':
       return `${s('code')} ${s('version')}${s('commit_id') ? ` · ${s('commit_id').slice(0, 7)}` : ''}`;
     case 'catalog.software_version_removed':
       return s('version');
     case 'robot.deployed':
-      return `${e.robot_id}: ${s('from_site') || '—'} → ${s('site')}`;
+      return `${fmtSerial(e.robot_id)}: ${s('from_site') || '—'} → ${s('site')}`;
     case 'robot.deployment_ended':
-      return `${e.robot_id}: left ${s('site')}`;
+      return `${fmtSerial(e.robot_id)}: left ${s('site')}`;
     case 'site.created':
       return s('name');
     case 'site.updated':

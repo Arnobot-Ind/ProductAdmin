@@ -107,7 +107,15 @@ function ProductView({ p }: { p: ProductDetail }) {
             columns={3}
             items={[
               { label: 'Category', value: `${ROBOT_CATEGORY_LABEL[p.category]} · ${p.category === 'uav' ? 'aerial robot' : 'ground robot'}` },
-              { label: 'Code (permanent)', value: <Mono>{p.code}</Mono> },
+              {
+                label: 'Model number (automatic, permanent)',
+                value: (
+                  <span title="Part of every serial number of this base model">
+                    <Mono>{String(p.model_no).padStart(3, '0')}</Mono>
+                  </span>
+                ),
+              },
+              { label: 'Software code (what robots send)', value: <Mono>{p.code}</Mono> },
               {
                 label: 'Software repository',
                 value: p.repo_url ? (
@@ -117,7 +125,10 @@ function ProductView({ p }: { p: ProductDetail }) {
                 ) : null,
               },
               { label: 'Robots', value: <Link href={`/robots?product=${p.code}`} className="text-accent-text hover:underline">{p.robot_count} robot(s)</Link> },
-              { label: 'Next Robot ID', value: <Mono>{`${p.code}${String(p.next_running_number).padStart(2, '0')}`}</Mono> },
+              {
+                label: 'Serial numbers start with',
+                value: <Mono>{`${p.category === 'uav' ? 2 : 1}-${String(p.model_no).padStart(3, '0')}-…`}</Mono>,
+              },
             ]}
           />
         </Card>
@@ -150,7 +161,7 @@ function ProductView({ p }: { p: ProductDetail }) {
   );
 }
 
-/** The robots of this product: each has a permanent Robot ID (code + running number) and an 8-digit serial. */
+/** The robots of this base model, each by its permanent serial number. */
 function ProductRobots({ code, name }: { code: string; name: string }) {
   const router = useRouter();
   const can = useCan();
@@ -172,7 +183,7 @@ function ProductRobots({ code, name }: { code: string; name: string }) {
       <QueryView query={q}>
         {(d) =>
           d.items.length === 0 ? (
-            <EmptyState title="No robots yet" description={`Register one to get ${code}01 and its serial number.`} />
+            <EmptyState title="No robots yet" description="Register one to get its serial number." />
           ) : (
             <>
             <ProductTotals robots={d.items} />
@@ -185,13 +196,12 @@ function ProductRobots({ code, name }: { code: string; name: string }) {
               columns={[
                 {
                   key: 'id',
-                  header: 'Robot ID',
+                  header: 'Serial number',
                   rowHeader: true,
                   cell: (r) => (
                     <RobotRef id={r.robot_id} onClick={(e) => e.stopPropagation()} />
                   ),
                 },
-                { key: 'serial', header: 'Serial number', cell: (r) => <Mono>{r.serial_number}</Mono> },
                 { key: 'status', header: 'Status', cell: (r) => <RobotStatusBadge lastSeenAt={r.last_seen_at} /> },
                 { key: 'missions', header: 'Missions', align: 'right', cell: (r) => r.total_missions },
                 {
@@ -263,9 +273,18 @@ function EditProductDialog({ p, open, onClose }: { p: ProductDetail; open: boole
         <Field label="Name" required>
           <Input value={name} onChange={(e) => setName(e.target.value)} data-autofocus />
         </Field>
-        <Field label="Category" required hint="Every robot of this base model shows this category.">
-          <CategoryPicker value={category} onChange={setCategory} />
-        </Field>
+        {p.robot_count > 0 ? (
+          // The category is the first digit of every serial number of this base model: locked once robots exist.
+          <div>
+            <p className="text-sm font-medium">Category</p>
+            <p className="mt-1 text-base font-semibold">{ROBOT_CATEGORY_LABEL[p.category]}</p>
+            <p className="text-sm text-muted">Locked: {p.robot_count} robot(s) are registered on it and their serial numbers start with its category.</p>
+          </div>
+        ) : (
+          <Field label="Category" required hint="Every robot of this base model shows this category. It locks once a robot is registered on it.">
+            <CategoryPicker value={category} onChange={setCategory} />
+          </Field>
+        )}
         <Field label="Description" hint="Shown on the page of every robot of this base model (unless the robot has its own description).">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>

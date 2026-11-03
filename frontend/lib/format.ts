@@ -135,6 +135,27 @@ const istClock = new Intl.DateTimeFormat('en-IN', { timeZone: IST, hour: 'numeri
 const istDate = new Intl.DateTimeFormat('en-GB', { timeZone: IST, day: 'numeric', month: 'short', year: 'numeric' });
 
 /** "Just now", "12 minutes ago", "3 hours ago", "2 days ago", "5 weeks ago": always words, never a bare number. */
+/**
+ * A robot's serial number for people (0028): 1005000000216 → "1-005-000-0002-16" (category · base model · main
+ * attachment · running number · random). Anything else (an old Robot ID in an old record) is shown as it is.
+ */
+export function fmtSerial(serial: string | null | undefined): string {
+  if (!serial) return DASH;
+  const m = /^([12])([0-9]{3})([0-9]{3})([0-9]{4})([0-9]{2})$/.exec(serial);
+  return m ? m.slice(1).join('-') : serial;
+}
+
+/** An organization's customer number: 1 → "C-0001". Arnobot (0) has none. */
+export function fmtCustomerNo(orgNo: number | null | undefined): string | null {
+  return orgNo ? `C-${String(orgNo).padStart(4, '0')}` : null;
+}
+
+/** A site's number: organization · site, e.g. "0001-01" (Arnobot's own sites are 0000-01…). */
+export function fmtSiteNo(orgNo: number | null | undefined, siteNo: number | null | undefined): string {
+  if (siteNo == null) return DASH;
+  return `${String(orgNo ?? 0).padStart(4, '0')}-${String(siteNo).padStart(2, '0')}`;
+}
+
 export function fmtAgo(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return 'Never';
   const t = Date.parse(iso);

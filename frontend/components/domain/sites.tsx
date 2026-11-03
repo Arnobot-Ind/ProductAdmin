@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial, fmtSiteNo } from '@/lib/format';
 import type { RobotDeploymentDto, SiteDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink } from 'lucide-react';
@@ -180,7 +181,7 @@ export function DeployDialog({
   const m = useMutation({
     mutationFn: () => api.post<RobotDeploymentDto>(`/robots/${robot}/deployments`, { site_id: siteId, deployed_at: fromLocalInput(when), purpose: purpose.trim() || null, notes: notes.trim() || null }),
     onSuccess: (d) => {
-      toast.success(`${d.robot_id} deployed at ${d.site_name}`);
+      toast.success(`${fmtSerial(d.robot_id)} deployed at ${d.site_name}`);
       onDone();
       onClose();
     },
@@ -191,8 +192,8 @@ export function DeployDialog({
       <Dialog
         open={!adding}
         onClose={onClose}
-        title={robotId ? (current ? `Move ${robotId} to another site` : `Deploy ${robotId}`) : `Deploy a robot at ${site?.name}`}
-        description={current ? `${robotId} is at ${current.site_name} now; that deployment ends when this one starts.` : undefined}
+        title={robotId ? (current ? `Move ${fmtSerial(robotId)} to another site` : `Deploy ${fmtSerial(robotId)}`) : `Deploy a robot at ${site?.name}`}
+        description={current ? `${fmtSerial(robotId)} is at ${current.site_name} now; that deployment ends when this one starts.` : undefined}
         footer={
           <>
             <Button onClick={onClose}>Cancel</Button>
@@ -210,7 +211,7 @@ export function DeployDialog({
                   <option value="">Choose…</option>
                   {options.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name}
+                      {fmtSiteNo(s.org_no, s.site_no)} · {s.name}
                       {sitePlace(s) ? ` · ${sitePlace(s)}` : ''}
                       {s.company_name ? ` (${s.company_name})` : ''}
                     </option>

@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { ClientCredentialDto, ClientCredentialKind, ClientCredentialRevealDto, OrganizationDetailDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, Lock, Plus, RefreshCw, ShieldX } from 'lucide-react';
@@ -102,7 +103,7 @@ export function ClientCredentialsTab({ org }: { org: OrganizationDetailDto }) {
                         {c.label}
                         <span className="block text-xs text-muted">
                           {KIND_LABELS[c.kind]}
-                          {c.robot_id && ` · ${c.robot_id}`}
+                          {c.robot_id && ` · ${fmtSerial(c.robot_id)}`}
                         </span>
                       </span>
                     ),
@@ -266,7 +267,7 @@ function AddDialog({ org, open, onClose }: { org: OrganizationDetailDto; open: b
             <option value="">Not bound to a robot</option>
             {org.robots.map((r) => (
               <option key={r.robot_id} value={r.robot_id}>
-                {r.robot_id}
+                {fmtSerial(r.robot_id)}
               </option>
             ))}
           </Select>

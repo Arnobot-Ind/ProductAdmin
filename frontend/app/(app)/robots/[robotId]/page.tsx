@@ -1,11 +1,12 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { HardwareRevisionDto, ProductDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, GitBranch, Pencil, RotateCcw, Trash2 } from 'lucide-react';
+import { ExternalLink, GitBranch, ImagePlus, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { missionHref } from '@/components/domain/missions-table';
 import { RobotStatusBadge } from '@/components/domain/status';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,7 @@ import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
 import { Badge, InlineAlert, LastSeen, QueryView } from '@/components/ui/misc';
 import { CategoryBadge } from '@/components/domain/status';
-import { ProductPicture } from '@/components/domain/product-media';
+import { ProductMediaCard, ProductPicture } from '@/components/domain/product-media';
 import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
@@ -117,13 +118,20 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
 
 export default function RobotDetailPage() {
   const { robotId } = useParams<{ robotId: string }>();
-  useDocumentTitle(robotId);
+  useDocumentTitle(fmtSerial(robotId));
+  const router = useRouter();
   const poll = useLivePoll();
   const q = useQuery({
     queryKey: ['robot', robotId, 'detail'],
     queryFn: () => api.get<RobotDetailDto>(`/robots/${robotId}`),
     refetchInterval: poll,
   });
+  // An old address (/robots/saibya02, an old 8-digit serial, or a serial with dashes) opens the robot; the address
+  // bar then switches to its serial number, keeping the tab.
+  const serial = q.data?.robot_id;
+  useEffect(() => {
+    if (serial && serial !== robotId) router.replace(`/robots/${serial}${window.location.search}`);
+  }, [serial, robotId, router]);
   return <QueryView query={q} rows={8}>{(r) => <RobotDetail robot={r} />}</QueryView>;
 }
 
@@ -139,6 +147,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? params.get('day') : null;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [photos, setPhotos] = useState(false);
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -162,14 +171,14 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               <Link href="/robots" className="hover:underline">
                 Robots
               </Link>{' '}
-              / <span aria-current="page">{robot.robot_id}</span>
+              / <span aria-current="page">{fmtSerial(robot.robot_id)}</span>
             </nav>
           }
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-bold">
-                <span className="font-mono">{robot.robot_id}</span>
+                <span className="font-mono">{fmtSerial(robot.robot_id)}</span>
                 {robot.nickname && <span> · {robot.nickname}</span>}
               </h1>
               <CategoryBadge category={robot.category} />
@@ -198,9 +207,16 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         </BesideBack>
 
         {/* What the robot is, on the brand band: picture, product and description, then the identity facts. */}
-        <Band label={`${robot.robot_id} summary`} className="mt-4">
+        <Band label={`${fmtSerial(robot.robot_id)} summary`} className="mt-4">
           <div className="grid gap-6 p-5 sm:p-6 md:grid-cols-[13rem_minmax(0,1fr)]">
-            <ProductPicture productId={robot.product_id} name={`${robot.product_name} · ${robot.robot_id}`} />
+            <div className="flex flex-col gap-2">
+              <ProductPicture productId={robot.product_id} name={`${robot.product_name} · ${fmtSerial(robot.robot_id)}`} />
+              {can('catalog.write') && (
+                <Button variant="secondary" size="sm" onClick={() => setPhotos(true)}>
+                  <ImagePlus className="size-4" aria-hidden /> Photos &amp; 360° view
+                </Button>
+              )}
+            </div>
             <div className="min-w-0">
               <p className="max-w-3xl text-base">
                 {robot.description ?? <span className="text-muted">{robot.product_description ?? 'No description yet. Use Edit to add one.'}</span>}
@@ -208,7 +224,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               <RobotBuild
                 className="mt-3"
                 category={robot.category}
-                product={{ id: robot.product_id, name: robot.product_name, revision: robot.hardware_revision, coverPhotoId: robot.product_cover_photo_id }}
+                product={{ id: robot.product_id, name: robot.product_name, revision: robot.hardware_revision, coverPhotoId: robot.product_cover_photo_id, modelNo: robot.model_no }}
+                mainAttachmentId={robot.main_attachment?.id}
                 attachments={robot.attachments}
                 onFit={can('robot.write') && !robot.deleted_at ? () => openTab('attachments') : undefined}
               />
@@ -221,9 +238,6 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                 </p>
               )}
               <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-3">
-                <BandFact label="Serial number">
-                  <span className="font-mono">{robot.serial_number}</span>
-                </BandFact>
                 <BandFact label="Current owner">
                   <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
                 </BandFact>
@@ -278,7 +292,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
       {robot.deleted_at && (
         <div className="mb-4">
-          <InlineAlert tone="fault">This robot is deleted. Its data is kept, and its Robot ID is never reused. Restore it to accept messages again.</InlineAlert>
+          <InlineAlert tone="fault">This robot is deleted. Its data is kept, and its serial number is never reused. Restore it to accept messages again.</InlineAlert>
         </div>
       )}
 
@@ -350,14 +364,23 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
       </TabPanel>
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />
+      <Dialog
+        open={photos}
+        onClose={() => setPhotos(false)}
+        size="xl"
+        title={`Photos of ${robot.product_name}`}
+        description={`The pictures belong to the base model ${robot.product_name}, so every ${robot.product_name} robot shows them. The main photo is the picture shown on this page and in lists.`}
+      >
+        {photos && <ProductMediaCard productId={robot.product_id} name={robot.product_name} />}
+      </Dialog>
       <ConfirmDialog
         open={deleting}
         onClose={() => setDeleting(false)}
         onConfirm={() => del.mutate()}
         loading={del.isPending}
         danger
-        title={`Delete ${robot.robot_id}?`}
-        description="The robot is marked deleted (soft delete). All history is kept, the Robot ID is never reused, and it can be restored. Messages from a deleted robot are rejected."
+        title={`Delete ${fmtSerial(robot.robot_id)}?`}
+        description="The robot is marked deleted (soft delete). All history is kept, the serial number is never reused, and it can be restored. Messages from a deleted robot are rejected."
         confirmLabel="Delete robot"
       />
     </>
@@ -396,8 +419,8 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
     <Dialog
       open={open}
       onClose={onClose}
-      title={`Edit ${robot.robot_id}`}
-      description="The Robot ID, serial number and base model are permanent and cannot be edited."
+      title={`Edit ${fmtSerial(robot.robot_id)}`}
+      description="The serial number and base model are permanent and cannot be edited."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -408,7 +431,7 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
       }
     >
       <div className="grid gap-4">
-        <Field label="Nickname" hint="A short name people use for it, shown next to the Robot ID everywhere, e.g. Khavda patrol 1.">
+        <Field label="Nickname" hint="A short name people use for it, shown next to the serial number everywhere, e.g. Khavda patrol 1.">
           <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} data-autofocus />
         </Field>
         <Field label="Short description" hint="One or two lines: what it does and where. Shown on lists and when hovering the robot.">

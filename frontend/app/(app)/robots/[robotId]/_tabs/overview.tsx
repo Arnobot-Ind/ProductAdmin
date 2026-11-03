@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { ActiveFaultDto, DeviceHealthDto, HealthLevel, LiveStateDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -264,7 +265,7 @@ function PositionCard({ live, robotId }: { live: LiveStateDto; robotId: string }
     >
       {live.position ? (
         <>
-          <GeoMap points={points} className="h-[30rem]" ariaLabel={`Map showing ${robotId} at ${fmtCoord(live.position.lat, live.position.lon)}`} />
+          <GeoMap points={points} className="h-[30rem]" ariaLabel={`Map showing ${fmtSerial(robotId)} at ${fmtCoord(live.position.lat, live.position.lon)}`} />
           <dl className="mt-4 grid gap-4 sm:grid-cols-4">
             <Fact label="Coordinates" value={<span className="font-mono text-sm">{fmtCoord(live.position.lat, live.position.lon)}</span>} />
             {live.position.sats !== null && <Fact label="Satellites" value={live.position.sats} />}

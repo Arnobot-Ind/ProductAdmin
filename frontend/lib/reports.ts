@@ -9,6 +9,7 @@
  *   summaryPdf          daily / monthly mission summary of one robot
  */
 import type { MissionDetailDto, MissionListItemDto } from '@arnobot/message-schema';
+import { fmtSerial } from '@/lib/format';
 
 type Doc = import('jspdf').jsPDF;
 type Rgb = [number, number, number];
@@ -151,7 +152,7 @@ const tableStyle = {
   alternateRowStyles: { fillColor: [243, 245, 250] as Rgb },
 };
 
-const robotLine = (r: ReportRobot) => `Robot ${r.robot_id} · ${r.product_name} · SN ${r.serial_number}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
+const robotLine = (r: ReportRobot) => `Robot ${fmtSerial(r.robot_id)} · ${r.product_name}${r.owner_company ? ` · ${r.owner_company}` : ''}`;
 
 // ── 1. Mission Report ───────────────────────────────────────────────────────
 export async function missionReportPdf(m: MissionDetailDto, robot: ReportRobot): Promise<void> {

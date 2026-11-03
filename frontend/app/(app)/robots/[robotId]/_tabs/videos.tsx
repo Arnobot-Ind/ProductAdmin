@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { RobotArchiveDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { RobotLinkPanel, SessionsTable } from '@/components/archive/sessions-table';
@@ -38,7 +39,7 @@ export function VideosTab({ robotId, day }: { robotId: string; day?: string | nu
                 {sessions.length} session(s) · {fmtBytes(sessions.reduce((n, s) => n + s.bytes.total, 0))} stored
               </p>
             </div>
-            <SessionsTable sessions={sessions} caption={`Recordings of ${robotId}`} empty={day ? 'No recordings on this day.' : 'No recordings from this robot yet.'} />
+            <SessionsTable sessions={sessions} caption={`Recordings of ${fmtSerial(robotId)}`} empty={day ? 'No recordings on this day.' : 'No recordings from this robot yet.'} />
           </section>
         </div>
         );

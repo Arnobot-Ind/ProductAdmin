@@ -7,6 +7,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useDebounced } from '@/lib/hooks';
+import { fmtSerial } from '@/lib/format';
 
 /**
  * Pick one robot by typing part of its ID, serial number or owner: works the same for 10 robots or 10 000, since
@@ -16,7 +17,7 @@ export function RobotPicker({
   value,
   onChange,
   exclude,
-  placeholder = 'Type a robot ID, nickname, serial number or owner…',
+  placeholder = 'Type a serial number, nickname or owner…',
   autoFocus,
   invalid,
 }: {
@@ -53,7 +54,7 @@ export function RobotPicker({
   const more = (res.data?.total ?? 0) > 21;
   const pick = (r: RobotListItemDto) => {
     onChange(r.robot_id, r);
-    setText(r.robot_id);
+    setText(fmtSerial(r.robot_id));
     setOpen(false);
   };
   return (
@@ -118,11 +119,11 @@ export function RobotPicker({
               >
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">
-                    <span className="font-mono">{r.robot_id}</span>
+                    <span className="font-mono">{fmtSerial(r.robot_id)}</span>
                     {r.nickname && ` · ${r.nickname}`}
                   </span>
                   <span className="block truncate text-sm text-muted">
-                    {[`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.map((a) => a.name).join(', ') || null, `SN ${r.serial_number}`, r.owner_company ?? 'no owner'].filter(Boolean).join(' · ')}
+                    {[`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.map((a) => a.name).join(', ') || null, r.owner_company ?? 'no owner'].filter(Boolean).join(' · ')}
                   </span>
                 </span>
                 {r.robot_id === value && <Check className="size-4 text-accent-text" aria-hidden />}

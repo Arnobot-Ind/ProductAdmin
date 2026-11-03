@@ -9,6 +9,7 @@ import { DataTable } from '@/components/ui/table';
 import { fmtBytes, fmtDuration, fmtRelative } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { SessionStatusBadge, UploadBadge } from './badges';
+import { fmtSerial } from '@/lib/format';
 
 export const videoHref = (s: { id: string }) => `/videos/${s.id}`;
 
@@ -32,7 +33,7 @@ export function SessionsTable({ sessions, showRobot, caption, empty }: { session
                 cell: (s: ArchiveSessionDto) => (
                   <span className="flex flex-col">
                     <Link href={`/robots/${s.robot_id}?tab=videos`} onClick={(e) => e.stopPropagation()} className="font-mono font-semibold text-accent-text hover:underline">
-                      {s.robot_id}
+                      {fmtSerial(s.robot_id)}
                     </Link>
                     <span className="text-xs text-muted">{s.product_name}</span>
                   </span>

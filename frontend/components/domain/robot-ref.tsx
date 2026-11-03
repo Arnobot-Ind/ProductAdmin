@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import type { RobotDirectoryEntryDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { Puzzle } from 'lucide-react';
@@ -23,9 +24,9 @@ export function useRobotDirectory() {
 
 /** "saibya02 · Khavda patrol 1 — UGV · Saibya · Sprayer, Thermal camera": what a robot is, in one line, for tooltips. */
 export function robotSummary(id: string, r?: RobotDirectoryEntryDto): string {
-  if (!r) return id;
+  if (!r) return fmtSerial(id);
   const parts = [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? `Attachments: ${r.attachments.join(', ')}` : null, r.description, r.owner_company ? `Owner: ${r.owner_company}` : null, r.site_name ? `Site: ${r.site_name}` : null];
-  return `${id}${r.nickname ? ` · ${r.nickname}` : ''}\n${parts.filter(Boolean).join('\n')}`;
+  return `${fmtSerial(id)}${r.nickname ? ` · ${r.nickname}` : ''}\n${parts.filter(Boolean).join('\n')}`;
 }
 
 /**
@@ -53,7 +54,7 @@ export function RobotRef({
   const r = dir.get(id);
   const name = (
     <>
-      <span className="font-mono font-semibold">{id}</span>
+      <span className="font-mono font-semibold">{fmtSerial(id)}</span>
       {r?.nickname && <span className="font-semibold"> · {r.nickname}</span>}
     </>
   );

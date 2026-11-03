@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import { RobotRef } from '@/components/domain/robot-ref';
 
 import type { OrganizationDetailDto, OrganizationDto, Paginated, RobotListItemDto } from '@arnobot/message-schema';
@@ -28,6 +29,7 @@ import { FeaturesTab } from './_tabs/features';
 import { ClientProfileCard, ProfileDialog } from './_tabs/profile';
 import { SoftwareTab } from './_tabs/software';
 import { BesideBack } from '@/components/ui/back-button';
+import { fmtCustomerNo } from '@/lib/format';
 
 /** Customer organizations only: Arnobot itself keeps the single page (details, robots, users). */
 const CLIENT_TABS = [
@@ -174,7 +176,13 @@ function OrganizationView({ org }: { org: OrganizationDetailDto }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{org.name}</h1>
-            {customer ? <Badge>Customer</Badge> : <Badge tone="accent">Arnobot (internal)</Badge>}
+            {customer ? (
+              <Badge>
+                Customer <span className="font-mono">{fmtCustomerNo(org.org_no)}</span>
+              </Badge>
+            ) : (
+              <Badge tone="accent">Arnobot (internal)</Badge>
+            )}
             {org.profile && <ClientStatusBadge status={org.profile.status} />}
             {org.deleted_at && <Badge tone="fault">Deleted</Badge>}
           </div>
@@ -252,7 +260,7 @@ function AssignRobotDialog({ open, onClose, org }: { open: boolean; onClose: () 
     mutationFn: () =>
       api.post(`/organizations/${org.id}/robots`, { robot_id: robotId, reason: reason.trim() || null }),
     onSuccess: () => {
-      toast.success(`${robotId} assigned to ${org.name}`);
+      toast.success(`${fmtSerial(robotId)} assigned to ${org.name}`);
       void qc.invalidateQueries({ queryKey: ['organizations'] });
       void qc.invalidateQueries({ queryKey: ['robots'] });
       setRobotId('');

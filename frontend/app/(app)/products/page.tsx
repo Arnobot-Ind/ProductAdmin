@@ -34,7 +34,7 @@ export default function ProductsPage() {
       <PageHeader
         eyebrow="Hardware & software"
         title="Base models & attachments"
-        description="Two categories, UGV (ground) and UAV (aerial). Each has base models (the vehicle every robot is built on) and attachments (equipment fitted on a vehicle). The base model code prefixes every Robot ID and is permanent."
+        description="Two categories, UGV (ground) and UAV (aerial). Each has base models (the vehicle every robot is built on) and attachments (equipment fitted on a vehicle). Every base model and attachment gets a permanent number automatically; together they start each robot's serial number."
         actions={
           can('catalog.write') ? (
             <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={() => setAdding(true)}>
@@ -121,7 +121,7 @@ function ProductTile({ p }: { p: ProductDto }) {
             <span className="font-semibold tabular-nums">{p.revision_count}</span> revision{p.revision_count === 1 ? '' : 's'}
           </span>
           <span className="break-all text-muted">
-            Next ID <Mono>{`${p.code}${String(p.next_running_number).padStart(2, '0')}`}</Mono>
+            Model no. <Mono>{String(p.model_no).padStart(3, '0')}</Mono>
           </span>
         </span>
         <span className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
@@ -181,7 +181,7 @@ function AddProductDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <Field
           label="Code"
           required
-          hint={`Lower-case letters and underscores. Robot IDs will look like ${effectiveCode || 'code'}01. It can never be changed.`}
+          hint="Lower-case letters and underscores: what this base model's robots send as their product. It can never be changed. The base model's number (part of every serial) is given automatically."
           error={effectiveCode && !codeValid ? 'Use lower-case letters and underscores only, starting with a letter' : null}
         >
           <Input

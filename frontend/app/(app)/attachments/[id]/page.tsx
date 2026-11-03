@@ -111,6 +111,7 @@ function AttachmentView({ a }: { a: AttachmentDetailDto }) {
           <KeyValue
             columns={3}
             items={[
+              { label: 'Attachment number (automatic, permanent)', value: <Mono>{String(a.attachment_no).padStart(3, '0')}</Mono> },
               { label: 'Fits', value: a.category === 'uav' ? 'UAV · aerial robots' : a.category === 'ugv' ? 'UGV · ground robots' : 'UGV and UAV' },
               { label: 'Manufacturer', value: a.manufacturer },
               { label: 'Model / part number', value: a.model_number ? <Mono>{a.model_number}</Mono> : null },

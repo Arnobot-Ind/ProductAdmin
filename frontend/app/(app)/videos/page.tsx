@@ -14,6 +14,7 @@ import { useCan, useCanAnywhere, useIsCustomer } from '@/lib/auth';
 import { fmtBytes } from '@/lib/format';
 import { useDebounced, useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
+import { fmtSerial } from '@/lib/format';
 
 const LIMIT = 25;
 
@@ -95,7 +96,7 @@ export default function VideosPage() {
         <Field label="Search">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Session, trip, robot ID or serial" className="pl-9" type="search" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Session, trip or robot serial number" className="pl-9" type="search" />
           </div>
         </Field>
         <Field label="Product">
@@ -113,8 +114,8 @@ export default function VideosPage() {
             <option value="">All robots</option>
             {robots.data?.items.map((r) => (
               <option key={r.robot_id} value={r.robot_id}>
-                {r.robot_id}
-                {r.nickname ? ` · ${r.nickname}` : ''} · {r.product_name} · SN {r.serial_number}
+                {fmtSerial(r.robot_id)}
+                {r.nickname ? ` · ${r.nickname}` : ''} · {r.product_name}
               </option>
             ))}
           </Select>

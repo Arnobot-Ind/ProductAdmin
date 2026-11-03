@@ -16,13 +16,14 @@ import { useMe } from '@/lib/auth';
 import { fmtDateTime } from '@/lib/format';
 import { useCompanies } from '@/lib/queries';
 import { UserAccessDialog } from './client-admin';
+import { fmtSerial } from '@/lib/format';
 
 export const MIN_PASSWORD = 10;
 
 export function scopeLabel(g: Pick<GrantDto, 'scope_type' | 'scope_id'>, companies?: { id: string; name: string }[]) {
   if (g.scope_type === 'platform') return 'All of Arnobot (platform)';
   if (g.scope_type === 'company') return `Organization: ${companies?.find((c) => c.id === g.scope_id)?.name ?? g.scope_id}`;
-  if (g.scope_type === 'robot') return `Robot: ${g.scope_id}`;
+  if (g.scope_type === 'robot') return `Robot: ${fmtSerial(g.scope_id)}`;
   return `Site: ${g.scope_id}`;
 }
 

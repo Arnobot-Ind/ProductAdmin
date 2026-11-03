@@ -1,5 +1,6 @@
 'use client';
 
+import { fmtSerial } from '@/lib/format';
 import { RobotRef } from '@/components/domain/robot-ref';
 
 import type { MissionDetailDto, MissionFileDto } from '@arnobot/message-schema';
@@ -36,7 +37,7 @@ export default function MissionDetailPage() {
         m.robot_id === robotId ? (
           <MissionDetail m={m} />
         ) : (
-          <EmptyState title="Mission not found" description={`${robotId} has no mission ${id}.`} />
+          <EmptyState title="Mission not found" description={`${fmtSerial(robotId)} has no mission ${id}.`} />
         )
       }
     </QueryView>
@@ -70,7 +71,7 @@ function MissionDetail({ m }: { m: MissionDetailDto }) {
           </Link>{' '}
           /{' '}
           <Link href={`/robots/${m.robot_id}`} className="font-mono hover:underline">
-            {m.robot_id}
+            {fmtSerial(m.robot_id)}
           </Link>{' '}
           /{' '}
           <Link href={`/robots/${m.robot_id}?tab=missions`} className="hover:underline">
