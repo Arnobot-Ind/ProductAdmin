@@ -39,6 +39,11 @@ export function toErrorResponse(e: unknown): [number, string, string, unknown?] 
         return [400, 'validation_failed', 'a required value is missing'];
       case PgErrorCode.restrictViolation:
         return [409, 'conflict', e.message];
+      // Rules raised by the database's own functions and triggers (e.g. a base model's category is locked, 0028).
+      case '22023':
+        return [400, 'validation_failed', e.message];
+      case 'P0002':
+        return [404, 'not_found', e.message];
       case PgErrorCode.invalidTextRepresentation:
       case '22007':
       case '22008':

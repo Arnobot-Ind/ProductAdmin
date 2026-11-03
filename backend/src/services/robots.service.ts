@@ -3,15 +3,36 @@ import type { EventSeverity, HealthLevel, LiveStateDto, RobotAttachmentRefDto, R
 import { notFound } from '../lib/errors';
 import { iso, Where } from '../lib/sql';
 
+/** A 13-digit robot serial number (0028): category, base model, attachment, running number, random. */
+export const SERIAL_RE = /^[12][0-9]{12}$/;
+
+/**
+ * Translates robot names to serial numbers: a serial stays as it is, an old Robot ID ('saibya02') or old 8-digit
+ * serial becomes the robot's serial (robot_previous_ids). Names that match no robot are left out of the map.
+ */
+export async function canonicalRobotIds(db: Queryable, ids: string[]): Promise<Map<string, string>> {
+  const want = [...new Set(ids.filter(Boolean))];
+  if (!want.length) return new Map();
+  const rows = await db.query<{ id: string; serial: string }>(
+    `SELECT robot_id AS id, robot_id AS serial FROM robots WHERE robot_id = ANY($1::text[])
+     UNION ALL SELECT previous_id, robot_id FROM robot_previous_ids WHERE previous_id = ANY($1::text[])`,
+    [want],
+  );
+  return new Map(rows.rows.map((r) => [r.id, r.serial]));
+}
+
 /** One SELECT for list + detail. Status and mission totals are computed here, never stored (rules 8, §5). */
 export const ROBOT_SELECT = `
 SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name AS product_name, p.category, r.nickname, r.description,
        coalesce((SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'model_number', a.model_number, 'revision_name', ah.name, 'serial_number', ra.serial_number,
                                                    'cover_photo_id', (SELECT pm.id FROM product_media pm WHERE pm.attachment_id = a.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL
-                                                                      ORDER BY pm.created_at LIMIT 1)) ORDER BY a.name)
+                                                                      ORDER BY pm.position, pm.created_at LIMIT 1)) ORDER BY a.name)
                  FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id LEFT JOIN hardware_revisions ah ON ah.id = ra.hardware_revision_id
                  WHERE ra.robot_id = r.robot_id AND ra.removed_at IS NULL), '[]') AS attachments,
-       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.created_at LIMIT 1) AS product_cover_photo_id,
+       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1) AS product_cover_photo_id,
+       p.model_no,
+       (SELECT json_build_object('id', ma.id, 'name', ma.name, 'attachment_no', ma.attachment_no) FROM attachments ma WHERE ma.id = r.main_attachment_id) AS main_attachment,
+       coalesce((SELECT array_agg(pi.previous_id ORDER BY pi.kind) FROM robot_previous_ids pi WHERE pi.robot_id = r.robot_id), '{}') AS previous_ids,
        (SELECT json_build_object('id', st.id, 'name', st.name, 'city', st.city, 'deployed_since', dp.valid_from)
           FROM site_assignment_history dp JOIN sites st ON st.id = dp.site_id WHERE dp.robot_id = r.robot_id AND dp.valid_to IS NULL) AS site,
        p.description AS product_description, p.repo_url,
@@ -87,6 +108,9 @@ export function toRobotListItem(r: RobotRow): RobotListItemDto {
     attachments: (r.attachments as RobotAttachmentRefDto[] | null) ?? [],
     hardware_revision: (r.hardware_revision as string | null) ?? null,
     product_cover_photo_id: (r.product_cover_photo_id as string | null) ?? null,
+    model_no: r.model_no as number,
+    main_attachment: (r.main_attachment as RobotListItemDto['main_attachment']) ?? null,
+    previous_ids: (r.previous_ids as string[] | null) ?? [],
     site: r.site ? { ...(r.site as RobotSiteRefDto), deployed_since: new Date((r.site as RobotSiteRefDto).deployed_since).toISOString() } : null,
     owner_company: (r.owner_company as string | null) ?? null,
     status: r.status as RobotStatus,

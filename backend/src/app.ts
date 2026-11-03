@@ -1,3 +1,4 @@
+import { canonicalRobotIds, SERIAL_RE } from './services/robots.service';
 import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -124,6 +125,23 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
         if (req.headers['x-requested-with'] !== 'pms-admin') {
           return reply.code(403).send({ error: { code: 'forbidden', message: 'missing X-Requested-With: pms-admin header' } });
         }
+      });
+      /**
+       * Old robot names (0028): a page address or filter that still names a robot by its old Robot ID
+       * ('saibya02') or old serial is switched to the robot's serial number before access is checked.
+       */
+      api.addHook('preValidation', async (req) => {
+        const params = req.params as Record<string, string> | undefined;
+        const query = req.query as Record<string, string> | undefined;
+        // A serial written with dashes (1-005-000-0002-16) is the same serial.
+        const undash = (v: unknown) => (typeof v === 'string' && /^[12](?:-?[0-9]){12}$/.test(v) ? v.replace(/-/g, '') : v);
+        if (params?.robotId) params.robotId = undash(params.robotId) as string;
+        if (query?.robot) query.robot = undash(query.robot) as string;
+        const names = [params?.robotId, query?.robot].filter((v): v is string => typeof v === 'string' && !!v && !SERIAL_RE.test(v));
+        if (!names.length) return;
+        const map = await canonicalRobotIds(ctx.db, names);
+        if (params?.robotId && map.has(params.robotId)) params.robotId = map.get(params.robotId)!;
+        if (query?.robot && map.has(query.robot)) query.robot = map.get(query.robot)!;
       });
       metaRoutes(api, ctx);
       authRoutes(api, ctx);

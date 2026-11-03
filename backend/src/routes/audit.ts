@@ -2,6 +2,7 @@ import type { AuditCalendarDayDto, AuditEntryDto, Paginated } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../context';
+import { formatSerial } from '../db/domain';
 import { platform, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { istMonthBounds, isoDateTime, monthSchema, pageQuery, robotIdSchema, uuidSchema } from '../lib/validation';
@@ -97,7 +98,10 @@ export function auditRoutes(f: FastifyInstance, app: AppContext): void {
       const w = buildWhere(query);
       const rows = (await db.query(`${AUDIT_SELECT} ${w.toSql()} ORDER BY a.at DESC, a.id DESC LIMIT 50000`, w.params)).rows.map(toEntry);
       const cols: (keyof AuditEntryDto)[] = ['at', 'action', 'outcome', 'actor_email', 'actor_name', 'target_type', 'target_id', 'robot_id', 'company_name', 'ip', 'detail'];
-      const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n');
+      // The robot column is headed and written as the serial number people know (1-005-000-0002-16).
+      const head = cols.map((c) => (c === 'robot_id' ? 'robot_serial_number' : c));
+      const cell = (r: AuditEntryDto, c: keyof AuditEntryDto) => csvCell(c === 'robot_id' ? (r.robot_id ? formatSerial(r.robot_id) : null) : r[c]);
+      const csv = [head.join(','), ...rows.map((r) => cols.map((c) => cell(r, c)).join(','))].join('\r\n');
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       return reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', `attachment; filename="audit-log-${stamp}.csv"`).send(`﻿${csv}\r\n`);
     },

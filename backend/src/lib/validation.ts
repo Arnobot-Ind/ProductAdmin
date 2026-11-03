@@ -8,7 +8,11 @@ export function parseWith<T extends z.ZodType>(schema: T, value: unknown, where:
 }
 
 export const uuidSchema = z.guid();
-export const robotIdSchema = z.string().regex(/^[a-z][a-z0-9_]*[0-9]+$/, 'invalid robot id');
+/**
+ * A robot: its 13-digit serial number (0028), or an old Robot ID / old 8-digit serial, which the server translates
+ * to the serial (robot_previous_ids) wherever a robot is named.
+ */
+export const robotIdSchema = z.string().regex(/^(?:[12][0-9]{12}|[a-z][a-z0-9_]*[0-9]+|[0-9]{8})$/, 'invalid robot serial number');
 export const isoDate = z.iso.date(); // YYYY-MM-DD
 export const isoDateTime = z.iso.datetime({ offset: true });
 
@@ -34,7 +38,7 @@ export function assertUuid(value: string, what = 'id'): string {
   return value;
 }
 export function assertRobotId(value: string): string {
-  if (!robotIdSchema.safeParse(value).success) throw badRequest('invalid robot id');
+  if (!robotIdSchema.safeParse(value).success) throw badRequest('invalid robot serial number');
   return value;
 }
 

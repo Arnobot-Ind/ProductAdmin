@@ -14,6 +14,7 @@
  * Stored in the archive bucket at <robot_id>/detections/<YYYY-MM-DD UTC>/<detection_id>.jpg; the bucket stays private
  * and both apps stream it through /robots/:robotId/[client/]detections/:id/image.
  */
+import { canonicalRobotIds, SERIAL_RE } from '../services/robots.service';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -57,7 +58,9 @@ export function detectionImageRoutes(app: FastifyInstance, ctx: AppContext): voi
       const detectionId = req.params.detectionId;
       if (!ID_RE.test(detectionId)) return sendError(reply, 400, 'bad_detection_id', 'detection id must be 1-100 of A-Z a-z 0-9 . _ -');
       const header = String(req.headers['x-robot-id'] ?? '').trim();
-      const robotId = header || (client.robotIds.size === 1 ? [...client.robotIds][0] : '');
+      // An old Robot ID in the header (robot set up before 0028) means its serial number.
+      const named = header && !SERIAL_RE.test(header) ? ((await canonicalRobotIds(ctx.db, [header])).get(header) ?? header) : header;
+      const robotId = named || (client.robotIds.size === 1 ? [...client.robotIds][0] : '');
       if (!robotId) return sendError(reply, 400, 'robot_required', 'X-Robot-Id is required: this key speaks for several robots');
       if (!client.robotIds.has(robotId)) return sendError(reply, 403, 'robot_not_allowed', `this key may not upload for ${robotId}`);
 

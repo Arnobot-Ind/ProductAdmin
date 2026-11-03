@@ -81,7 +81,9 @@ export function archiveIngestRoutes(app: FastifyInstance, ctx: AppContext, paths
       }
       // An aliased folder (ARCHIVE_ROBOT_ALIASES) uploads for its registered robot: the key and the index use that robot,
       // the file keeps the folder it was sent under (so it sits with that robot's earlier files in the bucket).
-      const robotId = robotForFolder(parsed.robotId, archive.cfg.robotAliases);
+      // A folder named after the robot's old Robot ID (before 0028) belongs to the robot's serial number.
+      const folderRobot = robotForFolder(parsed.robotId, archive.cfg.robotAliases);
+      const robotId = (await archive.serials([folderRobot])).get(folderRobot) ?? folderRobot;
       if (!c.robotIds.has(robotId)) return drain(), sendError(reply, 403, 'robot_not_allowed', `this key may not upload for ${robotId}`, { key });
       if (!(await archive.registered([robotId])).has(robotId)) {
         return drain(), sendError(reply, 404, 'unknown_robot', `robot ${robotId} is not registered in the PMS (or is deleted)`);
@@ -174,7 +176,8 @@ export function archiveIngestRoutes(app: FastifyInstance, ctx: AppContext, paths
     const status = (req.body ?? {}) as Record<string, unknown>;
     if (JSON.stringify(status).length > MAX_STATUS_BYTES) return sendError(reply, 413, 'payload_too_large', 'Status too large');
     // A robot key speaks for one robot; a GCS relaying several must name it.
-    const named = typeof status.robot_id === 'string' ? status.robot_id : null;
+    const sent = typeof status.robot_id === 'string' ? status.robot_id : null;
+    const named = sent ? ((await archive.serials([sent])).get(sent) ?? sent) : null;
     const robotId = named ?? (c.robotIds.size === 1 ? [...c.robotIds][0] : null);
     if (!robotId) return sendError(reply, 400, 'robot_required', 'This key speaks for several robots: put "robot_id" in the body');
     if (!c.robotIds.has(robotId)) return sendError(reply, 403, 'robot_not_allowed', `this key may not report for ${robotId}`);

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { CredentialCipher } from './credentialCrypto';
-import { formatRobotId } from './domain';
+import { formatSerial } from './domain';
 import { generateIngestKey, hashIngestKey, looksLikeIngestKey } from './keys';
 
 const key = () => randomBytes(32).toString('base64');
@@ -63,10 +63,13 @@ describe('ingest keys', () => {
   });
 });
 
-describe('formatRobotId (rule 1)', () => {
-  it('is product code + zero-padded running number', () => {
-    expect(formatRobotId('saibya', 2)).toBe('saibya02');
-    expect(formatRobotId('duct_cleaning', 7)).toBe('duct_cleaning07');
-    expect(formatRobotId('altius', 123)).toBe('altius123');
+describe('formatSerial (0028)', () => {
+  it('shows a 13-digit serial as category-model-attachment-running-random', () => {
+    expect(formatSerial('1005000000216')).toBe('1-005-000-0002-16');
+    expect(formatSerial('2006001012399')).toBe('2-006-001-0123-99');
+  });
+  it('leaves anything else as it is', () => {
+    expect(formatSerial('saibya02')).toBe('saibya02');
+    expect(formatSerial('66401144')).toBe('66401144');
   });
 });

@@ -3,6 +3,7 @@
  * Postgres (archive_* tables) is the index every admin page reads. Writes come from the robots
  * (PUT /archive/upload, POST /archive/events) and from the re-index (POST /archive/reindex).
  */
+import { canonicalRobotIds } from '../robots.service';
 import type { PoolClient } from 'pg';
 import { withTransaction, type Db } from '../../db';
 import { notifyChange } from '../../ingest/notify';
@@ -122,11 +123,18 @@ export class ArchiveService {
 
   // ── writes ────────────────────────────────────────────────────────────────
 
-  /** Robot ids (of `ids`) that are registered and not deleted. */
+  /** Robot names (serial numbers, or old Robot IDs used as folder names before 0028) → the robot's serial number. */
+  serials(names: string[]): Promise<Map<string, string>> {
+    return canonicalRobotIds(this.db, names);
+  }
+
+  /** The names (of `ids`) that stand for a registered robot that is not deleted (old Robot IDs included). */
   async registered(ids: string[]): Promise<Set<string>> {
     if (!ids.length) return new Set();
-    const res = await this.db.query<{ robot_id: string }>('SELECT robot_id FROM robots WHERE robot_id = ANY($1::text[]) AND deleted_at IS NULL', [ids]);
-    return new Set(res.rows.map((r) => r.robot_id));
+    const map = await this.serials(ids);
+    const res = await this.db.query<{ robot_id: string }>('SELECT robot_id FROM robots WHERE robot_id = ANY($1::text[]) AND deleted_at IS NULL', [[...new Set(map.values())]]);
+    const live = new Set(res.rows.map((r) => r.robot_id));
+    return new Set(ids.filter((id) => live.has(map.get(id) ?? '')));
   }
 
   /**
@@ -135,6 +143,9 @@ export class ArchiveService {
    */
   async record(items: RecordItem[], live: boolean): Promise<void> {
     if (!items.length) return;
+    // Files under an old Robot ID folder are indexed for the robot's serial number; their keys stay as stored.
+    const map = await this.serials(items.map((it) => it.robotId));
+    items = items.map((it) => ({ ...it, robotId: map.get(it.robotId) ?? it.robotId }));
     await withTransaction(this.db, async (tx) => {
       const sessionIds = new Map<string, string>();
       for (const it of items) {
