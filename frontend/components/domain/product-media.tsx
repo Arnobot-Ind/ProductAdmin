@@ -65,13 +65,14 @@ declare module "react" {
 export const mediaUrl = (id: string) =>
   sameOriginUrl(`/product-media/${id}/file`);
 
-/** Whose pictures: a base model's, an attachment's (photos, 3D, 360°) or a software item's (screenshots). */
-export type MediaOwner = "products" | "attachments" | "software-products";
+/** Whose pictures: a base model's, an attachment's (photos, 3D, 360°), a robot's own (photos, 360°) or a software item's (screenshots). */
+export type MediaOwner = "products" | "attachments" | "software-products" | "robots";
 const ownerKey = (owner: MediaOwner) =>
   ({
     products: "product",
     attachments: "attachment",
     "software-products": "software",
+    robots: "robot",
   })[owner];
 
 export function useProductMedia(
@@ -103,11 +104,14 @@ type View = "photos" | "spin" | "model";
  */
 export function ProductPicture({
   productId,
+  robotId,
   name,
   owner = "products",
   className,
 }: {
   productId: string;
+  /** This robot's own photos and 360° view come first; for whichever it has none of, the base model's are shown. */
+  robotId?: string;
   name: string;
   /** Whose pictures (a base model's by default, or an attachment's). */
   owner?: MediaOwner;
@@ -116,7 +120,12 @@ export function ProductPicture({
   const can = useCan();
   const q = useProductMedia(productId, can("catalog.read"), owner);
   const [open, setOpen] = useState<View | null>(null);
-  const { photos, spin, model } = split(q.data ?? []);
+  const own = useProductMedia(robotId, can("catalog.read"), "robots");
+  const base = split(q.data ?? []);
+  const mine = split(own.data ?? []);
+  const photos = mine.photos.length ? mine.photos : base.photos;
+  const spin = mine.spin.length ? mine.spin : base.spin;
+  const model = base.model;
   const cover = photos[0] ?? spin[0];
   const views: { id: View; label: string; Icon: typeof Box }[] = [
     ...(photos.length
@@ -404,7 +413,7 @@ export function ProductMediaCard({
   const can = useCan();
   const canWrite = can("catalog.write");
   const q = useProductMedia(productId, true, owner);
-  const thing = owner === "products" ? "robot" : "attachment";
+  const thing = owner === "attachments" ? "attachment" : "robot";
   const qc = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState<{
@@ -420,6 +429,8 @@ export function ProductMediaCard({
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: [ownerKey(owner), productId] });
     void qc.invalidateQueries({ queryKey: [owner] });
+    // Robots show their own or their base model's pictures in lists too.
+    void qc.invalidateQueries({ queryKey: ["robots"] });
   };
   /** Uploads one file at a time, in order (the 360° series keeps the order of the file names). */
   const upload = async (kind: ProductMediaKind, files: File[]) => {
@@ -487,7 +498,7 @@ export function ProductMediaCard({
 
   return (
     <Card
-      title={photosOnly ? "Photos & screenshots" : "Photos & 3D"}
+      title={photosOnly ? "Photos & screenshots" : owner === "robots" ? "Photos & 360°" : "Photos & 3D"}
       bodyClassName="flex flex-col gap-6 p-5"
     >
       {busy && (
@@ -501,7 +512,7 @@ export function ProductMediaCard({
         <MediaHeader
           id="pm-photos"
           title="Photos"
-          hint={`${owner === "products" ? "Shown on the page of every robot of this base model" : owner === "attachments" ? "Shown on this page and with the attachment on every robot that has it fitted" : "Screenshots and pictures of the software"}. PNG, JPEG, WebP, GIF or AVIF, at most 2 MB each: bigger photos are made smaller automatically before upload.`}
+          hint={`${owner === "robots" ? "Shown only on this robot. The first is its main photo" : owner === "products" ? "Shown on the page of every robot of this base model" : owner === "attachments" ? "Shown on this page and with the attachment on every robot that has it fitted" : "Screenshots and pictures of the software"}. PNG, JPEG, WebP, GIF or AVIF, at most 2 MB each: bigger photos are made smaller automatically before upload.`}
           canWrite={canWrite}
           busy={!!busy}
           accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
@@ -597,6 +608,7 @@ export function ProductMediaCard({
             )}
           </section>
 
+          {owner !== "robots" && (
           <section
             aria-labelledby="pm-model"
             className="border-t border-border pt-5"
@@ -641,6 +653,7 @@ export function ProductMediaCard({
               />
             )}
           </section>
+          )}
         </>
       )}
 

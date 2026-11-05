@@ -352,10 +352,12 @@ export interface ProductDto {
 /** A photo, the 3D model or one photo of the 360° series of a product. The file is served by GET /product-media/:id/file. */
 export interface ProductMediaDto {
   id: string;
-  /** Exactly one of these: a base model's, an attachment's or a software item's picture. */
+  /** Exactly one of these: a base model's, an attachment's, a software item's or a robot's picture. */
   product_id: string | null;
   attachment_id: string | null;
   software_product_id: string | null;
+  /** A robot's own pictures. A robot without them shows its base model's. */
+  robot_id: string | null;
   kind: ProductMediaKind;
   /** Order within a 360° series. */
   position: number;

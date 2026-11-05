@@ -148,7 +148,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   /** Whose pictures the photo manager shows: the base model's or one attachment's. */
-  const [media, setMedia] = useState<{ owner: 'products' | 'attachments'; id: string; name: string } | null>(null);
+  const [media, setMedia] = useState<{ owner: 'products' | 'attachments' | 'robots'; id: string; name: string } | null>(null);
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -209,9 +209,9 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         <Band label={`${fmtSerial(robot.robot_id)} summary`} className="mt-3">
           <div className="grid md:grid-cols-[20rem_minmax(0,1fr)]">
             <div className="relative min-h-60 border-b border-border md:border-r md:border-b-0">
-              <ProductPicture productId={robot.product_id} name={robot.nickname ?? robot.product_name} className="absolute inset-0" />
+              <ProductPicture productId={robot.product_id} robotId={robot.robot_id} name={robot.nickname ?? robot.product_name} className="absolute inset-0" />
               {can('catalog.write') && (
-                <button type="button" onClick={() => setMedia({ owner: 'products', id: robot.product_id, name: robot.product_name })} title="Add or change photos" aria-label="Add or change photos" className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface/90 text-muted hover:text-fg">
+                <button type="button" onClick={() => setMedia({ owner: 'robots', id: robot.robot_id, name: robot.nickname ?? robot.product_name })} title="Add or change photos" aria-label="Add or change photos" className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface/90 text-muted hover:text-fg">
                   <ImagePlus className="size-4" aria-hidden />
                 </button>
               )}
@@ -321,12 +321,33 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         size="xl"
         title={media ? `Photos of ${media.name}` : ''}
         description={
-          media?.owner === 'attachments'
+          media?.owner === 'robots'
+            ? `Only this robot shows these. For whichever it has none of, photos or 360° view, it shows the ${robot.product_name} base model's.`
+            : media?.owner === 'attachments'
             ? `The pictures belong to the attachment ${media.name}, so every robot with it fitted shows them. The main photo is its picture on robot pages and in the attachments list.`
             : `The pictures belong to the base model ${robot.product_name}, so every ${robot.product_name} robot shows them. The main photo is the picture shown on this page and in lists.`
         }
       >
-        {media && <ProductMediaCard owner={media.owner} productId={media.id} name={media.name} />}
+        {media && media.owner !== 'attachments' && (
+          <div role="tablist" aria-label="Whose pictures" className="mb-4 flex flex-wrap gap-2">
+            {[
+              { owner: 'robots' as const, id: robot.robot_id, name: robot.nickname ?? robot.product_name, label: 'This robot only' },
+              { owner: 'products' as const, id: robot.product_id, name: robot.product_name, label: `All ${robot.product_name} robots` },
+            ].map((t) => (
+              <button
+                key={t.owner}
+                type="button"
+                role="tab"
+                aria-selected={media.owner === t.owner}
+                onClick={() => setMedia({ owner: t.owner, id: t.id, name: t.name })}
+                className={cn('rounded-full border px-3 py-1 text-sm font-medium', media.owner === t.owner ? 'border-accent bg-accent-soft text-accent-text' : 'border-border hover:border-accent/50')}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {media && <ProductMediaCard key={media.owner} owner={media.owner} productId={media.id} name={media.name} />}
       </Dialog>
       <ConfirmDialog
         open={deleting}
