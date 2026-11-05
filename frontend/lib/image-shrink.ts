@@ -43,10 +43,12 @@ export async function shrinkImage(file: File, maxBytes = MAX_PHOTO_BYTES): Promi
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(bitmap, 0, 0, w, h);
       for (const quality of [0.88, 0.8, 0.72, 0.64]) {
-        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', quality));
+        // WebP stays WebP where the browser can write it; everything else, and browsers that cannot, become JPEG.
+        const webp = file.type === 'image/webp' ? await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', quality)) : null;
+        const blob = webp?.type === 'image/webp' ? webp : await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', quality));
         if (blob && blob.size <= maxBytes) {
-          const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
-          return { file: new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified }), shrunk: true, originalBytes: file.size };
+          const name = file.name.replace(/\.[^.]+$/, '') + (blob.type === 'image/webp' ? '.webp' : '.jpg');
+          return { file: new File([blob], name, { type: blob.type, lastModified: file.lastModified }), shrunk: true, originalBytes: file.size };
         }
       }
       scale *= 0.8;
