@@ -6,6 +6,7 @@ import { createReadStream, promises as fs } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { ApiConfig } from '../lib/config';
+import { ApiError } from '../lib/errors';
 import { ObjectNotFound, type ArchiveStorage } from './archive/storage';
 
 export interface StoredObject {
@@ -84,7 +85,13 @@ export class StorageService {
       await fs.mkdir(dirname(dest), { recursive: true });
       await fs.copyFile(tmpPath, dest, fs.constants.COPYFILE_EXCL);
       // A failure fails the upload: a file only this server can read is the problem the copy exists to prevent.
-      await this.shared?.put(SHARED_PREFIX + key, createReadStream(dest), contentType || 'application/octet-stream');
+      try {
+        await this.shared?.put(SHARED_PREFIX + key, createReadStream(dest), contentType || 'application/octet-stream');
+      } catch (e) {
+        await fs.rm(dest, { force: true });
+        const denied = (e as { name?: string }).name === 'AccessDenied';
+        throw new ApiError(503, 'shared_storage_unavailable', denied ? "Not saved: this server's AWS key cannot write to the shared file storage. Upload on the live site, or give the key write access to pms-files/." : 'Not saved: the shared file storage could not be reached. Try again in a moment.');
+      }
       return { driver: 'local', bucket: null, key, versionId: null, sizeBytes: size, sha256 };
     }
 
