@@ -21,6 +21,7 @@ import { includeDeleted, isoDate, isoDateTime, nullableText, optionalBool, pageQ
 import type { AuthUser } from '../services/auth.service';
 import { assignRobot } from '../services/ownership';
 import { ROBOT_SELECT, ROBOT_SORTS, toRobotListItem } from '../services/robots.service';
+import { robotStatusCase } from '../lib/robot-status-sql';
 
 const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
@@ -32,7 +33,7 @@ const listQuery = z.object({
   attachment: uuidSchema.optional(),
   /** Deployed at this site now; "none" = not deployed anywhere. */
   site: z.union([uuidSchema, z.literal('none')]).optional(),
-  status: z.enum(['online', 'stale', 'offline']).optional(),
+  status: z.enum(['online', 'offline']).optional(),
   /** Only robots that need someone: an unacknowledged critical event, a device fault, or offline for over a day. */
   problems: optionalBool,
   sort: z.string().regex(/^-?[a-z_]+$/).optional(),
@@ -167,9 +168,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     if (q.attachment) w.add('EXISTS (SELECT 1 FROM robot_attachments fa WHERE fa.robot_id = r.robot_id AND fa.removed_at IS NULL AND fa.attachment_id = ?)', q.attachment);
     if (q.status) {
       w.add(
-        `(CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
-               WHEN now() - ls.last_seen_at < interval '60 seconds' THEN 'online'
-               WHEN now() - ls.last_seen_at <= interval '5 minutes' THEN 'stale' ELSE 'offline' END) = ?`,
+        `(${robotStatusCase()}) = ?`,
         q.status,
       );
     }

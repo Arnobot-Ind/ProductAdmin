@@ -89,9 +89,8 @@ describe('computeRobotStatus (spec §7)', () => {
   const ago = (ms: number) => new Date(now.getTime() - ms);
   it.each([
     [0, 'online'],
-    [59_999, 'online'],
-    [60_000, 'stale'],
-    [300_000, 'stale'],
+    [30_000, 'online'],
+    [30_001, 'offline'],
     [300_001, 'offline'],
   ])('%i ms ago → %s', (ms, expected) => {
     expect(computeRobotStatus(ago(ms), now)).toBe(expected);

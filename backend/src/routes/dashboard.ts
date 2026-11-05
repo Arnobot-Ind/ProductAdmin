@@ -4,6 +4,7 @@ import type { AppContext } from '../context';
 import { anyScope, route } from '../lib/route';
 import { iso, Where } from '../lib/sql';
 import { activeFaults, EVENT_SELECT, toEvent } from './events';
+import { ROBOT_STATUS_SQL } from '../lib/robot-status-sql';
 
 /** Fleet overview. Every figure is limited to robots the user may read. */
 export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
@@ -52,14 +53,14 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
                   CASE WHEN ls.health_cameras = 'fault' THEN 'cameras' END,
                   CASE WHEN ls.health_gps = 'fault' THEN 'gps' END], NULL) AS faults,
                 CASE WHEN dw.warranty_end BETWEEN current_date AND current_date + 30 THEN dw.warranty_end END AS warranty_end
-         FROM robots r JOIN v_robot_status s ON s.robot_id = r.robot_id
+         FROM robots r JOIN ${ROBOT_STATUS_SQL} s ON s.robot_id = r.robot_id
          JOIN products p ON p.id = r.product_id
          LEFT JOIN live_state ls ON ls.robot_id = r.robot_id
          LEFT JOIN dispatch_warranty dw ON dw.robot_id = r.robot_id
          ${rw.toSql()} ORDER BY r.robot_id`,
         rw.params,
       );
-      const byStatus: Record<RobotStatus, number> = { online: 0, stale: 0, offline: 0 };
+      const byStatus: Record<RobotStatus, number> = { online: 0, offline: 0 };
       for (const r of robots.rows) byStatus[r.status]++;
 
       const ew = scopedData('e.robot_id', 'e.ts', (w) => w.add('e.acknowledged_at IS NULL').add('EXISTS (SELECT 1 FROM robots rr WHERE rr.robot_id = e.robot_id AND rr.deleted_at IS NULL)'));
@@ -122,7 +123,7 @@ export function dashboardRoutes(f: FastifyInstance, app: AppContext): void {
             c,
             {
               robots: rs.length,
-              by_status: { online: rs.filter((r) => r.status === 'online').length, stale: rs.filter((r) => r.status === 'stale').length, offline: rs.filter((r) => r.status === 'offline').length },
+              by_status: { online: rs.filter((r) => r.status === 'online').length, offline: rs.filter((r) => r.status === 'offline').length },
               with_faults: rs.filter((r) => faulty.has(r.robot_id)).length,
               missions: { total: m?.total ?? 0, completed: m?.completed ?? 0, aborted: m?.aborted ?? 0, failed: m?.failed ?? 0, in_progress: m?.in_progress ?? 0 },
               mission_distance_m: m?.distance_m ?? 0,

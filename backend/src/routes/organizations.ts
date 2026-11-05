@@ -14,6 +14,7 @@ import { assertUuid, includeDeleted, isoDateTime, nullableText, robotIdSchema } 
 import { clientProfile, companyFeatures, featureCatalogue } from '../services/client-admin';
 import { assignRobot } from '../services/ownership';
 import { toUser, USER_SELECT } from './users';
+import { ROBOT_STATUS_SQL } from '../lib/robot-status-sql';
 
 const ORG_SELECT = `
 SELECT c.id, c.name, c.kind, c.org_no, c.contact_name, c.contact_email, c.notes, c.created_at, c.deleted_at,
@@ -92,7 +93,7 @@ export function organizationRoutes(f: FastifyInstance, app: AppContext): void {
            FROM company_assignment_history h
            JOIN robots r ON r.robot_id = h.robot_id
            JOIN products p ON p.id = r.product_id
-           JOIN v_robot_status s ON s.robot_id = r.robot_id
+           JOIN ${ROBOT_STATUS_SQL} s ON s.robot_id = r.robot_id
            WHERE h.company_id = $1 AND h.valid_to IS NULL AND r.deleted_at IS NULL
            ORDER BY r.robot_id`,
           [org.id],

@@ -20,6 +20,8 @@ export interface ObjectStream {
   etag: string | null;
 }
 
+const IST_OFFSET_MS = 5.5 * 3_600_000;
+
 export class ObjectNotFound extends Error {}
 export class RangeNotSatisfiable extends Error {
   constructor(readonly size: number | null) {
@@ -87,6 +89,26 @@ export class ArchiveStorage {
       token = res.IsTruncated ? res.NextContinuationToken : undefined;
     } while (token);
     return out;
+  }
+
+  /** Every object in the bucket added up per upload day (IST), without keeping the listing in memory. */
+  async usageByDay(): Promise<{ objects: number; bytes: number; days: Map<string, number> }> {
+    const days = new Map<string, number>();
+    let objects = 0;
+    let bytes = 0;
+    let token: string | undefined;
+    do {
+      const res = await this.client.send(new ListObjectsV2Command({ Bucket: this.s.bucket, ContinuationToken: token }));
+      for (const o of res.Contents ?? []) {
+        const size = o.Size ?? 0;
+        const day = new Date((o.LastModified ?? new Date(0)).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+        days.set(day, (days.get(day) ?? 0) + size);
+        objects += 1;
+        bytes += size;
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+    return { objects, bytes, days };
   }
 
   /** Streams a body into the bucket (multipart above 5 MB, so memory stays flat and nothing touches disk). */
