@@ -3,15 +3,14 @@
 import { fmtSerial } from '@/lib/format';
 import type { SearchResultDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Bot, Boxes, Building2, Search } from 'lucide-react';
+import { Bot, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { useCan, useCanAnywhere } from '@/lib/auth';
+import { useCan } from '@/lib/auth';
 import { ACTIONS, matchPages, NAV, visibleNav } from './nav';
 import { cn } from '@/lib/cn';
 import { useDebounced } from '@/lib/hooks';
-import { fmtCustomerNo } from '@/lib/format';
 
 interface Hit {
   key: string;
@@ -23,20 +22,16 @@ interface Hit {
 }
 
 /**
- * The top bar's search, from every page: the app's pages and common actions (by name or everyday words, e.g. "alerts"
- * or "add site", only those the user may open), then any robot (by ID, nickname, serial number, base model or
- * owner), organization or base model. "/" focuses it; arrows and Enter pick a result. Pages are matched in the
- * browser at once; for a large fleet the server returns the best few of each kind.
+ * The top bar's search, from every page: any robot (by serial, nickname, base model or owner), plus the app's pages and
+ * common actions the user may use. "/" focuses it; arrows and Enter pick a result.
  */
 export function GlobalSearch() {
   const router = useRouter();
   const can = useCan();
-  const canAnywhere = useCanAnywhere();
-  // Every page in the menu and every action the user may use, each with the menu section it belongs to.
   const pages = useMemo(() => {
-    const allowed = (i: { perm?: string; anyOf?: string[]; scoped?: string }) => (!i.perm || can(i.perm)) && (!i.anyOf || i.anyOf.some((p) => can(p))) && (!i.scoped || canAnywhere(i.scoped));
-    return [...visibleNav(NAV, can, canAnywhere).flatMap((g) => g.items.map((i) => ({ ...i, section: g.section }))), ...ACTIONS.filter(allowed)];
-  }, [can, canAnywhere]);
+    const section = 'Pages';
+    return [...visibleNav(NAV, can).map((i) => ({ ...i, section })), ...ACTIONS.filter((i) => !i.perm || can(i.perm))];
+  }, [can]);
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -71,17 +66,15 @@ export function GlobalSearch() {
   const d = q ? res.data : undefined;
   const pageHits = matchPages(pages, text.trim()).slice(0, 6);
   const hits: Hit[] = [
-    ...pageHits.map((p) => ({ key: `page-${p.label}`, href: p.href, title: p.label, sub: `${p.section} · ${p.description}`, Icon: p.Icon, group: 'Pages & actions' })),
     ...(d?.robots ?? []).map((r) => ({
       key: `r-${r.robot_id}`,
       href: `/robots/${r.robot_id}`,
-      title: r.nickname ? `${fmtSerial(r.robot_id)} · ${r.nickname}` : fmtSerial(r.robot_id),
+      title: `${r.nickname ?? r.product_name} · ${fmtSerial(r.robot_id)}`,
       sub: [`${r.category.toUpperCase()} · ${r.product_name}`, r.attachments.length ? r.attachments.join(', ') : null, r.owner_company].filter(Boolean).join(' · '),
       Icon: Bot,
       group: 'Robots',
     })),
-    ...(d?.organizations ?? []).map((o) => ({ key: `o-${o.id}`, href: `/admin/organizations/${o.id}`, title: o.name, sub: o.kind === 'internal' ? 'Arnobot' : `Customer ${fmtCustomerNo(o.org_no) ?? ''}`.trim(), Icon: Building2, group: 'Organizations' })),
-    ...(d?.products ?? []).map((p) => ({ key: `p-${p.id}`, href: `/products/${p.id}`, title: p.name, sub: `${p.category.toUpperCase()} base model · ${p.code}`, Icon: Boxes, group: 'Base models' })),
+    ...pageHits.map((p) => ({ key: `page-${p.label}`, href: p.href, title: p.label, sub: p.description, Icon: p.Icon, group: 'Pages' })),
   ];
   const go = (h: Hit) => {
     setOpen(false);
@@ -91,14 +84,14 @@ export function GlobalSearch() {
   };
 
   return (
-    <div ref={box} className="relative hidden w-full max-w-md lg:block">
+    <div ref={box} className="relative hidden w-full max-w-xs lg:block">
       <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
       <input
         ref={input}
         role="combobox"
         aria-expanded={open && !!q}
         aria-controls={listId}
-        aria-label="Search pages, robots, organizations and base models"
+        aria-label="Search robots and pages"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -112,8 +105,8 @@ export function GlobalSearch() {
           if (e.key === 'Enter' && hits[active]) (e.preventDefault(), go(hits[active]));
           if (e.key === 'Escape') (setOpen(false), input.current?.blur());
         }}
-        placeholder="Search pages, robots, sites, owners…"
-        className="h-10 w-full rounded-lg border border-border bg-surface-2 pr-10 pl-9 text-base focus:border-accent focus:bg-surface focus:outline-none"
+        placeholder="Search robots"
+        className="h-9 w-full rounded-md border border-transparent bg-surface-2 pr-8 pl-8 text-base focus:border-border focus:bg-surface focus:outline-none"
         autoComplete="off"
         spellCheck={false}
       />

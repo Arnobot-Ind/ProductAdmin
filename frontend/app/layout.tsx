@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
-    { media: '(prefers-color-scheme: light)', color: '#f5f5f5' },
+    { media: '(prefers-color-scheme: dark)', color: '#171a20' },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
   ],
 };
 
@@ -24,8 +24,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        {/* Ubuntu for headings and body text. System fonts are the fallback when offline. */}
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap" />
+        {/* DM Sans for all text. System fonts are the fallback when offline. */}
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" />
       </head>
       <body>
         <Providers>{children}</Providers>

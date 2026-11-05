@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { fmtDistance, fmtDuration } from '@/lib/format';
@@ -18,7 +20,7 @@ export const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions) => new Dat
 export const istDay = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86_400_000).toLocaleDateString('en-CA', { timeZone: IST });
 
 /** Round the largest value up to a clean axis top and give 4 even ticks (0 included). */
-function axis(max: number): number[] {
+export function axis(max: number): number[] {
   if (max <= 0) return [0, 1];
   const raw = max / 4;
   const mag = 10 ** Math.floor(Math.log10(raw));
@@ -26,7 +28,7 @@ function axis(max: number): number[] {
   return Array.from({ length: 5 }, (_, i) => +(i * step).toFixed(6));
 }
 
-const fmtTick = (v: number) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : String(+v.toFixed(1)));
+export const fmtTick = (v: number) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : String(+v.toFixed(1)));
 
 interface DayRow {
   date: string;
@@ -269,7 +271,7 @@ export function DistancePerDayChart({ rows, note }: { rows: DistanceDay[]; note?
 
 // ── part-to-whole: one horizontal stacked bar ──────────────────────────────
 
-/** One bar split into parts (e.g. robots online / stale / offline), with a legend that carries the numbers. */
+/** One bar split into parts (e.g. robots online / offline), with a legend that carries the numbers. */
 /** `large`: bigger legend text, for a headline bar (the dashboard band). */
 export function ShareBar({ parts, label, large }: { parts: { label: string; value: number; color: string }[]; label: string; large?: boolean }) {
   const [hover, setHover] = useState<string | null>(null);
@@ -401,7 +403,9 @@ export function RankBars({
  * A donut: parts around a ring with a 2px surface gap between them, the total (or `center`) in the middle,
  * a hover tooltip per part and a legend that carries the numbers, so no part is told apart by colour alone.
  */
-export function Donut({ parts, label, center, sub, size = 168 }: { parts: { label: string; value: number; color: string }[]; label: string; center?: ReactNode; sub?: string; size?: number }) {
+export function Donut({ parts, label, center, sub, size = 168, compact, hrefFor }: { parts: { label: string; value: number; color: string }[]; label: string; center?: ReactNode; sub?: string; size?: number; compact?: boolean; /** Makes each part open a page: its ring segment and its legend line. */ hrefFor?: (label: string) => string }) {
+  const router = useRouter();
+  const large = size >= 200;
   const [hover, setHover] = useState<string | null>(null);
   const total = parts.reduce((s, p) => s + p.value, 0);
   const r = 42;
@@ -411,7 +415,7 @@ export function Donut({ parts, label, center, sub, size = 168 }: { parts: { labe
   let offset = 0;
   const h = parts.find((p) => p.label === hover);
   return (
-    <div className="flex flex-wrap items-center gap-6">
+    <div className={cn('flex items-center', compact ? 'gap-4' : 'flex-wrap gap-6')}>
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg viewBox="0 0 100 100" className="size-full -rotate-90" role="img" aria-label={`${label}: ${parts.map((p) => `${p.value} ${p.label.toLowerCase()}`).join(', ')}`}>
           <circle cx="50" cy="50" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="12" />
@@ -430,7 +434,8 @@ export function Donut({ parts, label, center, sub, size = 168 }: { parts: { labe
                   strokeWidth={hover === p.label ? 14 : 12}
                   strokeDasharray={`${dash} ${c - dash}`}
                   strokeDashoffset={-offset}
-                  className={cn('cursor-default transition-opacity', hover && hover !== p.label && 'opacity-50')}
+                  className={cn(hrefFor ? 'cursor-pointer' : 'cursor-default', 'transition-opacity', hover && hover !== p.label && 'opacity-50')}
+                  onClick={hrefFor ? () => router.push(hrefFor(p.label)) : undefined}
                   onMouseEnter={() => setHover(p.label)}
                   onMouseLeave={() => setHover(null)}
                 />
@@ -440,19 +445,32 @@ export function Donut({ parts, label, center, sub, size = 168 }: { parts: { labe
             })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center" aria-hidden>
-          <span className="text-4xl leading-none font-semibold tabular-nums">{h ? h.value : (center ?? total)}</span>
-          <span className="mt-1 text-sm text-muted">{h ? h.label : (sub ?? 'total')}</span>
+          <span className={cn('leading-none font-semibold tabular-nums', compact ? 'text-xl' : large ? 'text-5xl' : 'text-4xl')}>{h ? h.value : (center ?? total)}</span>
+          <span className={cn('text-muted', compact ? 'text-xs' : 'mt-1 text-sm')}>{h ? h.label : (sub ?? 'total')}</span>
         </div>
       </div>
-      <ul className="flex min-w-0 flex-col gap-2 text-base">
-        {parts.map((p) => (
-          <li key={p.label} className="flex items-center gap-2.5" onMouseEnter={() => setHover(p.label)} onMouseLeave={() => setHover(null)}>
-            <span className="size-3.5 shrink-0 rounded-sm" style={{ background: p.color }} aria-hidden />
-            <span className="text-muted">{p.label}</span>
-            <span className="ml-auto pl-4 font-semibold tabular-nums">{p.value}</span>
-            <span className="w-12 text-right text-sm text-muted tabular-nums">{total ? `${Math.round((p.value / total) * 100)} %` : ''}</span>
-          </li>
-        ))}
+      <ul className={cn('flex min-w-0 flex-col', large ? 'min-w-52 flex-1 gap-1 text-lg' : 'gap-2 text-base')}>
+        {parts.map((p) => {
+          const line = (
+            <>
+              <span className="size-3.5 shrink-0 rounded-sm" style={{ background: p.color }} aria-hidden />
+              <span className="text-muted">{p.label}</span>
+              <span className="ml-auto pl-4 font-semibold tabular-nums">{p.value}</span>
+              {!compact && <span className="w-12 text-right text-sm text-muted tabular-nums">{total ? `${Math.round((p.value / total) * 100)} %` : ''}</span>}
+            </>
+          );
+          return (
+            <li key={p.label} onMouseEnter={() => setHover(p.label)} onMouseLeave={() => setHover(null)}>
+              {hrefFor ? (
+                <Link href={hrefFor(p.label)} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-surface-2">
+                  {line}
+                </Link>
+              ) : (
+                <div className="flex items-center gap-2.5">{line}</div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -491,7 +509,6 @@ export function CategoryPerDayChart({ rows, metric, hourly }: { rows: CategoryDa
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted">
-        <span>{metric === 'distance' ? (hourly ? 'Metres per hour' : 'Kilometres per day') : hourly ? 'Minutes moving per hour' : 'Hours moving per day'}</span>
         <Legend items={totals.map((c) => ({ label: metric === 'time' ? `${c.label} ${c.time.toLowerCase()}` : c.label, color: c.color, value: c.value }))} />
         <TableToggle on={table} onToggle={() => setTable((x) => !x)} />
       </div>

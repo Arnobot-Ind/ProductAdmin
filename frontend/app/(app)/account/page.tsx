@@ -44,8 +44,8 @@ export default function AccountPage() {
 
   return (
     <>
-      <PageHeader eyebrow="System" title="My account" description="See Roles & permissions for what each permission allows." />
-      <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
+      <PageHeader title="My account" />
+      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
         <Card title="Profile">
           <KeyValue
             columns={1}
@@ -66,18 +66,6 @@ export default function AccountPage() {
                   </ul>
                 ) : (
                   'None'
-                ),
-              },
-              {
-                label: 'What you can do',
-                value: (
-                  <span className="flex flex-wrap gap-1">
-                    {(me.scoped_permissions ?? me.permissions ?? []).map((p) => (
-                      <code key={p} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">
-                        {p}
-                      </code>
-                    ))}
-                  </span>
                 ),
               },
             ]}

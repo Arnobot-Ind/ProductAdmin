@@ -34,11 +34,11 @@ export const dayTitle = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDa
 /** Start of an IST day and of the next one, as ISO timestamps for the list APIs' from / to. */
 export const dayBounds = (day: string) => ({ from: `${day}T00:00:00+05:30`, to: new Date(new Date(`${day}T00:00:00+05:30`).getTime() + 86_400_000).toISOString() });
 
-/** Shade steps (share of the busiest day this month). Level 0 = nothing that day. */
-const SHADES = ['', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent text-accent-fg'];
-/** Status colours (Activity page): green for a normal day (darker = busier), red only for days with critical alerts. */
-const GREENS = ['', 'bg-ok/20', 'bg-ok/40', 'bg-ok/65 text-surface', 'bg-ok text-surface'];
-const RED = 'bg-fault text-surface font-semibold';
+/** The calendar keeps its colour: green by how busy a day was (share of the month's busiest day; level 0 = nothing that day). */
+const SHADES = ['', 'bg-cal-ok/20', 'bg-cal-ok/40', 'bg-cal-ok/65 text-surface', 'bg-cal-ok text-surface'];
+/** 'status' scheme: the same greens, and solid red only for days with critical alerts. */
+const GREENS = SHADES;
+const RED = 'bg-cal-fault text-surface font-semibold';
 const level = (n: number, max: number) => (n <= 0 || max <= 0 ? 0 : Math.min(4, Math.ceil((n / max) * 4)));
 
 /**
@@ -105,15 +105,15 @@ export function ActivityCalendar({
             </DayLine>
             <DayLine on={metric === 'missions'} onOpen={onOpen && (() => onOpen('missions'))}>
               {METRIC.missions.label(selected?.missions ?? 0)}
-              {selected?.missions_bad ? <span className="text-fault"> · {selected.missions_bad} failed or aborted</span> : null}
+              {selected?.missions_bad ? <span className="text-cal-fault"> · {selected.missions_bad} failed or aborted</span> : null}
             </DayLine>
             <DayLine on={metric === 'events'} onOpen={onOpen && (() => onOpen('events'))}>
               {METRIC.events.label(selected?.events ?? 0)}
-              {selected?.events_critical ? <span className="text-fault"> · {selected.events_critical} critical</span> : null}
+              {selected?.events_critical ? <span className="text-cal-fault"> · {selected.events_critical} critical</span> : null}
             </DayLine>
             <DayLine on={metric === 'log'} onOpen={onOpen && (() => onOpen('log'))}>
               {METRIC.log.label(selected?.log ?? 0)}
-              {selected?.log_warnings ? <span className="text-fault"> · {selected.log_warnings} warnings</span> : null}
+              {selected?.log_warnings ? <span className="text-cal-fault"> · {selected.log_warnings} warnings</span> : null}
             </DayLine>
           </ul>
         </div>
@@ -211,7 +211,7 @@ export function MonthCalendar({
                 )}
               >
                 {Number(c.slice(8))}
-                {alert > 0 && !status && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-fault" aria-hidden />}
+                {alert > 0 && !status && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-cal-fault" aria-hidden />}
               </button>
             );
           })}
@@ -223,10 +223,10 @@ export function MonthCalendar({
           {status ? (
             <span className="inline-flex items-center gap-3" aria-hidden>
               <span className="inline-flex items-center gap-1">
-                <span className="size-3 rounded-sm bg-ok/65" /> Normal
+                <span className="size-3 rounded-sm bg-cal-ok/65" /> Normal
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="size-3 rounded-sm bg-fault" /> Critical
+                <span className="size-3 rounded-sm bg-cal-fault" /> Critical
               </span>
             </span>
           ) : (
@@ -272,7 +272,7 @@ function DayLine({ on, onOpen, children }: { on: boolean; onOpen?: () => void; c
 /** Calendar on the left (sticky on wide screens), the day's data on the right; stacked on phones. */
 export function CalendarLayout({ calendar, children }: { calendar: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid gap-5 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[17rem_minmax(0,1fr)] lg:items-start">
       <aside className="lg:sticky lg:top-20">{calendar}</aside>
       <div className="min-w-0">{children}</div>
     </div>

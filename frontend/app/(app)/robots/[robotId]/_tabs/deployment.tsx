@@ -91,9 +91,7 @@ export function DeploymentTab({ robotId, deleted }: { robotId: string; deleted: 
               ) : (
                 <>
                   <p className="mb-3 flex flex-wrap items-center gap-2 text-lg font-semibold">
-                    <Link href={`/sites/${now.site_id}`} className="text-accent-text hover:underline">
-                      {now.site_name}
-                    </Link>
+                    <span>{now.site_name}</span>
                     <Badge tone="ok">Since {fmtWhen(now.deployed_at)}</Badge>
                     <span className="text-sm font-normal text-muted">{duration(now.deployed_at, null)}</span>
                   </p>
@@ -138,9 +136,7 @@ export function DeploymentTab({ robotId, deleted }: { robotId: string; deleted: 
                 <ol className="divide-y divide-border">
                   {past.map((d) => (
                     <li key={d.id} className="px-5 py-3">
-                      <Link href={`/sites/${d.site_id}`} className="font-semibold text-accent-text hover:underline">
-                        {d.site_name}
-                      </Link>
+                      <span className="font-semibold">{d.site_name}</span>
                       {d.site_city && <span className="text-muted"> · {d.site_city}</span>}
                       <span className="block text-sm text-muted">
                         {fmtWhen(d.deployed_at)} → {fmtWhen(d.ended_at)} · {duration(d.deployed_at, d.ended_at)}

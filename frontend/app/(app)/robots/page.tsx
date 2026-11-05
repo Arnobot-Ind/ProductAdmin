@@ -1,51 +1,50 @@
 'use client';
 
-import { fmtSerial } from '@/lib/format';
-import { useSites } from '@/components/domain/sites';
-import { attachmentUnit, CategoryIcon, Thumb } from '@/components/domain/robot-build';
-import type { AttachmentDto, DashboardDto, DeviceHealthDto, Paginated, ProductDto, RobotListItemDto } from '@arnobot/message-schema';
+import type { AttachmentDto, Paginated, ProductDto, RobotListItemDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertOctagon, Download, Plus, Search, X } from 'lucide-react';
+import { Download, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
-import { RobotStatusBadge } from '@/components/domain/status';
+import { useEffect, useState } from 'react';
+import { attachmentUnit, CategoryIcon, Thumb } from '@/components/domain/robot-build';
+import { useSites } from '@/components/domain/sites';
 import { Button, LinkButton } from '@/components/ui/button';
 import { Checkbox, Input, Select } from '@/components/ui/field';
-import { Badge, EmptyState, ErrorState, LoadingBlock, PageHeader, Pagination } from '@/components/ui/misc';
+import { FilterChoice, FilterField, FilterMenu } from '@/components/ui/filter-menu';
+import { Badge, EmptyState, ErrorState, LoadingBlock, Pagination } from '@/components/ui/misc';
 import { DataTable, type Column, type SortState } from '@/components/ui/table';
 import { api, downloadUrl, qs } from '@/lib/api';
-import { useCompanies } from '@/lib/queries';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
-import { fmtAgo, fmtPct, fmtWhen } from '@/lib/format';
-import { useDebounced, useDocumentTitle, useNow, useUrlState } from '@/lib/hooks';
+import { fmtSerial, fmtWhen } from '@/lib/format';
+import { useDebounced, useDocumentTitle, useUrlState } from '@/lib/hooks';
+import { useCompanies } from '@/lib/queries';
 import { useLivePoll } from '@/lib/realtime';
 
 const LIMIT = 50;
 
+/** Every robot: what it is and where it is. Search and Filter sit at the top right, so the table gets the room. */
 export default function RobotsPage() {
   useDocumentTitle('Robots');
   const can = useCan();
   const router = useRouter();
   const poll = useLivePoll();
-  const now = useNow(5000);
   const [params, setParams] = useUrlState();
   const [search, setSearch] = useState(params.get('q') ?? '');
   const q = useDebounced(search, 300);
 
   const product = params.get('product') ?? '';
   const category = params.get('category') === 'ugv' || params.get('category') === 'uav' ? params.get('category')! : '';
-  const status = params.get('status') ?? '';
+  const status = params.get('status') === 'online' || params.get('status') === 'offline' ? params.get('status')! : '';
   const owner = params.get('owner') ?? '';
   const attachment = params.get('attachment') ?? '';
   const site = params.get('site') ?? '';
-  const problems = params.get('problems') === 'true';
   const includeDeleted = params.get('include_deleted') === 'true';
   const page = Number(params.get('page') ?? 1) || 1;
   const sortParam = params.get('sort') ?? 'robot_id';
   const sort: SortState = sortParam.startsWith('-') ? { key: sortParam.slice(1), dir: 'desc' } : { key: sortParam, dir: 'asc' };
-  const filtered = Boolean(q || product || category || owner || attachment || site || problems || status || includeDeleted);
+  const activeFilters = [product, category, status, owner, attachment, site, includeDeleted].filter(Boolean).length;
+  const filtered = Boolean(q) || activeFilters > 0;
 
   useEffect(() => {
     if ((params.get('q') ?? '') !== q) setParams({ q, page: null });
@@ -54,14 +53,12 @@ export default function RobotsPage() {
 
   const clearFilters = () => {
     setSearch('');
-    setParams({ q: null, product: null, category: null, owner: null, attachment: null, site: null, problems: null, status: null, include_deleted: null, page: null });
+    setParams({ q: null, product: null, category: null, owner: null, attachment: null, site: null, status: null, include_deleted: null, page: null });
   };
 
-  // Fleet counts for the status chips (same scope as the list).
-  const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardDto>('/dashboard'), refetchInterval: poll || 300_000 });
   const products = useQuery({ queryKey: ['products', 'all'], queryFn: () => api.get<ProductDto[]>('/products'), enabled: can('catalog.read'), staleTime: 300_000 });
   const robots = useQuery({
-    queryKey: ['robots', { q, product, category, owner, attachment, site, problems, status, includeDeleted, page, sortParam }],
+    queryKey: ['robots', { q, product, category, owner, attachment, site, status, includeDeleted, page, sortParam }],
     queryFn: () =>
       api.get<Paginated<RobotListItemDto>>('/robots', {
         q,
@@ -70,7 +67,6 @@ export default function RobotsPage() {
         owner,
         attachment: attachment || undefined,
         site: site || undefined,
-        problems: problems || undefined,
         status,
         include_deleted: includeDeleted,
         sort: sortParam,
@@ -80,168 +76,96 @@ export default function RobotsPage() {
     placeholderData: keepPreviousData,
     refetchInterval: poll,
   });
-
-  const columns = robotColumns(now);
   const companies = useCompanies();
   const attachments = useQuery({ queryKey: ['attachments'], queryFn: () => api.get<AttachmentDto[]>('/attachments'), enabled: can('catalog.read'), staleTime: 300_000 });
   const sites = useSites();
-  const exportQuery = qs({ q, product, category, owner, attachment: attachment || undefined, site: site || undefined, problems: problems || undefined, status, include_deleted: includeDeleted || undefined, sort: sortParam });
+  const exportQuery = qs({ q, product, category, owner, attachment: attachment || undefined, site: site || undefined, status, include_deleted: includeDeleted || undefined, sort: sortParam });
+  const pick = (patch: Record<string, string | null>) => setParams({ ...patch, page: null });
 
   return (
     <>
-      <PageHeader
-        eyebrow="Fleet"
-        title="Robots"
-        description="Every robot, what it is doing and whether it needs attention. Click a row to open the robot."
-        actions={
-          <>
-            {can('robot.details') && (
-              <a
-                href={downloadUrl(`/robots/export.csv${exportQuery}`)}
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium hover:bg-surface-2"
-              >
-                <Download className="size-4" aria-hidden /> Export CSV
-              </a>
-            )}
-            {can('robot.write') && (
-              <LinkButton href="/robots/new" variant="primary" icon={<Plus className="size-4" aria-hidden />}>
-                Register robot
-              </LinkButton>
-            )}
-          </>
-        }
-      />
-
-      <div className="mb-3 rounded-lg border border-border bg-surface p-3">
-        <form role="search" aria-label="Filter robots" className="grid gap-2 md:grid-cols-2 2xl:grid-cols-[minmax(16rem,2fr)_auto_repeat(4,minmax(9rem,1fr))_auto] 2xl:items-center" onSubmit={(e) => e.preventDefault()}>
-          <div className="relative min-w-0 md:col-span-2 2xl:col-span-1">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold">
+          {status === 'online' ? 'Online robots' : status === 'offline' ? 'Offline robots' : 'Robots'}
+          {robots.data && <span className="ml-2 text-base font-normal text-muted tabular-nums">{robots.data.total.toLocaleString('en-IN')}</span>}
+        </h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-56 max-w-full" role="search">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search serial number, nickname, owner, site or attachment" aria-label="Search robots" className="pl-9" type="search" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search robots" aria-label="Search robots" className="pl-9" />
           </div>
-          <div role="group" aria-label="Category" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-            {(
-              [
-                ['', 'All'],
-                ['ugv', 'UGV'],
-                ['uav', 'UAV'],
-              ] as const
-            ).map(([v, label]) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={category === v}
-                onClick={() => setParams({ category: v || null, product: null, page: null })}
-                className={cn('rounded-md px-4 py-1.5 text-sm font-semibold', category === v ? 'bg-accent text-accent-fg' : 'text-muted hover:text-fg')}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {can('catalog.read') && (
-            <Select value={product} onChange={(e) => setParams({ product: e.target.value || null, page: null })} aria-label="Base model">
-              <option value="">All base models</option>
-              {products.data?.filter((p) => !category || p.category === category).map((p) => (
-                <option key={p.id} value={p.code}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          )}
-          {(companies.data?.length ?? 0) > 1 && (
-            <Select value={owner} onChange={(e) => setParams({ owner: e.target.value || null, page: null })} aria-label="Owner">
-              <option value="">All owners</option>
-              {companies.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          )}
-          {(attachments.data?.length ?? 0) > 0 && (
-            <Select value={attachment} onChange={(e) => setParams({ attachment: e.target.value || null, page: null })} aria-label="Attachment">
-              <option value="">Any attachment</option>
-              {attachments.data?.filter((a) => !category || !a.category || a.category === category).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.robot_count})
-                </option>
-              ))}
-            </Select>
-          )}
-          {(sites.data?.length ?? 0) > 0 && (
-            <Select value={site} onChange={(e) => setParams({ site: e.target.value || null, page: null })} aria-label="Site">
-              <option value="">All sites</option>
-              <option value="none">Not deployed</option>
-              {sites.data?.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name} ({st.robots_now})
-                </option>
-              ))}
-            </Select>
-          )}
-          <Select value={sortParam} onChange={(e) => setParams({ sort: e.target.value === 'robot_id' ? null : e.target.value, page: null })} aria-label="Sort">
-            <option value="robot_id">Sort: Serial number</option>
-            <option value="nickname">Sort: Nickname</option>
-            <option value="-problems">Sort: Problems first</option>
-            <option value="-last_seen_at">Sort: Seen most recently</option>
-            <option value="last_seen_at">Sort: Silent longest</option>
-            <option value="battery_pct">Sort: Lowest battery</option>
-            <option value="-total_missions">Sort: Most missions</option>
-            <option value="-created_at">Sort: Newest registered</option>
-          </Select>
-          <Checkbox label="Show deleted" checked={includeDeleted} onChange={(e) => setParams({ include_deleted: e.target.checked ? 'true' : null, page: null })} className="h-10 px-1" />
-        </form>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            aria-pressed={problems}
-            onClick={() => setParams({ problems: problems ? null : 'true', page: null })}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium transition-colors',
-              problems ? 'border-fault bg-fault-bg text-fault' : 'border-border bg-surface hover:bg-surface-2',
+          <FilterMenu count={activeFilters} onClear={activeFilters > 0 ? clearFilters : undefined}>
+            <FilterChoice label="Status" value={status} onChange={(v) => pick({ status: v || null })} options={[['', 'All'], ['online', 'Online'], ['offline', 'Offline']]} />
+            <FilterChoice label="Type" value={category} onChange={(v) => pick({ category: v || null, product: null })} options={[['', 'All'], ['ugv', 'UGV'], ['uav', 'UAV']]} />
+            {can('catalog.read') && (
+              <FilterField label="Base model">
+                <Select value={product} onChange={(e) => pick({ product: e.target.value || null })}>
+                  <option value="">All base models</option>
+                  {products.data?.filter((p) => !category || p.category === category).map((p) => (
+                    <option key={p.id} value={p.code}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
             )}
-            title="Critical alerts not acknowledged, a device fault, or silent for over a day"
-          >
-            <AlertOctagon className="size-3.5" aria-hidden /> Needs attention only
-          </button>
-          <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-1.5">
-            {(
-              [
-                ['', 'All', counts.data?.robots_total, 'bg-accent'],
-                ['online', 'Online', counts.data?.by_status.online, 'bg-ok'],
-                ['stale', 'Stale', counts.data?.by_status.stale, 'bg-warn'],
-                ['offline', 'Offline', counts.data?.by_status.offline, 'bg-offline'],
-              ] as const
-            ).map(([value, label, n, dot]) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={status === value}
-                onClick={() => setParams({ status: value || null, page: null })}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium transition-colors',
-                  status === value ? 'border-accent bg-accent-soft text-accent-text' : 'border-border bg-surface hover:bg-surface-2',
-                )}
-              >
-                <span className={cn('size-2 rounded-full', dot)} aria-hidden />
-                {label}
-                <span className="tabular-nums text-muted">{n ?? '…'}</span>
-              </button>
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-3 text-sm text-muted">
-            {robots.data && (
-              <span aria-live="polite">
-                {robots.data.total.toLocaleString()} robot{robots.data.total === 1 ? '' : 's'}
-                {filtered && ' match'}
-              </span>
+            {(attachments.data?.length ?? 0) > 0 && (
+              <FilterField label="Attachment">
+                <Select value={attachment} onChange={(e) => pick({ attachment: e.target.value || null })}>
+                  <option value="">Any attachment</option>
+                  {attachments.data?.filter((a) => !category || !a.category || a.category === category).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.robot_count})
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
             )}
-            {filtered && (
-              <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 font-medium text-accent-text hover:underline">
-                <X className="size-3.5" aria-hidden /> Clear filters
-              </button>
+            {(sites.data?.length ?? 0) > 0 && (
+              <FilterField label="Deployed at">
+                <Select value={site} onChange={(e) => pick({ site: e.target.value || null })}>
+                  <option value="">All sites</option>
+                  <option value="none">Not deployed</option>
+                  {sites.data?.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name} ({st.robots_now})
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
             )}
-          </div>
+            {(companies.data?.length ?? 0) > 1 && (
+              <FilterField label="Owner">
+                <Select value={owner} onChange={(e) => pick({ owner: e.target.value || null })}>
+                  <option value="">All owners</option>
+                  {companies.data?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
+            )}
+            <FilterField label="Sort by">
+              <Select value={sortParam} onChange={(e) => pick({ sort: e.target.value === 'robot_id' ? null : e.target.value })}>
+                <option value="robot_id">Serial number</option>
+                <option value="nickname">Name</option>
+                <option value="-last_seen_at">Seen most recently</option>
+                <option value="-created_at">Newest registered</option>
+              </Select>
+            </FilterField>
+            <Checkbox label="Show deleted robots" checked={includeDeleted} onChange={(e) => pick({ include_deleted: e.target.checked ? 'true' : null })} />
+          </FilterMenu>
+          {can('robot.details') && (
+            <a href={downloadUrl(`/robots/export.csv${exportQuery}`)} title="Export these robots as a CSV file" className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface px-3 text-base hover:bg-surface-2">
+              <Download className="size-4" aria-hidden /> Export
+            </a>
+          )}
+          {can('robot.write') && (
+            <LinkButton href="/robots/new" variant="primary" icon={<Plus className="size-4" aria-hidden />}>
+              Register robot
+            </LinkButton>
+          )}
         </div>
       </div>
 
@@ -250,14 +174,10 @@ export default function RobotsPage() {
       ) : robots.error ? (
         <ErrorState error={robots.error} onRetry={() => void robots.refetch()} />
       ) : robots.data && robots.data.total === 0 && !filtered ? (
-        <EmptyState
-          title="No robots registered yet"
-          description="Register a robot to get its permanent serial number and ingest key. Until real robots are online, run the simulator (npm run sim)."
-          action={can('robot.write') ? <LinkButton href="/robots/new" variant="primary">Register robot</LinkButton> : undefined}
-        />
+        <EmptyState title="No robots registered yet" description="Register a robot to get its permanent serial number." action={can('robot.write') ? <LinkButton href="/robots/new" variant="primary">Register robot</LinkButton> : undefined} />
       ) : (
         <>
-          <div className={cn('transition-opacity', robots.isPlaceholderData && 'opacity-60')} aria-busy={robots.isPlaceholderData}>
+          <div className={cn('transition-opacity [&_table]:text-xl [&_thead_th]:text-xl', robots.isPlaceholderData && 'opacity-60')} aria-busy={robots.isPlaceholderData}>
             <DataTable
               caption="Robots"
               rows={robots.data?.items ?? []}
@@ -265,247 +185,96 @@ export default function RobotsPage() {
               sort={sort}
               onSort={(s) => setParams({ sort: s.dir === 'desc' ? `-${s.key}` : s.key, page: null })}
               onRowClick={(r) => router.push(`/robots/${r.robot_id}`)}
-              rowClassName={(r) => cn(r.deleted_at && 'opacity-60', r.unacked_critical_events > 0 && 'shadow-[inset_3px_0_0_var(--fault)]')}
+              rowClassName={(r) => cn(r.deleted_at && 'opacity-60')}
               empty={
                 <span className="flex flex-col items-center gap-2">
                   No robots match these filters.
                   <Button size="sm" onClick={clearFilters}>Clear filters</Button>
                 </span>
               }
-              columns={columns}
-              compact
+              columns={COLUMNS}
             />
           </div>
-          {robots.data && robots.data.total > 0 && <Pagination page={page} limit={LIMIT} total={robots.data.total} onPage={(p) => setParams({ page: p === 1 ? null : p })} />}
+          {robots.data && robots.data.total > LIMIT && <Pagination page={page} limit={LIMIT} total={robots.data.total} onPage={(p) => setParams({ page: p === 1 ? null : p })} />}
         </>
       )}
     </>
   );
 }
 
-/**
- * The fixed column set: only what an operator needs to spot a robot that is busy, unhealthy or silent.
- * Everything else (software, distance, recordings, registration…) lives on the robot's own page.
- */
-function robotColumns(now: number): Column<RobotListItemDto>[] {
-  return [
-    {
-      key: 'id',
-      header: 'Robot',
-      sortKey: 'robot_id',
-      rowHeader: true,
-      cell: (r) => (
-        <span className="flex w-[min(16rem,calc(100vw-6rem))] items-start gap-2.5" title={r.description ?? undefined}>
-          <Thumb photoId={r.product_cover_photo_id} icon={<CategoryIcon category={r.category} className="size-5" />} className="mt-0.5 size-10" />
-          <span className="block min-w-0 flex-1">
-            <span className="flex items-center gap-2">
-              <Link href={`/robots/${r.robot_id}`} className="min-w-0 truncate text-accent-text hover:underline" onClick={(e) => e.stopPropagation()}>
-                <span className="font-mono font-semibold">{fmtSerial(r.robot_id)}</span>
-              </Link>
-              {r.deleted_at && <Badge tone="fault">Deleted</Badge>}
-              {/* Phones have no Status or Alerts column: they ride along here. */}
-              <span className="md:hidden">
-                <RobotStatusBadge lastSeenAt={r.last_seen_at} />
-              </span>
-              {r.unacked_critical_events > 0 && (
-                <span className="sm:hidden">
-                  <Badge tone="fault" icon={<AlertOctagon className="size-3.5" aria-hidden />}>
-                    {r.unacked_critical_events}
-                  </Badge>
-                </span>
-              )}
-            </span>
-            {r.nickname && <span className="block truncate text-sm font-semibold">{r.nickname}</span>}
-            {/* What it is, one labelled line each */}
-            <span className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-sm font-normal">
-              <RobotFact label="Type">
-                <span className="font-semibold" style={{ color: `var(--cat-${r.category})` }}>
-                  {r.category.toUpperCase()}
-                </span>
-              </RobotFact>
-              <RobotFact label="Base model">
-                {r.product_name}
-                {r.hardware_revision && <span className="text-muted"> {r.hardware_revision}</span>}
-              </RobotFact>
-              <RobotFact
-                label="Attachments"
-                title={r.attachments.map((x) => `${x.name}${attachmentUnit(x) ? ` (${attachmentUnit(x)})` : ''}`).join('\n') || undefined}
-              >
-                {r.attachments.length ? r.attachments.map((x) => `${x.name}${x.revision_name ? ` ${x.revision_name}` : ''}`).join(', ') : <span className="text-muted">None</span>}
-              </RobotFact>
-              <RobotFact label="Site" title={r.site ? [r.site.name, r.site.city, `since ${fmtWhen(r.site.deployed_since)}`].filter(Boolean).join(' · ') : undefined}>
-                {r.site ? (
-                  <Link href={`/sites/${r.site.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-accent-text hover:underline">
-                    {r.site.name}
-                  </Link>
-                ) : (
-                  <span className="text-muted">Not deployed</span>
-                )}
-              </RobotFact>
-            </span>
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      sortKey: 'last_seen_at',
-      className: 'hidden md:table-cell',
-      cell: (r) => (
-        <span className="block w-32">
-          <RobotStatusBadge lastSeenAt={r.last_seen_at} />
-          <span className="mt-1 block text-sm text-muted">
-            <Activity r={r} now={now} />
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: 'owner',
-      header: 'Owner',
-      className: 'hidden xl:table-cell',
-      cell: (r) => (r.owner_company ? <span className="line-clamp-2 block w-32 break-words" title={r.owner_company}>{r.owner_company}</span> : <Dash />),
-    },
-    {
-      key: 'battery',
-      header: 'Battery',
-      sortKey: 'battery_pct',
-      className: 'hidden xl:table-cell',
-      cell: (r) =>
-        r.battery_pct === null ? (
-          <Dash />
-        ) : (
-          <span className="flex w-24 items-center gap-2">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-              <span
-                className={cn('block h-full rounded-full', r.battery_pct < 20 ? 'bg-fault' : r.battery_pct < 40 ? 'bg-warn' : 'bg-ok')}
-                style={{ width: `${Math.max(0, Math.min(100, r.battery_pct))}%` }}
-              />
-            </span>
-            <span className="w-9 text-right text-xs font-medium tabular-nums">{fmtPct(r.battery_pct)}</span>
-          </span>
-        ),
-    },
-    { key: 'health', header: 'Health', className: 'hidden 2xl:table-cell', cell: (r) => <HealthDots health={r.health} /> },
-    {
-      key: 'alerts',
-      header: 'Alerts',
-      sortKey: 'unacked_critical_events',
-      className: 'hidden whitespace-nowrap sm:table-cell',
-      cell: (r) =>
-        r.unacked_critical_events ? (
-          <Link href={`/robots/${r.robot_id}?tab=events`} onClick={(e) => e.stopPropagation()} aria-label={`${r.unacked_critical_events} unacknowledged critical alerts on ${r.robot_id}`}>
-            <Badge tone="fault" icon={<AlertOctagon className="size-3.5" aria-hidden />}>
-              {r.unacked_critical_events} critical
-            </Badge>
-          </Link>
-        ) : (
-          <Dash />
-        ),
-    },
-    {
-      key: 'missions',
-      header: 'Missions',
-      sortKey: 'total_missions',
-      align: 'right',
-      className: 'hidden whitespace-nowrap sm:table-cell',
-      cell: (r) => (
-        <span className="block">
-          <span className="font-semibold tabular-nums">{r.total_missions}</span>
-          {r.failed + r.aborted > 0 && (
-            <span className="mt-0.5 block text-xs tabular-nums">
-              {r.failed > 0 && <span className="text-fault">{r.failed} failed</span>}
-              {r.failed > 0 && r.aborted > 0 && <span className="text-muted"> · </span>}
-              {r.aborted > 0 && <span className="text-warn">{r.aborted} aborted</span>}
-            </span>
-          )}
-        </span>
-      ),
-    },
-    {
-      key: 'data',
-      header: 'Last data',
-      sortKey: 'last_upload_at',
-      className: 'hidden whitespace-nowrap 2xl:table-cell',
-      cell: (r) => (r.last_upload_at ? <Ago iso={r.last_upload_at} now={now} /> : <span className="text-muted">None yet</span>),
-    },
-  ];
-}
-
 const Dash = () => <span className="text-muted">—</span>;
 
-/** What the robot is doing right now; falls back to how long ago it was last heard from. */
-function Activity({ r, now }: { r: RobotListItemDto; now: number }) {
-  const heard = r.last_seen_at !== null && now - Date.parse(r.last_seen_at) < 120_000;
-  if (heard && r.current_mission_id) {
-    return (
-      <Link
-        href={`/robots/${r.robot_id}/missions/${encodeURIComponent(r.current_mission_id)}`}
-        onClick={(e) => e.stopPropagation()}
-        className="inline-block max-w-44 truncate align-bottom text-accent-text hover:underline"
-        title={`On mission ${r.current_mission_name ? `${r.current_mission_name} (${r.current_mission_id})` : r.current_mission_id}`}
-      >
-        On mission {r.current_mission_name ?? <span className="font-mono">{r.current_mission_id}</span>}
-      </Link>
-    );
-  }
-  if (heard && r.recording) return <span className="text-accent-text">Recording</span>;
-  return <LastSeen iso={r.last_seen_at} now={now} />;
-}
-
-/** "2 days ago", with the exact time on hover. */
-function Ago({ iso, now }: { iso: string; now: number }) {
-  return (
-    <time dateTime={iso} title={fmtWhen(iso, now)}>
-      {fmtAgo(iso, now)}
-    </time>
-  );
-}
-
-/** Last seen in words and the exact time below it: "2 days ago" / "27 Oct 2026, 1:40 pm". */
-function LastSeen({ iso, now }: { iso: string | null; now: number }) {
-  return iso ? (
-    <time dateTime={iso} className="block" title={fmtWhen(iso, now)}>
-      Seen {fmtAgo(iso, now).toLowerCase()}
-    </time>
-  ) : (
-    <span className="text-muted">Never connected</span>
-  );
-}
-
-/** Four dots (Controller, LiDAR, Cameras, GPS) plus a word: compact device health for the table. */
-function HealthDots({ health }: { health: DeviceHealthDto }) {
-  const bad = DEVICES.filter(([k]) => health[k] === 'fault' || health[k] === 'warning');
-  const unknown = DEVICES.every(([k]) => !health[k]);
-  return (
-    <span className="flex flex-wrap items-center gap-1.5 whitespace-nowrap" title={DEVICES.map(([k, n]) => `${n}: ${health[k] ?? 'not reported'}`).join('\n')}>
-      {DEVICES.map(([k, n]) => (
-        <span key={k} className={cn('size-2.5 rounded-full', health[k] ? HEALTH_DOT[health[k]!] : 'bg-border')} aria-hidden title={n} />
-      ))}
-      <span className={cn('basis-full text-xs', bad.length ? 'font-medium text-fault' : 'text-muted')}>
-        {unknown ? 'Not reported' : bad.length === 1 ? bad[0][1] : bad.length ? `${bad.length} issues` : 'All OK'}
+/** Only what identifies a robot: its picture, serial number, name, where it is deployed, base model and attachments. */
+const COLUMNS: Column<RobotListItemDto>[] = [
+  {
+    key: 'picture',
+    header: 'Picture',
+    cell: (r) => <Thumb photoId={r.product_cover_photo_id} icon={<CategoryIcon category={r.category} className="size-10" />} className="h-36 w-40 object-contain!" />,
+  },
+  {
+    key: 'robot_id',
+    header: 'Serial number',
+    sortKey: 'robot_id',
+    rowHeader: true,
+    cell: (r) => (
+      <span className="block whitespace-nowrap">
+        <Link href={`/robots/${r.robot_id}`} onClick={(e) => e.stopPropagation()} className="font-mono font-medium hover:underline">
+          {fmtSerial(r.robot_id)}
+        </Link>
+        {r.deleted_at && (
+          <span className="ml-2">
+            <Badge tone="fault">Deleted</Badge>
+          </span>
+        )}
+        {/* Phones have room for two columns: the name rides along here. */}
+        {r.nickname && <span className="block truncate text-lg text-muted md:hidden">{r.nickname}</span>}
       </span>
-    </span>
-  );
-}
-
-const DEVICES: [keyof DeviceHealthDto, string][] = [
-  ['controller', 'Controller'],
-  ['lidar', 'LiDAR'],
-  ['cameras', 'Cameras'],
-  ['gps', 'GPS'],
+    ),
+  },
+  {
+    key: 'nickname',
+    header: 'Name',
+    sortKey: 'nickname',
+    className: 'hidden md:table-cell',
+    cell: (r) => (r.nickname ? <span className="font-medium">{r.nickname}</span> : <Dash />),
+  },
+  {
+    key: 'deployed',
+    header: 'Deployed',
+    className: 'hidden lg:table-cell',
+    cell: (r) =>
+      r.site ? (
+        <span className="block" title={`Since ${fmtWhen(r.site.deployed_since)}`}>
+          {r.site.name}
+          {r.site.city && <span className="block text-lg text-muted">{r.site.city}</span>}
+        </span>
+      ) : (
+        <span className="text-muted">Not deployed</span>
+      ),
+  },
+  {
+    key: 'base_model',
+    header: 'Base model',
+    className: 'hidden md:table-cell',
+    cell: (r) => (
+      <span className="block whitespace-nowrap">
+        {r.product_name}
+        <span className="block text-lg text-muted">
+          {r.category.toUpperCase()}
+          {r.hardware_revision && ` · ${r.hardware_revision}`}
+        </span>
+      </span>
+    ),
+  },
+  {
+    key: 'attachments',
+    header: 'Attachment',
+    className: 'hidden lg:table-cell',
+    cell: (r) =>
+      r.attachments.length ? (
+        <span title={r.attachments.map((x) => `${x.name}${attachmentUnit(x) ? ` (${attachmentUnit(x)})` : ''}`).join('\n')}>{r.attachments.map((x) => x.name).join(', ')}</span>
+      ) : (
+        <span className="text-muted">None</span>
+      ),
+  },
 ];
-const HEALTH_DOT = { ok: 'bg-ok', warning: 'bg-warn', fault: 'bg-fault' } as const;
-
-/** One labelled line under the serial number in the list: "Base model  Saibya Rev A". */
-function RobotFact({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
-  return (
-    <>
-      <span className="text-muted">{label}</span>
-      <span className="min-w-0 truncate font-medium text-fg" title={title}>
-        {children}
-      </span>
-    </>
-  );
-}

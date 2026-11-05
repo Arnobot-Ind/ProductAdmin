@@ -17,12 +17,10 @@ export const ROBOT_CATEGORY_LABEL: Record<RobotCategory, string> = { ugv: 'UGV',
 
 /** Spec §7: computed from last-seen time, never stored. */
 export const STATUS_THRESHOLDS = {
-  /** last seen < 60 s → online */
-  onlineMs: 60_000,
-  /** 60 s … 5 min → stale; more → offline */
-  staleMs: 5 * 60_000,
+  /** A message within the last 30 s → online; otherwise offline. */
+  onlineMs: 30_000,
 } as const;
-export const ROBOT_STATUSES = ['online', 'stale', 'offline'] as const;
+export const ROBOT_STATUSES = ['online', 'offline'] as const;
 export type RobotStatus = (typeof ROBOT_STATUSES)[number];
 
 /** Spec §7 reporting cadence. */

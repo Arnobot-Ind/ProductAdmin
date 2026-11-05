@@ -61,7 +61,7 @@ export function Tabs({ items, value, onChange, label }: { items: TabItem[]; valu
 
 export function TabPanel({ id, children, className }: { id: string; children: ReactNode; className?: string }) {
   return (
-    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className={cn('pt-6 outline-none', className)}>
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className={cn('outline-none', className ?? 'pt-6')}>
       {children}
     </div>
   );

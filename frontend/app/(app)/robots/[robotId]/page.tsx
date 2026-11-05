@@ -6,14 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, GitBranch, ImagePlus, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { missionHref } from '@/components/domain/missions-table';
+import { useEffect, useState, type ReactNode } from 'react';
 import { RobotStatusBadge } from '@/components/domain/status';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
-import { Badge, InlineAlert, LastSeen, QueryView } from '@/components/ui/misc';
-import { CategoryBadge } from '@/components/domain/status';
+import { Badge, InlineAlert, QueryView } from '@/components/ui/misc';
 import { ProductMediaCard, ProductPicture } from '@/components/domain/product-media';
 import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
@@ -22,35 +20,28 @@ import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useDocumentTitle, useUrlState } from '@/lib/hooks';
 import { useLivePoll } from '@/lib/realtime';
-import { ConnectivityTab } from './_tabs/connectivity';
 import { DetectionsTab } from '@/components/domain/detections';
 import { ActivityCalendar, CalendarLayout, type ActivityMetric } from '@/components/domain/activity-calendar';
 import { IngestClientsPanel } from '@/components/domain/ingest-clients';
 import { CredentialsTab } from './_tabs/credentials';
 import { DispatchTab } from './_tabs/dispatch';
-import { DocumentsTab } from './_tabs/documents';
 import { HardwareTab } from './_tabs/hardware';
 import { MaintenanceTab } from './_tabs/maintenance';
 import { RobotEventsTab, RobotMissionsTab } from './_tabs/lists';
-import { HealthTab, LocationTab, MissionStatsCard, OverviewTab, RobotMonthCharts } from './_tabs/overview';
+import { MissionStatsCard, RobotMonthCharts } from './_tabs/overview';
 import { RobotLogTab } from './_tabs/log';
-import { OwnershipTab } from './_tabs/ownership';
-import { DeploymentTab } from './_tabs/deployment';
 import { AttachmentsTab } from './_tabs/attachments';
-import { RobotBuild } from '@/components/domain/robot-build';
-import { NotesTab, PinnedNotes } from './_tabs/notes';
 import { SoftwareTab } from './_tabs/software';
 import { TelemetryTab } from './_tabs/telemetry';
 import { VideosTab } from './_tabs/videos';
-import { DataActivityBadge } from '@/components/archive/badges';
 import { BesideBack } from '@/components/ui/back-button';
-import { Band, BandFact } from '@/components/ui/band';
+import { Band } from '@/components/ui/band';
 import { fmtDistance, fmtWhen } from '@/lib/format';
 
 /**
  * The robot record. The header says what the robot is (name, category, status, description, serial number, owner,
  * lifetime distance and missions, software version and repository, last seen, pictures). Below it, sections in the
- * order people use them: Live status, Logs, Software (with SSH access), then Recordings, Hardware and Records.
+ * order people use them: Sensor history, Logs, Recordings, Software (with SSH access), then Hardware.
  * ?tab= keeps the view's id, so old links still work.
  */
 /** Which count the activity calendar shades for each Recordings tab (and Logs), and back. */
@@ -59,20 +50,23 @@ const METRIC_TAB: Record<ActivityMetric, string> = { recordings: 'videos', detec
 
 const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; perm?: string }[] }[] = [
   {
-    id: 'status',
-    label: 'Live status',
+    id: 'history',
+    label: 'Sensor history',
     tabs: [
-      { id: 'overview', label: 'Summary' },
-      { id: 'location', label: 'Location' },
-      { id: 'health', label: 'Health' },
-      { id: 'telemetry', label: 'Sensor history' },
-      { id: 'connectivity', label: 'Connectivity' },
+      { id: 'telemetry', label: 'Graphs' },
+      { id: 'track', label: 'Map' },
     ],
   },
+  { id: 'logs', label: 'Logs', tabs: [{ id: 'log', label: 'Machine logs' }] },
   {
-    id: 'logs',
-    label: 'Logs',
-    tabs: [{ id: 'log', label: 'Activity log' }],
+    id: 'recordings',
+    label: 'Recordings',
+    tabs: [
+      { id: 'videos', label: 'Videos' },
+      { id: 'detections', label: 'Detections' },
+      { id: 'missions', label: 'Missions' },
+      { id: 'events', label: 'Events' },
+    ],
   },
   {
     id: 'software',
@@ -85,16 +79,6 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
     ],
   },
   {
-    id: 'recordings',
-    label: 'Recordings',
-    tabs: [
-      { id: 'videos', label: 'Videos' },
-      { id: 'detections', label: 'Detections' },
-      { id: 'missions', label: 'Missions' },
-      { id: 'events', label: 'Events' },
-    ],
-  },
-  {
     id: 'hardware',
     label: 'Hardware',
     tabs: [
@@ -104,17 +88,26 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
       { id: 'dispatch', label: 'Dispatch & warranty' },
     ],
   },
-  {
-    id: 'records',
-    label: 'Records',
-    tabs: [
-      { id: 'notes', label: 'Journal' },
-      { id: 'documents', label: 'Documents' },
-      { id: 'deployment', label: 'Deployment' },
-      { id: 'ownership', label: 'Ownership' },
-    ],
-  },
 ];
+
+/** "3 Nov 2026 - 4:55 pm", in IST. */
+function fmtLastSeen(iso: string | null): string {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+  return `${date} - ${time}`;
+}
+
+function BigFact({ label, sub, children }: { label: string; sub?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="mt-0.5 text-xl font-semibold break-words">{children}</dd>
+      {sub && <dd className="text-base text-muted">{sub}</dd>}
+    </div>
+  );
+}
 
 export default function RobotDetailPage() {
   const { robotId } = useParams<{ robotId: string }>();
@@ -139,10 +132,10 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
   const can = useCan();
   const [params, setParams] = useUrlState();
   const sections = SECTIONS.map((sec) => ({ ...sec, tabs: sec.tabs.filter((t) => !t.perm || can(t.perm)) })).filter((sec) => sec.tabs.length);
-  const requested = params.get('tab') ?? 'overview';
-  const tab = sections.some((sec) => sec.tabs.some((t) => t.id === requested)) ? requested : 'overview';
+  const requested = params.get('tab') ?? 'telemetry';
+  const tab = sections.some((sec) => sec.tabs.some((t) => t.id === requested)) ? requested : 'telemetry';
   const section = sections.find((sec) => sec.tabs.some((t) => t.id === tab))!;
-  const openTab = (id: string) => setParams({ tab: id === 'overview' ? null : id });
+  const openTab = (id: string) => setParams({ tab: id === 'telemetry' ? null : id });
   /** The activity calendar's day (IST), shared by the Recordings tabs and kept in the URL. */
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? params.get('day') : null;
   const [editing, setEditing] = useState(false);
@@ -178,13 +171,11 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-bold">
-                <span className="font-mono">{fmtSerial(robot.robot_id)}</span>
-                {robot.nickname && <span> · {robot.nickname}</span>}
+              <h1 className="text-2xl font-semibold">
+                {robot.nickname ?? robot.product_name}
               </h1>
-              <CategoryBadge category={robot.category} />
-              <RobotStatusBadge lastSeenAt={robot.last_seen_at} showAge />
-              <DataActivityBadge lastSeenAt={robot.last_seen_at} lastUploadAt={robot.last_upload_at} sendingData={robot.sending_data} recording={robot.recording} />
+              <RobotStatusBadge lastSeenAt={robot.last_seen_at} />
+              <span className="text-base font-bold text-fg">Last seen - {fmtLastSeen(robot.last_seen_at)}</span>
               {robot.deleted_at && <Badge tone="fault">Deleted</Badge>}
             </div>
             <div className="flex flex-wrap gap-2 empty:hidden">
@@ -207,89 +198,45 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
           </div>
         </BesideBack>
 
-        {/* What the robot is, on the brand band: picture, product and description, then the identity facts. */}
-        <Band label={`${fmtSerial(robot.robot_id)} summary`} className="mt-4">
-          <div className="grid gap-6 p-5 sm:p-6 md:grid-cols-[13rem_minmax(0,1fr)]">
-            <div className="flex flex-col gap-2">
-              <ProductPicture productId={robot.product_id} name={`${robot.product_name} · ${fmtSerial(robot.robot_id)}`} />
+        {/* What the robot is: its picture filling the left side (click for large), the facts as plain large text beside it. */}
+        <Band label={`${fmtSerial(robot.robot_id)} summary`} className="mt-3">
+          <div className="grid md:grid-cols-[20rem_minmax(0,1fr)]">
+            <div className="relative min-h-60 border-b border-border md:border-r md:border-b-0">
+              <ProductPicture productId={robot.product_id} name={robot.nickname ?? robot.product_name} className="absolute inset-0" />
               {can('catalog.write') && (
-                <Button variant="secondary" size="sm" onClick={() => setMedia({ owner: 'products', id: robot.product_id, name: robot.product_name })}>
-                  <ImagePlus className="size-4" aria-hidden /> Photos &amp; 360° view
-                </Button>
+                <button type="button" onClick={() => setMedia({ owner: 'products', id: robot.product_id, name: robot.product_name })} title="Add or change photos" aria-label="Add or change photos" className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface/90 text-muted hover:text-fg">
+                  <ImagePlus className="size-4" aria-hidden />
+                </button>
               )}
             </div>
-            <div className="min-w-0">
-              <p className="max-w-3xl text-base">
-                {robot.description ?? <span className="text-muted">{robot.product_description ?? 'No description yet. Use Edit to add one.'}</span>}
-              </p>
-              <RobotBuild
-                className="mt-3"
-                category={robot.category}
-                product={{ id: robot.product_id, name: robot.product_name, revision: robot.hardware_revision, coverPhotoId: robot.product_cover_photo_id, modelNo: robot.model_no }}
-                mainAttachmentId={robot.main_attachment?.id}
-                attachments={robot.attachments}
-                onFit={can('robot.write') && !robot.deleted_at ? () => openTab('attachments') : undefined}
-                onAttachmentMedia={(a) => setMedia({ owner: 'attachments', id: a.id, name: a.name })}
-              />
-              {robot.current_mission_id && (
-                <p className="mt-2 text-base">
-                  <span className="text-muted">On mission </span>
-                  <Link href={missionHref({ robot_id: robot.robot_id, mission_id: robot.current_mission_id })} className={cn('font-medium text-accent-text hover:underline', !robot.current_mission_name && 'font-mono')} title={robot.current_mission_id}>
-                    {robot.current_mission_name ?? robot.current_mission_id}
-                  </Link>
-                </p>
-              )}
-              <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-3">
-                <BandFact label="Current owner">
-                  <span title={robot.owner_company ?? undefined}>{robot.owner_company ?? '—'}</span>
-                </BandFact>
-                <div className="min-w-0">
-                  <dt className="text-base text-muted">Deployed at</dt>
-                  <dd className="mt-1 text-lg">
-                    {robot.site ? (
-                      <>
-                        <Link href={`/sites/${robot.site.id}`} className="block truncate font-semibold text-accent-text hover:underline" title={robot.site.name}>
-                          {robot.site.name}
-                        </Link>
-                        <span className="block text-sm text-muted">
-                          {[robot.site.city, `since ${fmtWhen(robot.site.deployed_since)}`].filter(Boolean).join(' · ')}
-                        </span>
-                      </>
-                    ) : (
-                      <button type="button" onClick={() => openTab('deployment')} className="text-muted hover:text-accent-text hover:underline">
-                        Not deployed{can('robot.write') && !robot.deleted_at ? ' · Deploy' : ''}
-                      </button>
-                    )}
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-base text-muted">Last seen</dt>
-                  <dd className="mt-1 text-lg">
-                    <LastSeen iso={robot.last_seen_at} stacked />
-                  </dd>
-                </div>
-                <BandFact label="Lifetime distance">{robot.odometer_m !== null ? fmtDistance(robot.odometer_m) : fmtDistance(robot.total_distance_m)}</BandFact>
-                <BandFact label="Lifetime missions">
-                  {robot.total_missions.toLocaleString('en-IN')} <span className="text-base font-normal text-muted">· {robot.completed.toLocaleString('en-IN')} completed</span>
-                </BandFact>
-                <div className="min-w-0">
-                  <dt className="text-base text-muted">Software</dt>
-                  <dd className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-lg font-semibold">
-                    <span className="font-mono">{robot.sw_ver ?? 'Not reported'}</span>
-                    {robot.repo_url ? (
-                      <a href={robot.repo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-base font-medium text-accent-text hover:underline">
-                        <GitBranch className="size-4" aria-hidden /> Repository <ExternalLink className="size-3.5" aria-hidden />
-                      </a>
-                    ) : (
-                      <span className="text-sm font-normal text-muted">No repository link</span>
-                    )}
-                  </dd>
-                </div>
+            <div className="min-w-0 p-5">
+              {robot.description && <p className="mb-4 max-w-3xl text-lg">{robot.description}</p>}
+              <dl className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+                <BigFact label="Base model" sub={[robot.category.toUpperCase(), `No. ${String(robot.model_no).padStart(3, '0')}`, robot.hardware_revision].filter(Boolean).join(' · ')}>
+                  {robot.product_name}
+                </BigFact>
+                <BigFact label="Attachment">{robot.attachments.length ? robot.attachments.map((a) => a.name).join(', ') : <span className="font-normal text-muted">None</span>}</BigFact>
+                <BigFact label="Current owner">{robot.owner_company ?? '—'}</BigFact>
+                <BigFact label="Deployed at" sub={robot.site ? [robot.site.city, `since ${fmtWhen(robot.site.deployed_since)}`].filter(Boolean).join(' · ') : undefined}>
+                  {robot.site ? (
+                    robot.site.name
+                  ) : (
+                    <span className="font-normal text-muted">Not deployed</span>
+                  )}
+                </BigFact>
+                <BigFact label="Lifetime distance">{robot.odometer_m !== null ? fmtDistance(robot.odometer_m) : fmtDistance(robot.total_distance_m)}</BigFact>
+                <BigFact label="Software">
+                  {robot.sw_ver ?? <span className="font-normal text-muted">Not reported</span>}
+                  {robot.repo_url && (
+                    <a href={robot.repo_url} target="_blank" rel="noopener noreferrer" className="ml-3 inline-flex items-center gap-1 text-base font-medium text-accent-text hover:underline">
+                      <GitBranch className="size-4" aria-hidden /> Repository <ExternalLink className="size-3.5" aria-hidden />
+                    </a>
+                  )}
+                </BigFact>
               </dl>
             </div>
           </div>
         </Band>
-        <PinnedNotes robotId={robot.robot_id} onOpen={() => openTab('notes')} />
       </header>
 
       {robot.deleted_at && (
@@ -300,10 +247,9 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
 
       <Tabs
         label="Robot record sections"
-        // Offline: the first section shows the last known values, and says so; "Live status" again once it reports.
-        items={sections.map((sec) => ({ id: sec.id, label: sec.id === 'status' && robot.status === 'offline' ? 'Last known status' : sec.label }))} value={section.id} onChange={(id) => openTab(sections.find((sec) => sec.id === id)!.tabs[0].id)} />
+        items={sections.map((sec) => ({ id: sec.id, label: sec.label }))} value={section.id} onChange={(id) => openTab(sections.find((sec) => sec.id === id)!.tabs[0].id)} />
       {section.tabs.length > 1 && (
-        <div role="group" aria-label={`${section.label} views`} className="mt-4 flex flex-wrap gap-2">
+        <div role="group" aria-label={`${section.label} views`} className="mt-2 flex flex-wrap gap-1.5">
           {section.tabs.map((t) => (
             <button
               key={t.id}
@@ -311,7 +257,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
               aria-pressed={t.id === tab}
               onClick={() => openTab(t.id)}
               className={cn(
-                'rounded-full border px-4 py-1.5 text-sm font-medium',
+                'rounded-full border px-3 py-1 text-sm',
                 t.id === tab ? 'border-accent bg-accent-soft text-accent-text' : 'border-border bg-surface text-muted hover:border-accent/50 hover:text-fg',
               )}
             >
@@ -320,11 +266,8 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
           ))}
         </div>
       )}
-      <TabPanel id={section.id} className="pt-5">
-        {tab === 'overview' && <OverviewTab robot={robot} />}
-        {tab === 'location' && <LocationTab robot={robot} />}
-        {tab === 'health' && <HealthTab robot={robot} />}
-        {(section.id === 'recordings' || tab === 'log') && (
+      <TabPanel id={section.id} className="pt-3">
+        {section.id === 'recordings' && (
           <CalendarLayout
             calendar={
               <ActivityCalendar
@@ -349,23 +292,19 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                 </div>
               ))}
             {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} day={day} />}
-            {tab === 'log' && <RobotLogTab robotId={robot.robot_id} day={day} onClearDay={() => setParams({ day: null })} />}
           </CalendarLayout>
         )}
-        {tab === 'telemetry' && <TelemetryTab robotId={robot.robot_id} />}
+        {tab === 'log' && <RobotLogTab robotId={robot.robot_id} day={day} />}
+        {/* One element for both views, so the chosen time range stays when moving between them. */}
+        {section.id === 'history' && <TelemetryTab robotId={robot.robot_id} view={tab === 'track' ? 'map' : 'graphs'} />}
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'attachments' && <AttachmentsTab robotId={robot.robot_id} category={robot.category} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
         {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
-        {tab === 'connectivity' && <ConnectivityTab robotId={robot.robot_id} />}
         {tab === 'ssh' && <CredentialsTab robotId={robot.robot_id} only="ssh" />}
         {tab === 'credentials' && <CredentialsTab robotId={robot.robot_id} only="other" />}
-        {tab === 'notes' && <NotesTab robotId={robot.robot_id} />}
-        {tab === 'documents' && <DocumentsTab robot={robot} />}
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
         {tab === 'maintenance' && <MaintenanceTab robotId={robot.robot_id} />}
-        {tab === 'ownership' && <OwnershipTab robotId={robot.robot_id} />}
-        {tab === 'deployment' && <DeploymentTab robotId={robot.robot_id} deleted={!!robot.deleted_at} />}
       </TabPanel>
 
       <EditRobotDialog robot={robot} open={editing} onClose={() => setEditing(false)} />
@@ -451,14 +390,7 @@ function EditRobotDialog({ robot, open, onClose }: { robot: RobotDetailDto; open
         </Field>
         <Field
           label="Hardware revision"
-          hint={
-            <>
-              Which revision of {robot.product_name} this robot is.{' '}
-              <Link href={`/products/${robot.product_id}#revisions`} className="font-medium text-accent-text hover:underline">
-                Add or edit {robot.product_name} revisions
-              </Link>
-            </>
-          }
+          hint={`Which revision of ${robot.product_name} this robot is.`}
         >
           <Select value={revisionId} onChange={(e) => setRevisionId(e.target.value)}>
             <option value="">Not set</option>

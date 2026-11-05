@@ -34,7 +34,7 @@ function DispatchView({ d, robotId }: { d: DispatchWarrantyDto; robotId: string 
     });
   }, [d]);
 
-  // Warranty clauses are uploaded as a "warranty_clauses" document (Documents tab), then linked here.
+  // Warranty clauses are stored as a "warranty_clauses" document, then linked here.
   const docs = useQuery({ queryKey: ['robot', robotId, 'documents'], queryFn: () => api.get<DocumentDto[]>(`/robots/${robotId}/documents`), enabled: can('robot.write') });
   const warrantyDocs = (docs.data ?? []).filter((x) => x.doc_type === 'warranty_clauses' && !x.deleted_at);
 
@@ -95,7 +95,7 @@ function DispatchView({ d, robotId }: { d: DispatchWarrantyDto; robotId: string 
             <Field label="Warranty end" error={rangeError}>
               <Input type="date" value={form.warranty_end} min={form.warranty_start || undefined} onChange={(e) => setForm({ ...form, warranty_end: e.target.value })} />
             </Field>
-            <Field label="Warranty clauses document" className="sm:col-span-2" hint="Upload the file as type “Warranty clauses” in the Documents tab, then link it here.">
+            <Field label="Warranty clauses document" className="sm:col-span-2" hint="Documents already uploaded for this robot.">
               <Select value={form.warranty_document_id} onChange={(e) => setForm({ ...form, warranty_document_id: e.target.value })}>
                 <option value="">None</option>
                 {warrantyDocs.map((x) => (

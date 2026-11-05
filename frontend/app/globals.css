@@ -5,45 +5,35 @@
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /*
- * Arnobot brand (ARNOBOT_BRAND_CONTEXT.md): black / near-black surfaces, white type,
- * steel-blue (#A7BCE3) and brand blue (#38559D) accents, Ubuntu for display and body.
- * Every foreground/background pair below meets WCAG 2.2 AA (≥ 4.5:1 for text).
+ * Tesla-style look: light grey pages, flat white cards with thin borders, near-black text and one electric blue.
+ * Colour otherwise only where it means something: status, alerts, charts, maps and calendars.
+ * --accent is blue for primary buttons and the current tab; it never carries status. Links stay in the text colour.
+ * Every text/background pair meets WCAG AA (at least 4.5:1).
  */
 :root,
 [data-theme='light'] {
-  --backdrop-lines: rgb(36 60 120 / 0.10);
-  --backdrop-glow: rgb(36 83 214 / 0.10);
-  /* Light grey page (rgb 219, 219, 219), white cards, deep slate text, Arnobot brand blue for actions. */
-  --bg: #dbdbdb; /* rgb(219, 219, 219) */
+  --bg: #f4f4f4;
   --surface: #ffffff;
-  --surface-2: #f3f6fc;
-  --border: #d8e0ee;
-  --text: #0f172a;
-  --text-muted: #4f5d78;
-  --accent: #2453d6;
+  --surface-2: #f4f4f4;
+  --border: #d0d1d2;
+  --text: #171a20;
+  --text-muted: #5c5e62;
+  --accent: #3e6ae1;
   --accent-fg: #ffffff;
-  --accent-soft: #e8eefc;
-  --accent-text: #1d44b5;
+  --accent-soft: #eeeeee;
+  --accent-text: #171a20;
+  --focus: #3e6ae1;
   --ok: #15803d;
   --ok-bg: #dcfce7;
   --warn: #92400e;
   --warn-bg: #fef3c7;
   --fault: #b91c1c;
   --fault-bg: #fee2e2;
-  --offline: #4b5563;
-  --offline-bg: #e5e7eb;
-  --focus: #2453d6;
+  --offline: #393c41;
+  --offline-bg: #eeeeee;
   --map-planned: #b45309;
   --map-actual: #1d4ed8;
-  color-scheme: light;
-}
-
-/*
- * Chart status fills (both themes): validated for charts, separate from the darker status TEXT colours above.
- * Distinct to normal and colour-blind vision; amber is faint on white by design, so charts always pair it with
- * a legend label, a tooltip and a table view.
- */
-:root {
+  /* Status in charts: reserved for state, always shown with a label. Amber is faint on white by design. */
   --chart-good: #0ca30c;
   --chart-warning: #fab219;
   --chart-critical: #d03b3b;
@@ -51,58 +41,78 @@
   /* Robot categories (identity, not state): validated pair, always shown with their UGV / UAV label. */
   --cat-ugv: #2453d6;
   --cat-uav: #0f8f80;
-}
-/* On the dark grey cards the red is lifted one step so it keeps 3:1 contrast. */
-[data-theme='dark'] {
-  --chart-critical: #ef6b6b;
-  --cat-ugv: #5b86ee;
-  --cat-uav: #25a898;
+  --cal-ok: #15803d;
+  --cal-fault: #b91c1c;
+  color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --backdrop-lines: rgb(125 162 255 / 0.10);
-  --backdrop-glow: rgb(125 162 255 / 0.08);
-  /* rgb(13, 13, 13) page; cards one step lighter so they stand out; near-white text. */
-  --bg: #0d0d0d;
-  --surface: #1a1a1a;
-  --surface-2: #242424;
-  --border: #303030;
-  --text: #f2f2f2;
-  --text-muted: #bdbdbd;
-  --accent: #7da2ff;
-  --accent-fg: #0a1433;
-  --accent-soft: #1a2747;
-  --accent-text: #a9c1ff;
+  --bg: #171a20;
+  --surface: #22252b;
+  --surface-2: #2c2f36;
+  --border: #393c41;
+  --text: #ffffff;
+  --text-muted: #d0d1d2;
+  --accent: #3e6ae1;
+  --accent-fg: #ffffff;
+  --accent-soft: #393c41;
+  --accent-text: #ffffff;
+  --focus: #ffffff;
   --ok: #4ade80;
   --ok-bg: #12301d;
   --warn: #fbbf24;
   --warn-bg: #352a0d;
   --fault: #f87171;
   --fault-bg: #3a1717;
-  --offline: #c4c4c4;
-  --offline-bg: #2a2a2a;
-  --focus: #7da2ff;
+  --offline: #d0d1d2;
+  --offline-bg: #393c41;
   --map-planned: #fbbf24;
   --map-actual: #60a5fa;
+  --chart-good: #0ca30c;
+  --chart-warning: #fab219;
+  --chart-critical: #ef6b6b;
+  --chart-neutral: #8b8f97;
+  --cat-ugv: #5b86ee;
+  --cat-uav: #25a898;
+  --cal-ok: #4ade80;
+  --cal-fault: #f87171;
   color-scheme: dark;
 }
 
-/* Type scale (larger than Tailwind's defaults so labels and tables stay readable). */
+/* Clear, comfortable type: 14px is the smallest text anywhere, 16px is normal text. */
 @theme {
-  --text-xs: 0.875rem; /* 14px: the smallest text anywhere */
+  --spacing: 0.24rem;
+  --text-xs: 0.875rem;
   --text-xs--line-height: 1.3rem;
-  --text-sm: 1rem; /* 16px: secondary text, labels, legends, table cells */
-  --text-sm--line-height: 1.5rem;
-  --text-base: 1.0625rem; /* 17px: body */
-  --text-base--line-height: 1.65rem;
-  --text-lg: 1.25rem;
-  --text-lg--line-height: 1.8rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.4rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.65rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.625rem;
+  --text-3xl--line-height: 2.15rem;
+  --text-4xl: 2rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl: 2.5rem;
+  --text-5xl--line-height: 3rem;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 600;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 0.75rem;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 6px 20px rgb(0 0 0 / 0.08);
+  --shadow-xl: 0 8px 28px rgb(0 0 0 / 0.1);
 }
 
-/* App menu (components/domain/app-shell.tsx): drops down from the top, lifts away when closed. */
 @theme {
-  --animate-app-menu-in: app-menu-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  --animate-app-menu-out: app-menu-out 280ms cubic-bezier(0.64, 0, 0.78, 0) both;
   --animate-drawer-in: drawer-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
   /* A new page fades in and rises a little. "backwards" keeps no transform once it has played, so fixed and
      sticky elements on the page (dialogs, table headers) behave normally. */
@@ -131,39 +141,6 @@
     transform: translateX(0);
   }
 }
-@keyframes app-menu-in {
-  from {
-    transform: translateY(-100%);
-    opacity: 0.4;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-@keyframes app-menu-out {
-  from {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateY(-100%);
-    opacity: 0.4;
-  }
-}
-
-/*
- * Bands (dashboard hero, robot summary): the normal card colours of the theme (light or dark), with a faint neutral
- * dot pattern on the right.
- */
-.band {
-  --band-dot: rgb(15 23 42 / 0.07);
-  color: var(--text);
-}
-[data-theme='dark'] .band {
-  --band-dot: rgb(255 255 255 / 0.06);
-}
-
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -183,9 +160,11 @@
   --color-fault-bg: var(--fault-bg);
   --color-offline: var(--offline);
   --color-offline-bg: var(--offline-bg);
-  --font-display: 'Ubuntu', ui-sans-serif, system-ui, sans-serif;
-  --font-sans: 'Ubuntu', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  --color-cal-ok: var(--cal-ok);
+  --color-cal-fault: var(--cal-fault);
+  --font-display: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -199,10 +178,9 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100dvh;
-    /* Its own stacking context, so the backdrop below sits over the page colour and under everything else. */
-    isolation: isolate;
-    font-size: 1.0625rem;
-    line-height: 1.6;
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
   h1,
   h2,
@@ -219,7 +197,8 @@
   ::selection {
     background: var(--accent-soft);
   }
-  table {
+  table,
+  .font-mono {
     font-variant-numeric: tabular-nums;
   }
 }
@@ -235,17 +214,8 @@
   }
 }
 
-.eyebrow {
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
 .maplibregl-ctrl-attrib a {
-  color: #1d4ed8;
+  color: inherit;
 }
 
 /* Map point labels (fleet map, robot position). */
@@ -261,33 +231,4 @@
 }
 .pms-map-popup .maplibregl-popup-tip {
   display: none;
-}
-
-/*
- * Page backdrop: faint topographic contour lines (the ground the robots patrol) and a soft teal glow in two corners.
- * Fixed behind the content and only seen in the gaps between cards; the lines are an SVG mask coloured by the theme.
- */
-body::before,
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-body::before {
-  background: var(--backdrop-lines);
-  -webkit-mask: url('/bg/contours.svg') center / cover no-repeat;
-  mask: url('/bg/contours.svg') center / cover no-repeat;
-}
-body::after {
-  background:
-    radial-gradient(42rem 30rem at 100% 0%, var(--backdrop-glow), transparent 70%),
-    radial-gradient(36rem 28rem at 0% 100%, var(--backdrop-glow), transparent 70%);
-}
-@media print {
-  body::before,
-  body::after {
-    display: none;
-  }
 }

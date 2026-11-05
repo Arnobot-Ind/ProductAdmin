@@ -1,24 +1,11 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
-/**
- * The brand band: a pale-blue panel (deep blue in dark mode; its own tokens, see .band in globals.css) with a faint
- * dot grid fading in from the left. Used for a page's headline facts: the dashboard hero, a robot's summary.
- */
+/** A plain panel for a page's headline facts, such as a robot's summary. */
 export function Band({ children, className, label, labelledBy }: { children: ReactNode; className?: string; label?: string; labelledBy?: string }) {
   return (
-    <section aria-label={label} aria-labelledby={labelledBy} className={cn('band relative overflow-hidden rounded-2xl border border-border bg-surface shadow-sm', className)}>
-      <div
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{
-          backgroundImage: 'radial-gradient(var(--band-dot) 1px, transparent 1px)',
-          backgroundSize: '18px 18px',
-          maskImage: 'linear-gradient(to right, transparent 15%, black 75%)',
-          WebkitMaskImage: 'linear-gradient(to right, transparent 15%, black 75%)',
-        }}
-        aria-hidden
-      />
-      <div className="relative">{children}</div>
+    <section aria-label={label} aria-labelledby={labelledBy} className={cn('overflow-hidden rounded-xl border border-border bg-surface', className)}>
+      {children}
     </section>
   );
 }
@@ -27,8 +14,8 @@ export function Band({ children, className, label, labelledBy }: { children: Rea
 export function BandFact({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
     <div className={cn('min-w-0', className)}>
-      <dt className="text-base text-muted">{label}</dt>
-      <dd className="mt-1 truncate text-lg font-semibold">{children}</dd>
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="mt-0.5 truncate text-base font-semibold">{children}</dd>
     </div>
   );
 }

@@ -165,7 +165,7 @@ function HardwareEditor({ robotId, parts, types }: { robotId: string; parts: Har
       bodyClassName="p-0"
     >
       <form onSubmit={save}>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[860px] border-collapse text-sm">
             <caption className="sr-only">Fitted hardware, editable</caption>
             <thead className="bg-surface-2 text-left text-sm font-semibold text-muted">
