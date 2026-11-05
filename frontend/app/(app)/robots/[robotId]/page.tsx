@@ -300,7 +300,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
         {tab === 'attachments' && <AttachmentsTab robotId={robot.robot_id} category={robot.category} />}
         {tab === 'hardware' && <HardwareTab robotId={robot.robot_id} />}
-        {tab === 'software' && <SoftwareTab robotId={robot.robot_id} />}
+        {tab === 'software' && <SoftwareTab robot={robot} />}
         {tab === 'ssh' && <CredentialsTab robotId={robot.robot_id} only="ssh" />}
         {tab === 'credentials' && <CredentialsTab robotId={robot.robot_id} only="other" />}
         {tab === 'dispatch' && <DispatchTab robotId={robot.robot_id} />}
