@@ -95,7 +95,8 @@ export class StorageService {
       await fs.copyFile(tmpPath, dest, fs.constants.COPYFILE_EXCL);
       // A failure fails the upload: a file only this server can read is the problem the copy exists to prevent.
       try {
-        await this.copyToShared(key, dest, size, contentType);
+        // A server that hands files over is a developer's machine: it keeps no copy of its own.
+        if ((await this.copyToShared(key, dest, size, contentType)) === 'handoff') await fs.rm(dest, { force: true });
       } catch (e) {
         await fs.rm(dest, { force: true });
         const tooBig = isDenied(e) && size > MAX_HANDOFF_BYTES;
@@ -145,13 +146,15 @@ export class StorageService {
   }
 
   /** Puts a local file in the bucket, or in the hand-off table when this server may not write to the bucket. */
-  private async copyToShared(key: string, path: string, size: number, contentType: string | null | undefined): Promise<void> {
+  private async copyToShared(key: string, path: string, size: number, contentType: string | null | undefined): Promise<'bucket' | 'handoff'> {
     const type = contentType || 'application/octet-stream';
     try {
       await this.shared?.put(SHARED_PREFIX + key, createReadStream(path), type);
+      return 'bucket';
     } catch (e) {
       if (!isDenied(e) || !this.handoff || size > MAX_HANDOFF_BYTES) throw e;
       await this.handoff.save(key, await fs.readFile(path), type);
+      return 'handoff';
     }
   }
 
@@ -171,7 +174,7 @@ export class StorageService {
   async moveHandedOverFiles(): Promise<number> {
     if (!this.shared || !this.handoff) return 0;
     let moved = 0;
-    for (const f of await this.handoff.oldest(20)) {
+    for (let f = await this.handoff.next(); f; f = await this.handoff.next()) {
       try {
         await this.shared.put(SHARED_PREFIX + f.object_key, Readable.from(f.bytes), f.content_type || 'application/octet-stream');
       } catch (e) {

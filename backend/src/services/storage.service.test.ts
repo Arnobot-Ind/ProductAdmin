@@ -91,22 +91,30 @@ describe('local files shared between servers on one database', () => {
     const handoff = {
       save: async (key: string, bytes: Buffer) => void rows.set(key, bytes),
       read: async (key: string) => rows.get(key) ?? null,
-      oldest: async () => [...rows].map(([object_key, bytes]) => ({ object_key, content_type: 'image/webp', bytes })),
+      next: async () => {
+        const first = [...rows][0];
+        return first ? { object_key: first[0], content_type: 'image/webp', bytes: first[1] } : null;
+      },
       remove: async (key: string) => void rows.delete(key),
     } as unknown as FileHandoff;
-    const make = (b: unknown) => new StorageService({ storage: { driver: 'local', localDir: newDir(), s3: {} } } as unknown as ApiConfig, b as ArchiveStorage, handoff);
-    const [local, live] = [make(denied), make(bucket)];
+    const make = (b: unknown, dir = newDir()) => new StorageService({ storage: { driver: 'local', localDir: dir, s3: {} } } as unknown as ApiConfig, b as ArchiveStorage, handoff);
+    const localDisk = newDir();
+    const [local, live] = [make(denied, localDisk), make(bucket)];
 
     const up = await local.put(tempFile('photo'), 'products/x/media', 'a.webp', 'image/webp');
-    expect(rows.size).toBe(1);
+    const other = await local.put(tempFile('frame'), 'products/x/media', 'b.webp', 'image/webp');
+    expect(rows.size).toBe(2);
+    expect(readdirSync(localDisk, { recursive: true }).filter((f) => String(f).endsWith('.webp'))).toEqual([]);
     expect(await read(live, up.key)).toBe('photo');
+    expect(await read(local, up.key)).toBe('photo');
     expect(await local.moveHandedOverFiles()).toBe(0);
-    expect(rows.size).toBe(1);
+    expect(rows.size).toBe(2);
 
-    expect(await live.moveHandedOverFiles()).toBe(1);
+    expect(await live.moveHandedOverFiles()).toBe(2);
     expect(rows.size).toBe(0);
     expect(await read(live, up.key)).toBe('photo');
     expect(await read(local, up.key)).toBe('photo');
+    expect(await read(local, other.key)).toBe('frame');
   });
 
   it('a file nobody has is simply not found', async () => {

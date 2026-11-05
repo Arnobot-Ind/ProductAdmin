@@ -12,8 +12,9 @@ export class FileHandoff {
     return (await this.db.query<{ bytes: Buffer }>('SELECT bytes FROM file_handoff WHERE object_key = $1', [key])).rows[0]?.bytes ?? null;
   }
 
-  async oldest(limit: number): Promise<{ object_key: string; content_type: string | null; bytes: Buffer }[]> {
-    return (await this.db.query<{ object_key: string; content_type: string | null; bytes: Buffer }>('SELECT object_key, content_type, bytes FROM file_handoff ORDER BY created_at LIMIT $1', [limit])).rows;
+  /** One file at a time: a whole 360° series can be waiting, and each file is up to 20 MB. */
+  async next(): Promise<{ object_key: string; content_type: string | null; bytes: Buffer } | null> {
+    return (await this.db.query<{ object_key: string; content_type: string | null; bytes: Buffer }>('SELECT object_key, content_type, bytes FROM file_handoff ORDER BY created_at LIMIT 1')).rows[0] ?? null;
   }
 
   async remove(key: string): Promise<void> {
