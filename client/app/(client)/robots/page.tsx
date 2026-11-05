@@ -18,7 +18,6 @@ import { fmtSerial } from '@/lib/format';
 const FILTERS: { id: 'all' | RobotStatus; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'online', label: 'Online' },
-  { id: 'stale', label: 'Stale' },
   { id: 'offline', label: 'Offline' },
 ];
 

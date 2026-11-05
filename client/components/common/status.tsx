@@ -9,13 +9,12 @@ import { computeRobotStatus } from '@/lib/schema';
 
 const STATUS: Record<RobotStatus, { tone: Tone; label: string; Icon: typeof CircleDot }> = {
   online: { tone: 'ok', label: 'Online', Icon: CircleDot },
-  stale: { tone: 'warn', label: 'Stale', Icon: AlertTriangle },
   offline: { tone: 'offline', label: 'Offline', Icon: WifiOff },
 };
 
 /**
  * Spec §7: status is COMPUTED from last-seen time. Recomputed every 5 s in the browser so a robot
- * that stops reporting turns Stale → Offline on screen even when no new data arrives.
+ * that stops reporting turns Offline on screen even when no new data arrives.
  */
 export function RobotStatusBadge({ lastSeenAt, showAge }: { lastSeenAt: string | null; showAge?: boolean }) {
   const now = useNow(5000);
