@@ -1,6 +1,7 @@
 import { createPool, CredentialCipher, type Db } from './db';
 import type { ApiConfig } from './lib/config';
 import { ArchiveService } from './services/archive/archive.service';
+import { createArchiveStorage } from './services/archive/storage';
 import { AuditService } from './services/audit.service';
 import { AuthService } from './services/auth.service';
 import { DocumentsService } from './services/documents.service';
@@ -39,7 +40,8 @@ export interface AppContext {
 }
 
 export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUrl, { application_name: 'pms-backend', max: 30 })): AppContext {
-  const storage = new StorageService(cfg);
+  // No bucket name means no shared copy (development without S3).
+  const storage = new StorageService(cfg, cfg.archive.s3.bucket ? createArchiveStorage(cfg.archive) : null);
   return {
     cfg,
     db,

@@ -64,6 +64,12 @@ export class FilesService {
     return row;
   }
 
+  /** Puts this server's local files in the shared copy. `missing` are on another server: it copies them when it starts. */
+  async shareLocalFiles(): Promise<{ copied: number; missing: number }> {
+    const rows = await this.db.query<{ object_key: string; content_type: string | null }>("SELECT object_key, content_type FROM files WHERE storage_driver = 'local' AND deleted_at IS NULL");
+    return this.storage.shareLocalFiles(rows.rows);
+  }
+
   /** Streams a local file or redirects to a presigned S3 URL. */
   /**
    * Streams a stored file. `inline` asks the browser to show it in place (preview) instead of saving it; it is honoured

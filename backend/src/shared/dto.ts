@@ -667,6 +667,8 @@ export interface SoftwareHistoryDto {
   id: string;
   sw_ver: string | null;
   fw_ver: string | null;
+  /** The commit, when it was recorded in the panel. Robots report versions only. */
+  commit_id: string | null;
   enabled_features: string[] | null;
   reported_at: string;
   boot_id: string | null;
@@ -678,6 +680,9 @@ export interface SoftwareHistoryDto {
 export interface SoftwareDto {
   current: SoftwareHistoryDto | null;
   last_update_at: string | null;
+  /** The newest recorded commit, and when. A robot report that changes the version later does not clear it. */
+  installed_commit_id: string | null;
+  installed_commit_at: string | null;
   history: SoftwareHistoryDto[];
 }
 
@@ -1418,6 +1423,17 @@ export interface FleetHourlyDto {
     hour: string;
     by_category: Record<RobotCategory, { driven_m: number; moving_s: number }>;
   }[];
+}
+
+/** The newest version in a robot's repository on GitHub. */
+export interface SoftwareLatestDto {
+  repo_url: string;
+  /** The latest release's tag; null when the repository has no releases and `branch` is used. */
+  version: string | null;
+  branch: string | null;
+  commit_id: string;
+  committed_at: string | null;
+  message: string;
 }
 
 // ── storage used on AWS (main dashboard) ───────────────────────────────────

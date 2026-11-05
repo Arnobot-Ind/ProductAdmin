@@ -9,12 +9,14 @@ import type {
   RobotListItemDto,
   RobotRegisteredDto,
   SoftwareDto,
+  SoftwareLatestDto,
 } from '../shared';
 import type { FastifyInstance } from 'fastify';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import type { AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
+import { latestFromGithub } from '../lib/github';
 import { anyScope, platform, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { includeDeleted, isoDate, isoDateTime, nullableText, optionalBool, pageQuery, uuidSchema } from '../lib/validation';
@@ -75,6 +77,7 @@ const patchBody = z
 const softwareBody = z.object({
   sw_ver: nullableText(100),
   fw_ver: nullableText(100),
+  commit_id: z.string().trim().toLowerCase().regex(/^[0-9a-f]{7,64}$/, 'a commit id: 7 to 64 letters a-f and digits').nullable().or(z.literal('').transform(() => null)).optional(),
   enabled_features: z.array(z.string().trim().min(1).max(100)).max(100),
   /** When the update happened (default now). */
   updated_at: isoDateTime.optional(),
@@ -82,13 +85,14 @@ const softwareBody = z.object({
 });
 async function softwareDto(robotId: string, q: Queryable): Promise<SoftwareDto> {
   const rows = await q.query(
-    `SELECT s.id, s.sw_ver, s.fw_ver, s.enabled_features, s.reported_at, s.boot_id, s.source, u.name AS entered_by_name, s.note
+    `SELECT s.id, s.sw_ver, s.fw_ver, s.commit_id, s.enabled_features, s.reported_at, s.boot_id, s.source, u.name AS entered_by_name, s.note
      FROM software_history s LEFT JOIN users u ON u.id = s.entered_by
      WHERE s.robot_id = $1 ORDER BY s.reported_at DESC, s.created_at DESC`,
     [robotId],
   );
   const history = rows.rows.map((r) => ({ ...r, reported_at: iso(r.reported_at)! }));
-  return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, history };
+  const installed = history.find((h) => h.commit_id);
+  return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, installed_commit_id: installed?.commit_id ?? null, installed_commit_at: installed?.reported_at ?? null, history };
 }
 const ownershipBody = z.object({ company_id: uuidSchema, reason: nullableText(500).optional(), valid_from: isoDateTime.optional() });
 const ipField = z.preprocess(
@@ -459,6 +463,19 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
     },
   });
   route(f, app, {
+    method: 'GET',
+    path: '/robots/:robotId/software/latest',
+    summary: "The newest version in the base model's GitHub repository. Reads only: nothing is saved or installed",
+    tag,
+    access: { can: 'robot.write', target: robotParam() },
+    handler: async ({ params }): Promise<SoftwareLatestDto> => {
+      await robots.assertExists(params.robotId);
+      const row = (await db.query<{ repo_url: string | null }>('SELECT p.repo_url FROM robots r JOIN products p ON p.id = r.product_id WHERE r.robot_id = $1', [params.robotId])).rows[0];
+      if (!row?.repo_url) throw badRequest('Add the repository link first.');
+      return latestFromGithub(row.repo_url, app.cfg.github.token);
+    },
+  });
+  route(f, app, {
     method: 'POST',
     path: '/robots/:robotId/software',
     summary: 'Record a software / firmware update or change of enabled features from the panel (kept in the history as "manual")',
@@ -474,14 +491,17 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
           'SELECT sw_ver, fw_ver, enabled_features FROM software_history WHERE robot_id = $1 ORDER BY reported_at DESC, created_at DESC LIMIT 1',
           [params.robotId],
         )).rows[0];
-        if (current && current.sw_ver === body.sw_ver && current.fw_ver === body.fw_ver && JSON.stringify(current.enabled_features ?? []) === JSON.stringify(features)) {
+        const installed = (await tx.query<{ commit_id: string }>('SELECT commit_id FROM software_history WHERE robot_id = $1 AND commit_id IS NOT NULL ORDER BY reported_at DESC, created_at DESC LIMIT 1', [params.robotId])).rows[0];
+        const commitId = body.commit_id ?? null;
+        const sameCommit = !commitId || installed?.commit_id.startsWith(commitId);
+        if (current && sameCommit && current.sw_ver === body.sw_ver && current.fw_ver === body.fw_ver && JSON.stringify(current.enabled_features ?? []) === JSON.stringify(features)) {
           throw conflict('nothing changed: this is already the current software');
         }
         const reportedAt = body.updated_at ? new Date(body.updated_at) : new Date();
         await tx.query(
-          `INSERT INTO software_history (robot_id, sw_ver, fw_ver, enabled_features, reported_at, source, entered_by, note)
-           VALUES ($1, $2, $3, $4, $5, 'manual', $6, $7)`,
-          [params.robotId, body.sw_ver, body.fw_ver, JSON.stringify(features), reportedAt, user.id, body.note ?? null],
+          `INSERT INTO software_history (robot_id, sw_ver, fw_ver, commit_id, enabled_features, reported_at, source, entered_by, note)
+           VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8)`,
+          [params.robotId, body.sw_ver, body.fw_ver, commitId, JSON.stringify(features), reportedAt, user.id, body.note ?? null],
         );
         await app.audit.record(
           {
@@ -489,7 +509,7 @@ export function robotRoutes(f: FastifyInstance, app: AppContext): void {
             actor: user,
             target: { type: 'robot', id: params.robotId },
             robotId: params.robotId,
-            detail: { from: current ?? null, to: { sw_ver: body.sw_ver, fw_ver: body.fw_ver, enabled_features: features }, note: body.note ?? null },
+            detail: { from: current ?? null, to: { sw_ver: body.sw_ver, fw_ver: body.fw_ver, commit_id: commitId, enabled_features: features }, note: body.note ?? null },
             req,
           },
           tx,
