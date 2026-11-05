@@ -570,7 +570,7 @@ export function ProductMediaCard({
             <MediaHeader
               id="pm-spin"
               title="360° view from a photo series"
-              hint={`Walk around the ${thing} and take a photo every 10–15° (24–36 photos), same height and distance. Name the files in order (01.jpg, 02.jpg …). Up to 120 photos; any over 2 MB are made smaller automatically.`}
+              hint={`Walk around the ${thing} and take a photo every 10–15° (24–36 photos), same height and distance. Name the files in order (01.webp, 02.webp …). WebP, JPEG and PNG all work. Up to 120 photos; any over 2 MB are made smaller automatically.`}
               canWrite={canWrite}
               busy={!!busy}
               accept="image/png,image/jpeg,image/webp"
