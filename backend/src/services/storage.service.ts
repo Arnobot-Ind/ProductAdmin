@@ -4,10 +4,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import type { ApiConfig } from '../lib/config';
 import { ApiError } from '../lib/errors';
 import { ObjectNotFound, type ArchiveStorage } from './archive/storage';
+import type { FileHandoff } from './file-handoff';
 
 export interface StoredObject {
   driver: 'local' | 's3';
@@ -22,6 +23,11 @@ export type Download = { kind: 'redirect'; url: string } | { kind: 'stream'; str
 
 /** Folder in the archive bucket holding a copy of every local file. The archive index ignores folders that are not robots. */
 const SHARED_PREFIX = 'pms-files/';
+
+/** The largest file a server without write access can hand over through the database. */
+const MAX_HANDOFF_BYTES = 20 * 1024 * 1024;
+
+const isDenied = (e: unknown) => (e as { name?: string }).name === 'AccessDenied';
 
 /** Safe filename for object keys and Content-Disposition. */
 export function safeFilename(name: string): string {
@@ -45,6 +51,8 @@ export async function sha256File(path: string): Promise<string> {
  *
  * Several servers can share one database (the live server and a developer's machine), but not one disk. So the local
  * driver also keeps a copy of each file in the archive bucket, and reads that copy when a file is not on this disk.
+ * A server whose AWS key cannot write to the bucket leaves the file in the database's hand-off table instead; a server
+ * that can write moves it to the bucket.
  */
 export class StorageService {
   private readonly s3: S3Client | null;
@@ -53,6 +61,7 @@ export class StorageService {
   constructor(
     private readonly cfg: ApiConfig,
     private readonly shared: ArchiveStorage | null = null,
+    private readonly handoff: FileHandoff | null = null,
   ) {
     this.driver = cfg.storage.driver;
     const s = cfg.storage.s3;
@@ -86,11 +95,11 @@ export class StorageService {
       await fs.copyFile(tmpPath, dest, fs.constants.COPYFILE_EXCL);
       // A failure fails the upload: a file only this server can read is the problem the copy exists to prevent.
       try {
-        await this.shared?.put(SHARED_PREFIX + key, createReadStream(dest), contentType || 'application/octet-stream');
+        await this.copyToShared(key, dest, size, contentType);
       } catch (e) {
         await fs.rm(dest, { force: true });
-        const denied = (e as { name?: string }).name === 'AccessDenied';
-        throw new ApiError(503, 'shared_storage_unavailable', denied ? "Not saved: this server's AWS key cannot write to the shared file storage. Upload on the live site, or give the key write access to pms-files/." : 'Not saved: the shared file storage could not be reached. Try again in a moment.');
+        const tooBig = isDenied(e) && size > MAX_HANDOFF_BYTES;
+        throw new ApiError(503, 'shared_storage_unavailable', tooBig ? "Not saved: this file is over 20 MB and this server's AWS key cannot write to the shared file storage. Upload it on the live site." : 'Not saved: the shared file storage could not be reached. Try again in a moment.');
       }
       return { driver: 'local', bucket: null, key, versionId: null, sizeBytes: size, sha256 };
     }
@@ -135,15 +144,44 @@ export class StorageService {
     return { kind: 'redirect', url };
   }
 
+  /** Puts a local file in the bucket, or in the hand-off table when this server may not write to the bucket. */
+  private async copyToShared(key: string, path: string, size: number, contentType: string | null | undefined): Promise<void> {
+    const type = contentType || 'application/octet-stream';
+    try {
+      await this.shared?.put(SHARED_PREFIX + key, createReadStream(path), type);
+    } catch (e) {
+      if (!isDenied(e) || !this.handoff || size > MAX_HANDOFF_BYTES) throw e;
+      await this.handoff.save(key, await fs.readFile(path), type);
+    }
+  }
+
   private async readShared(key: string): Promise<Download | null> {
     if (!this.shared) return null;
     try {
       const obj = await this.shared.get(SHARED_PREFIX + key);
       return { kind: 'stream', stream: obj.body, size: obj.length };
     } catch (e) {
-      if (e instanceof ObjectNotFound) return null;
-      throw e;
+      if (!(e instanceof ObjectNotFound)) throw e;
     }
+    const bytes = await this.handoff?.read(key);
+    return bytes ? { kind: 'stream', stream: Readable.from(bytes), size: bytes.length } : null;
+  }
+
+  /** Moves handed-over files to the bucket. A server that may not write there leaves them for one that can. */
+  async moveHandedOverFiles(): Promise<number> {
+    if (!this.shared || !this.handoff) return 0;
+    let moved = 0;
+    for (const f of await this.handoff.oldest(20)) {
+      try {
+        await this.shared.put(SHARED_PREFIX + f.object_key, Readable.from(f.bytes), f.content_type || 'application/octet-stream');
+      } catch (e) {
+        if (isDenied(e)) return moved;
+        throw e;
+      }
+      await this.handoff.remove(f.object_key);
+      moved += 1;
+    }
+    return moved;
   }
 
   /** Copies local files the bucket does not have yet, so files uploaded before the copy existed reach the other servers. */
@@ -155,13 +193,15 @@ export class StorageService {
     for (const f of files) {
       if (have.has(SHARED_PREFIX + f.object_key)) continue;
       const path = this.localPath(f.object_key);
+      let size: number;
       try {
-        await fs.access(path);
+        size = (await fs.stat(path)).size;
       } catch {
         missing += 1;
         continue;
       }
-      await this.shared.put(SHARED_PREFIX + f.object_key, createReadStream(path), f.content_type || 'application/octet-stream');
+      if (await this.handoff?.read(f.object_key)) continue;
+      await this.copyToShared(f.object_key, path, size, f.content_type);
       copied += 1;
     }
     return { copied, missing };
