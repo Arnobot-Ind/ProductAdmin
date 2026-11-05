@@ -24,6 +24,7 @@ export function SoftwareTab({ robot }: { robot: RobotDetailDto }) {
   const toast = useToast();
   const [recording, setRecording] = useState(false);
   const [editingRepo, setEditingRepo] = useState(false);
+  const [editingCommit, setEditingCommit] = useState(false);
   const [latest, setLatest] = useState<SoftwareLatestDto | null>(null);
   const q = useQuery({ queryKey: ['robot', robotId, 'software'], queryFn: () => api.get<SoftwareDto>(`/robots/${robotId}/software`) });
   const fetchLatest = useMutation({
@@ -32,20 +33,9 @@ export function SoftwareTab({ robot }: { robot: RobotDetailDto }) {
     onError: toast.error,
   });
   const recordButton = can('robot.write') && (
-    <span className="flex flex-wrap gap-2">
-      <Button
-        icon={<CloudDownload className="size-4" aria-hidden />}
-        onClick={() => fetchLatest.mutate()}
-        loading={fetchLatest.isPending}
-        disabled={!robot.repo_url}
-        title={robot.repo_url ? 'Find the newest version on GitHub' : 'Add the repository link first'}
-      >
-        Auto update
-      </Button>
-      <Button variant="primary" icon={<RefreshCcw className="size-4" aria-hidden />} onClick={() => setRecording(true)}>
-        Record update
-      </Button>
-    </span>
+    <Button variant="primary" icon={<RefreshCcw className="size-4" aria-hidden />} onClick={() => setRecording(true)}>
+      Record update
+    </Button>
   );
   return (
     <>
@@ -65,12 +55,45 @@ export function SoftwareTab({ robot }: { robot: RobotDetailDto }) {
             <GitBranch className="size-4 shrink-0" aria-hidden /> {robot.repo_url} <ExternalLink className="size-3.5 shrink-0" aria-hidden />
           </a>
         ) : (
-          <p className="text-muted">No repository link yet. Add one to use Auto update.</p>
+          <p className="text-muted">No repository link yet. Add one to fetch the latest commit.</p>
         )}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <div>
+            <p className="text-sm text-muted">Commit id</p>
+            {q.data?.installed_commit_id ? (
+              <>
+                <p className="text-lg font-medium">
+                  <CommitLink repoUrl={robot.repo_url} id={q.data.installed_commit_id} />
+                </p>
+                <p className="text-sm text-muted">
+                  {q.data.installed_commit_source === 'manual' ? 'Saved' : 'Last reported by the robot'} <Time iso={q.data.installed_commit_at} />
+                </p>
+              </>
+            ) : (
+              <p className="text-lg text-muted">No commit id yet</p>
+            )}
+          </div>
+          {can('robot.write') && !robot.deleted_at && (
+            <div className="flex flex-wrap gap-2">
+              <Button icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditingCommit(true)}>
+                Edit commit
+              </Button>
+              <Button
+                icon={<CloudDownload className="size-4" aria-hidden />}
+                onClick={() => fetchLatest.mutate()}
+                loading={fetchLatest.isPending}
+                disabled={!robot.repo_url}
+                title={robot.repo_url ? 'Find the newest commit on GitHub' : 'Add the repository link first'}
+              >
+                Fetch latest commit
+              </Button>
+            </div>
+          )}
+        </div>
       </Card>
       <QueryView query={q}>
         {(sw) =>
-          !sw.current ? (
+          !sw.current && !sw.deployed_version ? (
             <EmptyState
               title="No software recorded yet"
               description="The robot reports its software and firmware versions at boot and after every reconnect. You can also record them here."
@@ -82,35 +105,34 @@ export function SoftwareTab({ robot }: { robot: RobotDetailDto }) {
                 <KeyValue
                   columns={3}
                   items={[
-                    { label: 'Software version', value: sw.current.sw_ver ? <Mono>{sw.current.sw_ver}</Mono> : null },
-                    { label: 'Firmware version', value: sw.current.fw_ver ? <Mono>{sw.current.fw_ver}</Mono> : null },
                     {
-                      label: 'Installed commit',
-                      value: sw.installed_commit_id ? (
+                      label: 'Deployed version',
+                      value: sw.deployed_version ? (
                         <span>
-                          <CommitLink repoUrl={robot.repo_url} id={sw.installed_commit_id} />
+                          <Mono>{sw.deployed_version}</Mono>
                           <span className="block text-xs text-muted">
-                            Recorded <Time iso={sw.installed_commit_at} />
+                            {sw.deployed_source === 'manual' ? 'Saved' : 'Last reported by the robot'} <Time iso={sw.deployed_at} />
                           </span>
                         </span>
                       ) : null,
                     },
+                    { label: 'Firmware version', value: sw.deployed_fw_ver ? <Mono>{sw.deployed_fw_ver}</Mono> : null },
                     {
                       label: 'Last update',
                       value: (
                         <span>
                           <Time iso={sw.last_update_at} />
                           <span className="block text-xs text-muted">
-                            {sw.current.source === 'manual' ? `Recorded by ${sw.current.entered_by_name ?? 'an admin'}` : 'Reported by the robot'}
+                            {sw.current?.source === 'manual' ? `Recorded by ${sw.current.entered_by_name ?? 'an admin'}` : 'Reported by the robot'}
                           </span>
                         </span>
                       ),
                     },
                     {
                       label: 'Enabled features',
-                      value: sw.current.enabled_features?.length ? (
+                      value: sw.current?.enabled_features?.length ? (
                         <span className="flex flex-wrap gap-1">
-                          {sw.current.enabled_features.map((f) => (
+                          {sw.current?.enabled_features?.map((f) => (
                             <Badge key={f} tone="accent">
                               {f}
                             </Badge>
@@ -157,9 +179,10 @@ export function SoftwareTab({ robot }: { robot: RobotDetailDto }) {
           )
         }
       </QueryView>
-      <RecordUpdateDialog robotId={robotId} open={recording} onClose={() => setRecording(false)} current={q.data?.current ?? null} installedCommit={q.data?.installed_commit_id ?? null} />
+      <RecordUpdateDialog robotId={robotId} open={recording} onClose={() => setRecording(false)} current={q.data?.current ?? null} deployed={q.data ?? null} />
       <RepoDialog robot={robot} open={editingRepo} onClose={() => setEditingRepo(false)} />
-      <AutoUpdateDialog robotId={robotId} latest={latest} onClose={() => setLatest(null)} current={q.data?.current ?? null} installedCommit={q.data?.installed_commit_id ?? null} />
+      <CommitDialog robotId={robotId} open={editingCommit} onClose={() => setEditingCommit(false)} sw={q.data ?? null} />
+      <AutoUpdateDialog robotId={robotId} latest={latest} onClose={() => setLatest(null)} current={q.data?.current ?? null} deployed={q.data ?? null} installedCommit={q.data?.installed_commit_id ?? null} />
     </>
   );
 }
@@ -174,6 +197,59 @@ function CommitLink({ repoUrl, id }: { repoUrl: string | null; id: string }) {
     </a>
   ) : (
     <span title={id}>{short}</span>
+  );
+}
+
+/** A version made of a commit ("git-0076906") follows the commit; a real version number stays as it is. */
+const versionForCommit = (version: string | null | undefined, commitId: string) => (!version || /^git-/i.test(version) ? `git-${commitId.slice(0, 7)}` : version);
+
+/** Type the commit by hand. Saved in the history for this robot. */
+function CommitDialog({ robotId, open, onClose, sw }: { robotId: string; open: boolean; onClose: () => void; sw: SoftwareDto | null }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [commit, setCommit] = useState('');
+  useEffect(() => {
+    if (open) setCommit(sw?.installed_commit_id ?? '');
+  }, [open, sw?.installed_commit_id]);
+  const value = commit.trim().toLowerCase();
+  const bad = !/^[0-9a-f]{7,64}$/.test(value);
+  const same = !!value && !!sw?.installed_commit_id?.startsWith(value);
+  const m = useMutation({
+    mutationFn: () =>
+      api.post<SoftwareDto>(`/robots/${robotId}/software`, {
+        sw_ver: versionForCommit(sw?.deployed_version, value),
+        fw_ver: sw?.deployed_fw_ver ?? null,
+        commit_id: value,
+        enabled_features: sw?.current?.enabled_features ?? [],
+        note: 'Commit id edited',
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(['robot', robotId, 'software'], data);
+      void qc.invalidateQueries({ queryKey: ['robot', robotId] });
+      toast.success('Commit id saved');
+      onClose();
+    },
+    onError: toast.error,
+  });
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Edit commit id"
+      description="The commit this robot runs. It does not change anything on the robot, and a newer report from the robot replaces it."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={bad || same}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <Field label="Commit id" hint="From GitHub, e.g. 7fd1a60" error={value && bad ? 'A commit id has 7 to 64 letters a-f and digits.' : undefined}>
+        <Input value={commit} onChange={(e) => setCommit(e.target.value)} spellCheck={false} className="font-mono" data-autofocus />
+      </Field>
+    </Dialog>
   );
 }
 
@@ -211,7 +287,7 @@ function RepoDialog({ robot, open, onClose }: { robot: RobotDetailDto; open: boo
         </>
       }
     >
-      <Field label="Git repository link" hint="Leave empty to remove the link. Auto update works with github.com links.">
+      <Field label="Git repository link" hint="Leave empty to remove the link. Fetching the latest commit works with github.com links.">
         <Input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/Arnobot-Ind/…" spellCheck={false} data-autofocus />
       </Field>
     </Dialog>
@@ -219,23 +295,23 @@ function RepoDialog({ robot, open, onClose }: { robot: RobotDetailDto; open: boo
 }
 
 /** Shows what GitHub has against what is recorded. Saving only updates the record: nothing is installed on the robot. */
-function AutoUpdateDialog({ robotId, latest, onClose, current, installedCommit }: { robotId: string; latest: SoftwareLatestDto | null; onClose: () => void; current: SoftwareDto['current']; installedCommit: string | null }) {
+function AutoUpdateDialog({ robotId, latest, onClose, current, deployed, installedCommit }: { robotId: string; latest: SoftwareLatestDto | null; onClose: () => void; current: SoftwareDto['current']; deployed: SoftwareDto | null; installedCommit: string | null }) {
   const qc = useQueryClient();
   const toast = useToast();
   const upToDate = !!latest && !!installedCommit && latest.commit_id.startsWith(installedCommit);
   const m = useMutation({
     mutationFn: () =>
       api.post<SoftwareDto>(`/robots/${robotId}/software`, {
-        sw_ver: latest!.version ?? current?.sw_ver ?? null,
-        fw_ver: current?.fw_ver ?? null,
+        sw_ver: latest!.version ?? versionForCommit(deployed?.deployed_version, latest!.commit_id),
+        fw_ver: deployed?.deployed_fw_ver ?? null,
         commit_id: latest!.commit_id,
         enabled_features: current?.enabled_features ?? [],
-        note: 'Auto update: latest from GitHub',
+        note: 'Latest commit fetched from GitHub',
       }),
     onSuccess: (data) => {
       qc.setQueryData(['robot', robotId, 'software'], data);
       void qc.invalidateQueries({ queryKey: ['robot', robotId] });
-      toast.success('Saved as the installed version');
+      toast.success('Commit id saved');
       onClose();
     },
     onError: toast.error,
@@ -244,8 +320,8 @@ function AutoUpdateDialog({ robotId, latest, onClose, current, installedCommit }
     <Dialog
       open={!!latest}
       onClose={onClose}
-      title={upToDate ? 'Already up to date' : 'New version found'}
-      description={upToDate ? 'The recorded commit is the newest one on GitHub.' : 'Saving records this as the installed version. It does not install anything on the robot.'}
+      title={upToDate ? 'Already up to date' : 'Latest commit on GitHub'}
+      description={upToDate ? 'The recorded commit is the newest one on GitHub.' : 'Saving records this as the commit this robot runs. It does not install anything on the robot, and a newer report from the robot replaces it.'}
       footer={
         upToDate ? (
           <Button onClick={onClose}>Close</Button>
@@ -253,7 +329,7 @@ function AutoUpdateDialog({ robotId, latest, onClose, current, installedCommit }
           <>
             <Button onClick={onClose}>Cancel</Button>
             <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending}>
-              Save as installed
+              Save commit
             </Button>
           </>
         )
@@ -266,7 +342,7 @@ function AutoUpdateDialog({ robotId, latest, onClose, current, installedCommit }
             { label: 'Latest version', value: latest.version ? <Mono>{latest.version}</Mono> : `Newest commit on ${latest.branch}` },
             { label: 'Latest commit', value: <CommitLink repoUrl={latest.repo_url} id={latest.commit_id} /> },
             { label: 'Committed', value: <Time iso={latest.committed_at} /> },
-            { label: 'Installed now', value: installedCommit ? <CommitLink repoUrl={latest.repo_url} id={installedCommit} /> : current?.sw_ver ? <Mono>{current.sw_ver}</Mono> : 'Not recorded' },
+            { label: 'Installed now', value: installedCommit ? <CommitLink repoUrl={latest.repo_url} id={installedCommit} /> : deployed?.deployed_version ? <Mono>{deployed.deployed_version}</Mono> : 'Not recorded' },
             { label: 'What changed', value: latest.message },
           ]}
         />
@@ -275,12 +351,11 @@ function AutoUpdateDialog({ robotId, latest, onClose, current, installedCommit }
   );
 }
 
-function RecordUpdateDialog({ robotId, open, onClose, current, installedCommit }: { robotId: string; open: boolean; onClose: () => void; current: SoftwareDto['current']; installedCommit: string | null }) {
+function RecordUpdateDialog({ robotId, open, onClose, current, deployed }: { robotId: string; open: boolean; onClose: () => void; current: SoftwareDto['current']; deployed: SoftwareDto | null }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [sw, setSw] = useState('');
   const [fw, setFw] = useState('');
-  const [commit, setCommit] = useState('');
   const [features, setFeatures] = useState<string[]>([]);
   const [newFeature, setNewFeature] = useState('');
   const [when, setWhen] = useState('');
@@ -288,14 +363,13 @@ function RecordUpdateDialog({ robotId, open, onClose, current, installedCommit }
   // Start from what the robot runs now: change only what was updated.
   useEffect(() => {
     if (!open) return;
-    setSw(current?.sw_ver ?? '');
-    setFw(current?.fw_ver ?? '');
-    setCommit(installedCommit ?? '');
+    setSw(deployed?.deployed_version ?? '');
+    setFw(deployed?.deployed_fw_ver ?? '');
     setFeatures(current?.enabled_features ?? []);
     setNewFeature('');
     setWhen(toLocalInput(new Date().toISOString()));
     setNote('');
-  }, [open, current, installedCommit]);
+  }, [open, current, deployed]);
 
   const addFeature = () => {
     const f = newFeature.trim();
@@ -308,17 +382,14 @@ function RecordUpdateDialog({ robotId, open, onClose, current, installedCommit }
       addFeature();
     }
   };
-  const commitValue = commit.trim().toLowerCase();
-  const commitBad = !!commitValue && !/^[0-9a-f]{7,64}$/.test(commitValue);
   const unchanged =
-    !!current && (current.sw_ver ?? '') === sw.trim() && (current.fw_ver ?? '') === fw.trim() && (!commitValue || !!installedCommit?.startsWith(commitValue)) && JSON.stringify(current.enabled_features ?? []) === JSON.stringify([...features].sort());
+    !!current && (deployed?.deployed_version ?? '') === sw.trim() && (deployed?.deployed_fw_ver ?? '') === fw.trim() && JSON.stringify(current.enabled_features ?? []) === JSON.stringify([...features].sort());
 
   const m = useMutation({
     mutationFn: () =>
       api.post<SoftwareDto>(`/robots/${robotId}/software`, {
         sw_ver: sw.trim() || null,
         fw_ver: fw.trim() || null,
-        commit_id: commitValue || null,
         enabled_features: newFeature.trim() && !features.includes(newFeature.trim()) ? [...features, newFeature.trim()] : features,
         updated_at: fromLocalInput(when),
         note: note.trim() || null,
@@ -340,21 +411,18 @@ function RecordUpdateDialog({ robotId, open, onClose, current, installedCommit }
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={commitBad || (unchanged && !newFeature.trim())}>
+          <Button variant="primary" onClick={() => m.mutate()} loading={m.isPending} disabled={unchanged && !newFeature.trim()}>
             Save update
           </Button>
         </>
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Software version" hint={current?.sw_ver ? `Now ${current.sw_ver}` : 'e.g. 2.4.1'}>
+        <Field label="Software version" hint={deployed?.deployed_version ? `Now ${deployed.deployed_version}` : 'e.g. 2.4.1'}>
           <Input value={sw} onChange={(e) => setSw(e.target.value)} spellCheck={false} data-autofocus />
         </Field>
-        <Field label="Firmware version" hint={current?.fw_ver ? `Now ${current.fw_ver}` : 'e.g. 1.9.0'}>
+        <Field label="Firmware version" hint={deployed?.deployed_fw_ver ? `Now ${deployed.deployed_fw_ver}` : 'e.g. 1.9.0'}>
           <Input value={fw} onChange={(e) => setFw(e.target.value)} spellCheck={false} />
-        </Field>
-        <Field label="Commit" hint={installedCommit ? `Now ${installedCommit.slice(0, 7)}` : 'The commit id from GitHub, e.g. 7fd1a60'} error={commitBad ? 'A commit id has 7 to 64 letters a-f and digits.' : undefined} className="sm:col-span-2">
-          <Input value={commit} onChange={(e) => setCommit(e.target.value)} spellCheck={false} className="font-mono" />
         </Field>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <span className="text-sm font-medium" id="features-label">
@@ -388,7 +456,7 @@ function RecordUpdateDialog({ robotId, open, onClose, current, installedCommit }
         </Field>
         {unchanged && !newFeature.trim() && (
           <div className="sm:col-span-2">
-            <InlineAlert tone="accent">Change a version, the commit or a feature to record an update.</InlineAlert>
+            <InlineAlert tone="accent">Change a version or a feature to record an update.</InlineAlert>
           </div>
         )}
       </div>
