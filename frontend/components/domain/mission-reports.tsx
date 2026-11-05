@@ -75,7 +75,7 @@ export function MissionReportsBar({ robotId }: { robotId: string }) {
         <p className="text-sm font-semibold">Mission reports (PDF)</p>
         <p className="text-xs text-muted">Totals, distances and every mission of the period.</p>
       </div>
-      <div className="flex items-end gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           <span className="inline-flex items-center gap-1">
             <CalendarDays className="size-3.5" aria-hidden /> Day
@@ -86,7 +86,7 @@ export function MissionReportsBar({ robotId }: { robotId: string }) {
           Daily summary
         </Button>
       </div>
-      <div className="flex items-end gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           <span className="inline-flex items-center gap-1">
             <CalendarRange className="size-3.5" aria-hidden /> Month
@@ -123,7 +123,7 @@ function PatrolLogControl({ robotId }: { robotId: string }) {
     }
   };
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex flex-wrap items-end gap-2">
       <label className="flex flex-col gap-1 text-xs font-medium text-muted">
         <span className="inline-flex items-center gap-1">
           <Moon className="size-3.5" aria-hidden /> Patrol log

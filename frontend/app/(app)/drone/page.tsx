@@ -37,17 +37,20 @@ export default function DroneLivePage() {
         <iframe
           src={PLAYER}
           title="Drone camera and stats, live"
-          className="h-[calc(100vh-12rem)] min-h-[580px] w-full" /* the whole frame on screen: every stat at once */
+          className="h-[calc(100vh-9.5rem)] min-h-[520px] w-full" /* the whole frame on screen: every stat at once */
           allow="autoplay; fullscreen"
           referrerPolicy="no-referrer"
         />
       </div>
-      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted">
+      <details className="mt-2 text-sm text-muted">
+        <summary className="cursor-pointer">Help</summary>
+        <ul className="mt-1 list-disc space-y-1 pl-5">
         <li>The C12 camera and the drone&rsquo;s live stats through the Mumbai relay, about 1 s behind: live while the remote&rsquo;s Internet link is on and the drone is powered.</li>
         <li>The link in &ldquo;Open in a new tab&rdquo; works without a login: keep it inside the team.</li>
         <li>The camera sends H.265: use Safari, or Chrome / Edge on a Mac or Windows PC with hardware video decoding. Firefox cannot play it.</li>
         <li>&ldquo;connection refused&rdquo; in the player means the remote is off or its Internet link is switched off.</li>
       </ul>
+      </details>
     </>
   );
 }

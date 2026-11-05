@@ -20,7 +20,7 @@ const toneClass: Record<Tone, string> = {
 
 export function Badge({ tone = 'neutral', icon, children, className, title }: { tone?: Tone; icon?: ReactNode; children: ReactNode; className?: string; title?: string }) {
   return (
-    <span title={title} className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap', toneClass[tone], className)}>
+    <span title={title} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-px text-xs font-medium whitespace-nowrap', toneClass[tone], className)}>
       {icon}
       {children}
     </span>
@@ -31,27 +31,24 @@ export function Card({ id, title, actions, children, className, bodyClassName }:
   return (
     <section id={id} className={cn('scroll-mt-24 rounded-xl border border-border bg-surface shadow-sm', className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3.5">
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
           {title && <h2 className="text-base font-semibold">{title}</h2>}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       {/* A custom body class replaces the default padding (cn() does not resolve Tailwind conflicts). */}
-      <div className={bodyClassName ?? 'p-5'}>{children}</div>
+      <div className={bodyClassName ?? 'p-4'}>{children}</div>
     </section>
   );
 }
 
-export function PageHeader({ title, eyebrow, description, actions }: { title: ReactNode; eyebrow?: ReactNode; description?: ReactNode; actions?: ReactNode }) {
+/** A page's title and its actions, on one line. `eyebrow` is accepted for existing callers but no longer shown. */
+export function PageHeader({ title, description, actions }: { title: ReactNode; eyebrow?: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       {/* Level with the shell's Back button, never below it. */}
-      <BesideBack
-        className="min-w-0"
-        above={eyebrow && <p className="eyebrow">{eyebrow}</p>}
-        below={description && <p className="mt-2 max-w-3xl text-base text-muted">{description}</p>}
-      >
-        <h1 className="text-3xl font-bold">{title}</h1>
+      <BesideBack className="min-w-0" below={description && <p className="mt-0.5 max-w-3xl text-sm text-muted">{description}</p>}>
+        <h1 className="text-2xl font-semibold">{title}</h1>
       </BesideBack>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -60,9 +57,9 @@ export function PageHeader({ title, eyebrow, description, actions }: { title: Re
 
 export function EmptyState({ title, description, action, icon }: { title: string; description?: ReactNode; action?: ReactNode; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-6 text-center">
       <span className="text-muted" aria-hidden>
-        {icon ?? <Inbox className="size-8" />}
+        {icon ?? <Inbox className="size-6" />}
       </span>
       <p className="font-semibold">{title}</p>
       {description && <p className="max-w-md text-sm text-muted">{description}</p>}
@@ -206,7 +203,7 @@ export function Mono({ children, className }: { children: ReactNode; className?:
 
 export function InlineAlert({ tone = 'warn', title, children }: { tone?: 'warn' | 'fault' | 'ok' | 'accent'; title?: ReactNode; children: ReactNode }) {
   return (
-    <div role={tone === 'fault' ? 'alert' : 'note'} className={cn('rounded-md border px-3 py-2.5 text-sm', toneClass[tone])}>
+    <div role={tone === 'fault' ? 'alert' : 'note'} className={cn('rounded-md border px-3 py-2 text-sm', toneClass[tone])}>
       {title && <p className="mb-0.5 font-semibold">{title}</p>}
       <div className="text-fg">{children}</div>
     </div>

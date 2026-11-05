@@ -1420,6 +1420,18 @@ export interface FleetHourlyDto {
   }[];
 }
 
+// ── storage used on AWS (main dashboard) ───────────────────────────────────
+export interface StorageUsageDto {
+  checked_at: string;
+  /** Files in the S3 bucket plus the database. */
+  total_bytes: number;
+  files_bytes: number;
+  files_count: number;
+  database_bytes: number;
+  /** Every day (IST) from the first upload to today: bytes uploaded that day and the bucket's running total. */
+  daily: { date: string; added_bytes: number; total_bytes: number }[];
+}
+
 // ── system status (Settings page) ──────────────────────────────────────────
 export interface SystemStatusDto {
   checked_at: string;
@@ -1439,7 +1451,7 @@ export interface SystemStatusDto {
   };
   ffmpeg: { available: boolean; version: string | null };
   mqtt: { configured: boolean; connected: boolean | null };
-  robots: { total: number; online: number; stale: number; offline: number; sending_data: number; recording: number };
+  robots: { total: number; online: number; offline: number; sending_data: number; recording: number };
   archive: { sessions: number; files: number; bytes: number; last_upload_at: string | null };
 }
 
@@ -1575,6 +1587,8 @@ export interface RobotActivityDayDto {
   /** Activity log entries the user may see (raw robot messages not counted), and how many are warnings or worse. */
   log: number;
   log_warnings: number;
+  /** Raw messages the machine sent that day (0 without the permission to read them). */
+  messages: number;
 }
 
 export interface RobotLogDto extends Paginated<RobotLogEntryDto> {

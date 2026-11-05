@@ -4,23 +4,24 @@ import { fmtSerial } from '@/lib/format';
 import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { GeoMap, MapLegend } from '@/components/domain/geo-map';
-import { Button } from '@/components/ui/button';
-import { Field, Input } from '@/components/ui/field';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { GeoMap } from '@/components/domain/geo-map';
+import { OptionFilter } from '@/components/ui/filter-menu';
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { fmtDateTime, fmtDistance, fmtNum, fromLocalInput, toLocalInput } from '@/lib/format';
+import { fmtDateTime, fmtDistance } from '@/lib/format';
+import { periodBounds } from '@/lib/periods';
 
-const PRESETS = [
-  { id: '1h', label: '1 h', ms: 3_600_000 },
-  { id: '6h', label: '6 h', ms: 6 * 3_600_000 },
-  { id: '24h', label: '24 h', ms: 24 * 3_600_000 },
-  { id: '7d', label: '7 d', ms: 7 * 24 * 3_600_000 },
+const RANGES = [
+  { id: 'today', label: 'Today', title: 'today' },
+  { id: 'yesterday', label: 'Yesterday', title: 'yesterday' },
+  { id: '24h', label: '1 day', title: 'last 24 hours' },
+  { id: '7d', label: '7 days', title: 'last 7 days' },
+  { id: '30d', label: '1 month', title: 'last month' },
+  { id: '90d', label: '3 months', title: 'last 3 months' },
 ] as const;
-
-const SERIES_COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#a855f7', '#06b6d4', '#84cc16', '#ec4899'];
+type RangeId = (typeof RANGES)[number]['id'];
 
 function useSeries<T>(robotId: string, kind: string, from: string, to: string) {
   return useQuery({
@@ -30,165 +31,86 @@ function useSeries<T>(robotId: string, kind: string, from: string, to: string) {
   });
 }
 
-export function TelemetryTab({ robotId }: { robotId: string }) {
-  const [preset, setPreset] = useState<string>('24h');
-  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
-  // Anchor "now" when the range is chosen so query keys stay stable between renders, and move it forward every
-  // 30 s (the robot's telemetry cadence) so a "last 24 h" view keeps showing what has just arrived.
-  const [anchor, setAnchor] = useState(() => Date.now());
+/**
+ * Sensor history, as graphs or as a map. One time range for all of it: changing any Filter changes them all, and it is
+ * kept when moving between Graphs and Map.
+ */
+export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs' | 'map' }) {
+  const [range, setRange] = useState<RangeId>('7d');
+  // The window is fixed when the range is picked and moves forward once a minute, so new data appears.
+  const [bounds, setBounds] = useState(() => periodBounds('7d'));
   useEffect(() => {
-    if (preset === 'custom') return;
-    const id = window.setInterval(() => setAnchor(Date.now()), 30_000);
+    setBounds(periodBounds(range));
+    if (range === 'yesterday') return;
+    const id = window.setInterval(() => setBounds(periodBounds(range)), 60_000);
     return () => window.clearInterval(id);
-  }, [preset]);
-
-  const { from, to } = useMemo(() => {
-    if (preset === 'custom' && custom) return custom;
-    const p = PRESETS.find((x) => x.id === preset) ?? PRESETS[2];
-    return { from: new Date(anchor - p.ms).toISOString(), to: new Date(anchor).toISOString() };
-  }, [preset, custom, anchor]);
-
-  const gps = useSeries<GpsPointDto>(robotId, 'gps', from, to);
-  const battery = useSeries<BatteryPointDto>(robotId, 'battery', from, to);
-  const encoders = useSeries<EncoderPointDto>(robotId, 'encoders', from, to);
-  const health = useSeries<HealthPointDto>(robotId, 'health', from, to);
-
-  const [draftFrom, setDraftFrom] = useState(toLocalInput(from));
-  const [draftTo, setDraftTo] = useState(toLocalInput(to));
-
+  }, [range]);
+  const shared = { robotId, range, onRange: setRange, from: bounds.from!, to: bounds.to! };
+  if (view === 'map') {
+    return (
+      <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" empty="No position data in this time range.">
+        {(s) => <GpsTrack points={s.points} robotId={robotId} bucketS={s.bucket_s} />}
+      </RangeCard>
+    );
+  }
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end gap-3">
-        <div role="group" aria-label="Time range" className="flex flex-wrap gap-1">
-          {PRESETS.map((p) => (
-            <Button
-              key={p.id}
-              size="sm"
-              variant={preset === p.id ? 'primary' : 'secondary'}
-              aria-pressed={preset === p.id}
-              onClick={() => {
-                setPreset(p.id);
-                setAnchor(Date.now());
-              }}
-            >
-              Last {p.label}
-            </Button>
-          ))}
-          <Button size="sm" variant={preset === 'custom' ? 'primary' : 'secondary'} aria-pressed={preset === 'custom'} onClick={() => setPreset('custom')}>
-            Custom
-          </Button>
-        </div>
-        {preset === 'custom' && (
-          <form
-            className="flex flex-wrap items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = fromLocalInput(draftFrom);
-              const t = fromLocalInput(draftTo);
-              if (f && t && f < t) setCustom({ from: f, to: t });
-            }}
-          >
-            <Field label="From (local)">
-              <Input type="datetime-local" value={draftFrom} onChange={(e) => setDraftFrom(e.target.value)} />
-            </Field>
-            <Field label="To (local)">
-              <Input type="datetime-local" value={draftTo} onChange={(e) => setDraftTo(e.target.value)} />
-            </Field>
-            <Button type="submit" variant="primary">
-              Apply
-            </Button>
-          </form>
+    <div className="grid gap-3 lg:grid-cols-2">
+      <RangeCard<BatteryPointDto> {...shared} kind="battery" title="Battery" empty="No battery data in this time range.">
+        {(s) => <SimpleChart name="Battery" unit="%" color="var(--chart-good)" series={s} points={s.points.map((p) => ({ t: Date.parse(p.ts), v: p.pct }))} />}
+      </RangeCard>
+      <RangeCard<HealthPointDto> {...shared} kind="health" title="Temperature" empty="No temperature data in this time range.">
+        {(s) => (
+          <SimpleChart
+            name="Hottest part"
+            unit="°C"
+            color="#ea580c"
+            series={s}
+            points={s.points.map((p) => {
+              const temps = [p.temp_controller_c, p.temp_battery_c, p.temp_motors_max_c].filter((x): x is number => x !== null && x !== undefined);
+              return { t: Date.parse(p.ts), v: temps.length ? Math.max(...temps) : null };
+            })}
+          />
         )}
-        <p className="text-xs text-muted" aria-live="polite">
-          {fmtDateTime(from)} → {fmtDateTime(to)}
-        </p>
-      </div>
-
-      <Card title="GPS track">
-        <Section q={gps} empty="No GPS samples in this range.">
-          {(s) => <GpsTrack points={s.points} robotId={robotId} />}
-        </Section>
-      </Card>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card title="Battery">
-          <Section q={battery} empty="No battery samples in this range.">
-            {(s) => (
-              <TimeChart
-                label="Battery percentage and voltage over time"
-                data={s.points.map((p) => ({ t: Date.parse(p.ts), pct: p.pct, v: p.voltage_v }))}
-                from={from}
-                to={to}
-                lines={[
-                  { key: 'pct', name: 'Battery (%)', color: SERIES_COLORS[0], axis: 'left' },
-                  { key: 'v', name: 'Voltage (V)', color: SERIES_COLORS[1], axis: 'right' },
-                ]}
-                leftUnit="%"
-                rightUnit="V"
-                summary={summarize(s.points.map((p) => p.pct), '%')}
-              />
-            )}
-          </Section>
-        </Card>
-
-        <Card title="Temperatures">
-          <Section q={health} empty="No temperature samples in this range.">
-            {(s) => (
-              <TimeChart
-                label="Controller, battery and hottest motor temperature over time"
-                data={s.points.map((p) => ({ t: Date.parse(p.ts), c: p.temp_controller_c, b: p.temp_battery_c, m: p.temp_motors_max_c }))}
-                from={from}
-                to={to}
-                lines={[
-                  { key: 'c', name: 'Controller (°C)', color: SERIES_COLORS[3], axis: 'left' },
-                  { key: 'b', name: 'Battery (°C)', color: SERIES_COLORS[2], axis: 'left' },
-                  { key: 'm', name: 'Motors max (°C)', color: SERIES_COLORS[4], axis: 'left' },
-                ]}
-                leftUnit="°C"
-                summary={summarize(s.points.map((p) => p.temp_controller_c), '°C', 'Controller')}
-              />
-            )}
-          </Section>
-        </Card>
-
-        <Card title="Encoder velocity">
-          <Section q={encoders} empty="No encoder samples in this range.">
-            {(s) => <EncoderChart points={s.points} from={from} to={to} />}
-          </Section>
-        </Card>
-
-        <Card title="Health timeline">
-          <Section q={health} empty="No health samples in this range.">
-            {(s) => <HealthTimeline points={s.points} />}
-          </Section>
-        </Card>
-      </div>
+      </RangeCard>
+      <RangeCard<EncoderPointDto> {...shared} kind="encoders" title="Speed" empty="No speed data in this time range.">
+        {(s) => <SimpleChart name="Speed" unit="m/s" color="var(--cat-ugv)" series={s} points={averageSpeed(s.points)} />}
+      </RangeCard>
+      <RangeCard<HealthPointDto> {...shared} kind="health" title="Health" empty="No health data in this time range.">
+        {(s) => <HealthTimeline series={s} />}
+      </RangeCard>
     </div>
+  );
+}
+
+/** A map or graph with the Filter button at its top right; the time range itself is shared by the whole tab. */
+function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, children }: { robotId: string; kind: string; title: string; empty: string; range: RangeId; onRange: (r: RangeId) => void; from: string; to: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
+  const q = useSeries<T>(robotId, kind, from, to);
+  const chosen = RANGES.find((r) => r.id === range)!;
+  return (
+    <Card
+      title={
+        <>
+          {title} <span className="font-normal text-muted">· {chosen.title}</span>
+        </>
+      }
+      actions={<OptionFilter label={title} value={range} options={RANGES} onChange={onRange} />}
+    >
+      <Section q={q} empty={empty}>
+        {children}
+      </Section>
+    </Card>
   );
 }
 
 function Section<T>({ q, empty, children }: { q: { data?: TelemetrySeriesDto<T>; isLoading: boolean; error: unknown; refetch: () => unknown }; empty: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
-  if (!q.data || q.data.points.length === 0) return <EmptyState title={empty} description="Sensor data arrives from the robot every 30 seconds. Try a wider time range." />;
-  return (
-    <>
-      {children(q.data)}
-      <p className="mt-2 text-xs text-muted">
-        {q.data.points.length.toLocaleString()} points{q.data.bucket_s ? `, averaged per ${q.data.bucket_s >= 60 ? `${q.data.bucket_s / 60} min` : `${q.data.bucket_s} s`}` : ' (raw samples)'}
-      </p>
-    </>
-  );
+  if (!q.data || q.data.points.length === 0) return <EmptyState title={empty} description="Choose a longer time range with Filter." />;
+  return <>{children(q.data)}</>;
 }
 
-function summarize(values: (number | null)[], unit: string, prefix = ''): string {
-  const v = values.filter((x): x is number => x !== null && x !== undefined);
-  if (!v.length) return 'No values';
-  const min = Math.min(...v);
-  const max = Math.max(...v);
-  const last = v[v.length - 1];
-  return `${prefix ? `${prefix}: ` : ''}latest ${fmtNum(last, unit)}, min ${fmtNum(min, unit)}, max ${fmtNum(max, unit)}`;
-}
+/** Two readings further apart than this have a gap between them: the robot sent nothing in between. */
+const gapMs = (bucketS: number) => Math.max(bucketS * 2, 120) * 1000;
 
 function haversine(a: GpsPointDto, b: GpsPointDto): number {
   const R = 6_371_000;
@@ -199,114 +121,112 @@ function haversine(a: GpsPointDto, b: GpsPointDto): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string }) {
+function GpsTrack({ points, robotId, bucketS }: { points: GpsPointDto[]; robotId: string; bucketS: number }) {
   const { lines, markers, dist } = useMemo(() => {
-    const coords = points.map((p) => [p.lon, p.lat]);
+    // Only join readings that follow each other: no line is drawn across a time with no data.
+    const pieces: GpsPointDto[][] = [];
     let d = 0;
-    for (let i = 1; i < points.length; i++) d += haversine(points[i - 1], points[i]);
+    points.forEach((p, i) => {
+      const prev = points[i - 1];
+      if (prev && Date.parse(p.ts) - Date.parse(prev.ts) <= gapMs(bucketS)) {
+        pieces[pieces.length - 1].push(p);
+        d += haversine(prev, p);
+      } else pieces.push([p]);
+    });
     const first = points[0];
     const last = points[points.length - 1];
     return {
-      lines: [{ id: 'track', coordinates: coords, color: 'var(--map-actual)', width: 3 }],
+      lines: pieces.filter((x) => x.length > 1).map((x, i) => ({ id: `track-${i}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
       markers: [
         { id: 'first', lon: first.lon, lat: first.lat, color: '#16a34a', label: 'First' },
         { id: 'last', lon: last.lon, lat: last.lat, color: '#dc2626', label: 'Latest' },
       ],
       dist: d,
     };
-  }, [points]);
+  }, [points, bucketS]);
   return (
     <>
-      <GeoMap lines={lines} points={markers} className="h-80" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
-      <MapLegend items={[{ label: `Track · ${points.length} points · ≈ ${fmtDistance(dist)}`, color: 'var(--map-actual)' }]} />
+      <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
+      <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
+        <span className="font-semibold">About {fmtDistance(dist)}</span>
+        <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#16a34a]" aria-hidden /> Start</span>
+        <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#dc2626]" aria-hidden /> End</span>
+      </p>
     </>
   );
 }
 
-interface LineSpec {
-  key: string;
-  name: string;
-  color: string;
-  axis: 'left' | 'right';
+const IST_ZONE = 'Asia/Kolkata';
+const whenLabel = (t: number) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
+
+/** One wheel speed per moment: the average of all the wheels. */
+function averageSpeed(points: EncoderPointDto[]): { t: number; v: number | null }[] {
+  const byTime = new Map<number, number[]>();
+  for (const p of points) {
+    if (p.velocity_mps === null || p.velocity_mps === undefined) continue;
+    const t = Date.parse(p.ts);
+    byTime.set(t, [...(byTime.get(t) ?? []), Math.abs(p.velocity_mps)]);
+  }
+  return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([t, v]) => ({ t, v: v.reduce((x, y) => x + y, 0) / v.length }));
 }
 
-const tickTime = (from: string, to: string) => {
-  const span = Date.parse(to) - Date.parse(from);
-  const opts: Intl.DateTimeFormatOptions = span > 2 * 86_400_000 ? { month: 'short', day: '2-digit', hour: '2-digit' } : { hour: '2-digit', minute: '2-digit' };
-  const f = new Intl.DateTimeFormat(undefined, opts);
-  return (v: number) => f.format(new Date(v));
-};
-
-function TimeChart({
-  data,
-  lines,
-  from,
-  to,
-  label,
-  leftUnit,
-  rightUnit,
-  summary,
-}: {
-  data: Record<string, number | null>[];
-  lines: LineSpec[];
-  from: string;
-  to: string;
-  label: string;
-  leftUnit: string;
-  rightUnit?: string;
-  summary: string;
-}) {
-  const fmt = tickTime(from, to);
-  // Leave out series the robot never reports (e.g. battery / motor temperature on Saibya).
-  const shown = lines.filter((l) => data.some((d) => d[l.key] !== null && d[l.key] !== undefined));
+/** A graph anyone can read: the latest value in large type, one line over time, and the lowest and highest in words. */
+function SimpleChart<T>({ name, unit, color, points, series }: { name: string; unit: string; color: string; points: { t: number; v: number | null }[]; series: TelemetrySeriesDto<T> }) {
+  const known = points.filter((p): p is { t: number; v: number } => p.v !== null && p.v !== undefined);
+  if (!known.length) return <EmptyState title="Not reported by this robot" />;
+  const values = known.map((p) => p.v);
+  const show = (v: number) => `${+v.toFixed(v >= 10 ? 0 : 1)} ${unit}`;
+  const from = Date.parse(series.from);
+  const to = Date.parse(series.to);
+  const longRange = to - from > 2 * 86_400_000;
+  const tick = (t: number) => new Date(t).toLocaleString('en-GB', longRange ? { day: 'numeric', month: 'short', timeZone: IST_ZONE } : { hour: '2-digit', minute: '2-digit', timeZone: IST_ZONE });
+  // An empty row at each gap breaks the line, so a time with no data stays empty.
+  const rows: { t: number; v: number | null }[] = [];
+  known.forEach((p, i) => {
+    const prev = known[i - 1];
+    if (prev && p.t - prev.t > gapMs(series.bucket_s)) rows.push({ t: prev.t + 1, v: null });
+    rows.push(p);
+  });
   return (
     <figure>
-      <div className="h-64" role="img" aria-label={`${label}. ${summary}.`}>
+      <figcaption className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4">
+        <span>
+          <span className="text-3xl font-semibold tabular-nums">{show(values[values.length - 1])}</span>
+          <span className="ml-2 text-base text-muted">latest</span>
+        </span>
+        <span className="text-base text-muted tabular-nums">
+          Lowest {show(Math.min(...values))} · Highest {show(Math.max(...values))}
+        </span>
+      </figcaption>
+      <div className="h-52" role="img" aria-label={`${name} over time. Latest ${show(values[values.length - 1])}, lowest ${show(Math.min(...values))}, highest ${show(Math.max(...values))}. Empty parts mean no data.`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
-            <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-            <XAxis dataKey="t" type="number" scale="time" domain={[Date.parse(from), Date.parse(to)]} tickFormatter={fmt} stroke="var(--text-muted)" fontSize={11} />
-            <YAxis yAxisId="left" stroke="var(--text-muted)" fontSize={11} unit={` ${leftUnit}`} width={64} />
-            {rightUnit && shown.some((l) => l.axis === 'right') && <YAxis yAxisId="right" orientation="right" stroke="var(--text-muted)" fontSize={11} unit={` ${rightUnit}`} width={56} />}
+          <AreaChart data={rows} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="t" type="number" scale="time" domain={[from, to]} tickFormatter={tick} stroke="var(--text-muted)" fontSize={13} minTickGap={70} tickLine={false} />
+            <YAxis stroke="var(--text-muted)" fontSize={13} unit={` ${unit}`} width={62} tickLine={false} axisLine={false} domain={unit === '%' ? [0, 100] : [0, 'auto']} />
             <Tooltip
-              labelFormatter={(v) => fmtDateTime(new Date(Number(v)).toISOString())}
+              labelFormatter={(t) => whenLabel(Number(t))}
+              formatter={(v) => [show(Number(v)), name]}
               contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)' }}
             />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            {shown.map((l) => (
-              <Line key={l.key} yAxisId={l.axis} dataKey={l.key} name={l.name} stroke={l.color} dot={false} strokeWidth={2} connectNulls isAnimationActive={false} />
-            ))}
-          </LineChart>
+            <Area
+              dataKey="v"
+              stroke={color}
+              strokeWidth={2}
+              fill={color}
+              fillOpacity={0.12}
+              connectNulls={false}
+              isAnimationActive={false}
+              // A lone reading between two gaps has no line to sit on, so it shows as a dot.
+              dot={(d: { index: number; cx?: number; cy?: number }) => {
+                const lone = rows[d.index]?.v !== null && rows[d.index - 1]?.v == null && rows[d.index + 1]?.v == null;
+                return lone && d.cx !== undefined && d.cy !== undefined ? <circle key={d.index} cx={d.cx} cy={d.cy} r={3} fill={color} /> : <g key={d.index} />;
+              }}
+            />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
-      <figcaption className="mt-1 text-xs text-muted">{summary}</figcaption>
     </figure>
-  );
-}
-
-function EncoderChart({ points, from, to }: { points: EncoderPointDto[]; from: string; to: string }) {
-  const { rows, names } = useMemo(() => {
-    const byTs = new Map<number, Record<string, number | null>>();
-    const names = new Set<string>();
-    for (const p of points) {
-      const t = Date.parse(p.ts);
-      names.add(p.encoder);
-      const row = byTs.get(t) ?? { t };
-      row[p.encoder] = p.velocity_mps;
-      byTs.set(t, row);
-    }
-    return { rows: [...byTs.values()].sort((a, b) => (a.t as number) - (b.t as number)), names: [...names].sort() };
-  }, [points]);
-  return (
-    <TimeChart
-      label="Encoder velocity over time"
-      data={rows}
-      from={from}
-      to={to}
-      leftUnit="m/s"
-      lines={names.map((n, i) => ({ key: n, name: `${n} (m/s)`, color: SERIES_COLORS[i % SERIES_COLORS.length], axis: 'left' as const }))}
-      summary={`${names.length} encoder(s): ${names.join(', ')}`}
-    />
   );
 }
 
@@ -318,32 +238,42 @@ const DEVICES = [
   ['gps', 'GPS'],
 ] as const;
 
-function HealthTimeline({ points }: { points: HealthPointDto[] }) {
+/** Each device with one word for the period, and a bar across the time range: colour where there is data, empty where there is none. */
+function HealthTimeline({ series }: { series: TelemetrySeriesDto<HealthPointDto> }) {
+  const { points } = series;
+  const from = Date.parse(series.from);
+  const to = Date.parse(series.to);
+  const span = Math.max(1, to - from);
+  const width = Math.max(((series.bucket_s || 30) * 1000 * 100) / span, 0.3);
+  const day = (t: number) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {DEVICES.map(([key, label]) => {
         const values = points.map((p) => p[key]);
-        const counts = { ok: 0, warning: 0, fault: 0, unknown: 0 };
-        for (const v of values) counts[v ?? 'unknown']++;
+        const word = values.includes('fault') ? 'Had faults' : values.includes('warning') ? 'Had warnings' : values.includes('ok') ? 'All good' : 'Not reported';
+        const tone = word === 'Had faults' ? 'text-fault' : word === 'Had warnings' ? 'text-warn' : word === 'All good' ? 'text-ok' : 'text-muted';
         return (
           <div key={key}>
-            <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-sm">
+            <div className="mb-1 flex items-baseline justify-between gap-2 text-base">
               <span className="font-medium">{label}</span>
-              <span className="text-xs text-muted">
-                OK {counts.ok} · Warning {counts.warning} · Fault {counts.fault}
-                {counts.unknown ? ` · Unknown ${counts.unknown}` : ''}
-              </span>
+              <span className={cn('font-medium', tone)}>{word}</span>
             </div>
-            <div className="flex h-4 w-full overflow-hidden rounded-sm bg-surface-2" aria-hidden>
+            <div className="relative h-3 w-full overflow-hidden rounded-full bg-surface-2" aria-hidden>
               {points.map((p, i) => {
                 const v = p[key];
-                return <span key={i} className={cn('h-full flex-1', v ? HEALTH_CELL[v] : 'bg-offline-bg')} title={`${fmtDateTime(p.ts)}: ${v ?? 'unknown'}`} />;
+                if (!v) return null;
+                const left = ((Date.parse(p.ts) - from) * 100) / span;
+                return <span key={i} className={cn('absolute inset-y-0', HEALTH_CELL[v])} style={{ left: `${left}%`, width: `${width}%` }} title={`${fmtDateTime(p.ts)}: ${v}`} />;
               })}
             </div>
           </div>
         );
       })}
-      <p className="text-xs text-muted">Left = oldest, right = newest. Colours: green OK, amber Warning, red Fault, grey unknown. Counts are listed above each bar.</p>
+      <p className="flex justify-between text-sm text-muted">
+        <span>{day(from)}</span>
+        <span>Empty = no data</span>
+        <span>{day(to)}</span>
+      </p>
     </div>
   );
 }

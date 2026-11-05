@@ -83,10 +83,10 @@ export function AttachmentsTab({ robotId, category }: { robotId: string; categor
                         </span>
                       )}
                       <span className="min-w-0 flex-1 basis-64">
-                        <Link href={`/attachments/${a.attachment_id}`} className="block text-base font-semibold text-accent-text hover:underline">
+                        <span className="block text-base font-semibold">
                           {a.name}
                           {unit(a) && <span className="font-normal text-muted"> · {unit(a)}</span>}
-                        </Link>
+                        </span>
                         {a.description && <span className="block text-sm text-muted">{a.description}</span>}
                         <span className="block text-sm text-muted">
                           Fitted {fmtWhen(a.fitted_at)}
@@ -109,9 +109,7 @@ export function AttachmentsTab({ robotId, category }: { robotId: string; categor
                 <ul className="divide-y divide-border">
                   {past.map((a) => (
                     <li key={a.id} className="px-5 py-3 text-base">
-                      <Link href={`/attachments/${a.attachment_id}`} className="font-semibold text-accent-text hover:underline">
-                        {a.name}
-                      </Link>
+                      <span className="font-semibold">{a.name}</span>
                       <span className="text-muted">
                         {unit(a) && ` · ${unit(a)}`} · {fmtWhen(a.fitted_at)} → {fmtWhen(a.removed_at)}
                         {a.removed_by_name ? ` (removed by ${a.removed_by_name})` : ''}

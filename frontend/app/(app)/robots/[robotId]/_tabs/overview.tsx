@@ -4,10 +4,9 @@ import { fmtSerial } from '@/lib/format';
 import type { ActiveFaultDto, DeviceHealthDto, HealthLevel, LiveStateDto, ReportCalendarDayDto, RobotDetailDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Bell,
   AlertTriangle,
   BatteryCharging,
-  Bell,
-  Clock3,
   BatteryFull,
   BatteryLow,
   BatteryMedium,
@@ -32,7 +31,7 @@ import Link from 'next/link';
 import { useMemo, type ReactNode } from 'react';
 import { DistancePerDayChart, istDay, MissionsPerDayChart, ShareBar } from '@/components/domain/charts';
 import { GeoMap } from '@/components/domain/geo-map';
-import { Badge, Card, LastSeen, QueryView, Time } from '@/components/ui/misc';
+import { Badge, Card, QueryView, Time } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { fmtAgo, fmtCoord, fmtDistance, fmtDuration, fmtNum, fmtRelative, fmtWhen, humanize } from '@/lib/format';
@@ -95,18 +94,18 @@ function Freshness({ live }: { live: LiveStateDto }) {
   const fresh = live.status === 'online';
   const offline = live.status === 'offline';
   // Large and bold in a coloured box, so anyone opening the robot sees at once how fresh the data is:
-  // light red while offline, light amber while the data is a few minutes old, light green while live.
+  // light red while offline, light green while live.
   return (
     <p
       className={cn(
         'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-5 py-4 text-xl font-bold text-fg sm:text-2xl',
-        offline ? 'border-fault/40 bg-fault-bg' : fresh ? 'border-ok/40 bg-ok-bg' : 'border-warn/40 bg-warn-bg',
+        offline ? 'border-fault/40 bg-fault-bg' : 'border-ok/40 bg-ok-bg',
       )}
       aria-live="polite"
     >
       <span className="relative flex size-4" aria-hidden>
         {fresh && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />}
-        <span className={cn('relative inline-flex size-4 rounded-full', fresh ? 'bg-ok' : offline ? 'bg-fault' : 'bg-warn')} />
+        <span className={cn('relative inline-flex size-4 rounded-full', fresh ? 'bg-ok' : 'bg-fault')} />
       </span>
       {live.state_ts ? (
         <span>
@@ -136,28 +135,7 @@ function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDt
   const offline = live.status === 'offline';
   return (
     <div className="flex flex-col gap-6">
-      <Freshness live={live} />
-
-      {/* Offline: live values would be out of date, so they show a dash until the robot reports again. */}
-      <section aria-label="Last reported" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {offline ? (
-          <>
-            <OfflineTile label="Battery" icon={<BatteryMedium className="size-4" />} />
-            <OfflineTile label="Wi-Fi signal" icon={<SignalBars bars={0} tone="muted" small />} />
-            <OfflineTile label="Armed / mode" icon={<ShieldCheck className="size-4" />} />
-            <OfflineTile label="Speed / heading" icon={<Gauge className="size-4" />} />
-          </>
-        ) : (
-          <>
-            <BatteryTile live={live} />
-            <SignalTile dbm={live.signal_dbm} />
-            <ArmedTile armed={live.armed} mode={live.mode} />
-            <MotionTile speed={live.position?.speed_mps ?? null} heading={live.position?.heading_deg ?? null} />
-          </>
-        )}
-      </section>
-
-      <section aria-label="Where and when" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Where and when" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <TopicCard icon={<MapPin className="size-5" />} title="Location" href={`/robots/${id}?tab=location`}>
           {live.position ? <span className="font-mono text-base text-fg">{fmtCoord(live.position.lat, live.position.lon)}</span> : 'No position yet'}
           {live.position?.fix && (
@@ -165,9 +143,6 @@ function SummaryView({ live, robot }: { live: LiveStateDto; robot: RobotDetailDt
               <FixBadge fix={live.position.fix} />
             </span>
           )}
-        </TopicCard>
-        <TopicCard icon={<Clock3 className="size-5" />} title="Last seen">
-          <LastSeen iso={live.last_seen_at} stacked className="text-base text-fg" />
         </TopicCard>
         <TopicCard icon={<Bell className="size-5" />} title="Last event" tone={!offline && e?.severity === 'critical' ? 'fault' : undefined} href={`/robots/${id}?tab=events`}>
           {offline ? (

@@ -40,7 +40,7 @@ export function UploadBadge({ upload, status }: { upload: ArchiveUploadState; st
 
 /**
  * Link state of a robot, as the fleet sees it: "Online · sending data" while files arrive (last 2 min),
- * "Recording" when its heartbeat names a session, otherwise the computed online/stale/offline state.
+ * "Recording" when its heartbeat names a session, otherwise the computed online/offline state.
  */
 export function DataActivityBadge({
   lastSeenAt,

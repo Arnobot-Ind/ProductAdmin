@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
+const MAIN_PAGES = ['/', '/robots', '/drone', '/admin/users', '/account'];
+
 /** Pages opened inside the app in this tab, oldest first (query-only changes such as tabs are not separate pages). */
 const visited: string[] = [];
 
@@ -44,8 +46,8 @@ export function BackButton({ className }: { className?: string }) {
   }, [pathname]);
 
   const parent = parentPage(pathname);
-  // Never on the home page; elsewhere only when there is somewhere to go.
-  if (pathname === '/' || (!hasPrevious && !parent)) return null;
+  // Never on the main pages (they are all in the side menu); elsewhere only when there is somewhere to go.
+  if (MAIN_PAGES.includes(pathname) || (!hasPrevious && !parent)) return null;
 
   const back = () => {
     if (visited.length > 1) {
@@ -58,7 +60,7 @@ export function BackButton({ className }: { className?: string }) {
       type="button"
       onClick={back}
       title={hasPrevious ? 'Back to the previous page' : 'Up one level'}
-      className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-surface-2', className)}
+      className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-2 hover:text-fg', className)}
     >
       <ArrowLeft className="size-4" aria-hidden />
       Back

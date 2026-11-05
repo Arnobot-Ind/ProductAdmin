@@ -104,11 +104,6 @@ function VideoView({ d }: { d: ArchiveSessionDetailDto }) {
             {d.deleted_at && <Badge tone="fault">Deleted</Badge>}
           </div>
           <div className="flex flex-wrap gap-2">
-            {canAnywhere('data.download') && !d.deleted_at && (
-              <LinkButton href={`/downloads?robot=${session.robot_id}`} icon={<Download className="size-4" aria-hidden />} title="Download this robot's data">
-                Export data
-              </LinkButton>
-            )}
             {access.delete && (
               <Button
                 variant={d.deleted_at ? 'secondary' : 'ghost'}

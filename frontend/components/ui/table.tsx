@@ -54,7 +54,7 @@ export function DataTable<T>({
   rowClassName?: (row: T) => string | undefined;
 }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    <div className="relative overflow-x-auto rounded-lg border border-border bg-surface">
       <table className="w-full border-collapse text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="sticky top-0 z-10 bg-surface-2">

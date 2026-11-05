@@ -98,8 +98,8 @@ const split = (items: ProductMediaDto[]) => ({
 type View = "photos" | "spin" | "model";
 
 /**
- * The robot page's picture: the first photo (or the 360° view's first frame) as a thumbnail, with buttons for
- * whatever else exists. Opens a large viewer. Shows a plain placeholder until something is uploaded.
+ * The robot page's picture: the first photo (or the 360° view's first frame), filling its box. A click opens a large
+ * viewer, which offers photos, 360° and 3D according to what exists. Shows a plain placeholder until something is uploaded.
  */
 export function ProductPicture({
   productId,
@@ -123,23 +123,23 @@ export function ProductPicture({
       ? [
           {
             id: "photos" as const,
-            label: `${photos.length} photo${photos.length === 1 ? "" : "s"}`,
+            label: "Photos",
             Icon: ImageIcon,
           },
         ]
       : []),
     ...(spin.length
-      ? [{ id: "spin" as const, label: "360° view", Icon: RotateCw }]
+      ? [{ id: "spin" as const, label: "360°", Icon: RotateCw }]
       : []),
     ...(model ? [{ id: "model" as const, label: "3D model", Icon: Box }] : []),
   ];
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div className={className}>
       <button
         type="button"
         disabled={!views.length}
         onClick={() => setOpen(views[0]?.id ?? null)}
-        className="group relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2 enabled:hover:border-accent/50"
+        className="group relative flex size-full cursor-pointer items-center justify-center overflow-hidden bg-surface-2 disabled:cursor-default"
         aria-label={
           views.length
             ? `View pictures of ${name}`
@@ -160,22 +160,10 @@ export function ProductPicture({
           </span>
         )}
       </button>
-      {views.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {views.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => setOpen(v.id)}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-0.5 text-sm font-medium hover:border-accent/50"
-            >
-              <v.Icon className="size-3.5" aria-hidden /> {v.label}
-            </button>
-          ))}
-        </div>
-      )}
       {open && (
         <Dialog open onClose={() => setOpen(null)} title={name} size="xl">
+          {/* Only when there is more than one kind to choose from. */}
+          {views.length > 1 && (
           <div
             role="tablist"
             aria-label="View"
@@ -199,6 +187,7 @@ export function ProductPicture({
               </button>
             ))}
           </div>
+          )}
           {open === "photos" && <PhotoViewer photos={photos} />}
           {open === "spin" && <SpinViewer frames={spin} />}
           {open === "model" && model && (
