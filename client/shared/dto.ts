@@ -680,9 +680,15 @@ export interface SoftwareHistoryDto {
 export interface SoftwareDto {
   current: SoftwareHistoryDto | null;
   last_update_at: string | null;
-  /** The newest recorded commit, and when. A robot report that changes the version later does not clear it. */
+  /** What is deployed as far as anyone knows: the newest report from the robot or the panel. May be old: see deployed_at. */
+  deployed_version: string | null;
+  deployed_fw_ver: string | null;
+  deployed_at: string | null;
+  deployed_source: 'robot' | 'manual' | null;
+  /** The newest known commit, recorded in the panel or read from the version the robot reported. */
   installed_commit_id: string | null;
   installed_commit_at: string | null;
+  installed_commit_source: 'robot' | 'manual' | null;
   history: SoftwareHistoryDto[];
 }
 
