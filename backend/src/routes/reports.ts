@@ -11,6 +11,7 @@ import { isoDate, isoDateTime, pageQuery } from '../lib/validation';
 import type { AuthUser } from '../services/auth.service';
 import { reportWaypoints } from './missions';
 import { computeDayReport, istDate, istInstant, reportWindow, type BatterySample, type GpsSample, type LiveSample } from '../services/day-report';
+import { ROBOT_STATUS_SQL } from '../lib/robot-status-sql';
 
 const hm = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/, 'HH:MM (IST)');
 const MAX_DAYS = 92;
@@ -438,7 +439,7 @@ export function reportRoutes(f: FastifyInstance, app: AppContext): void {
       await db.query<{ robot_id: string; product_name: string; category: RobotCategory; status: RobotStatus; last_seen_at: Date | null; battery_pct: number | null; current_mission_name: string | null }>(
         `SELECT r.robot_id, p.name AS product_name, p.category, s.status, ls.last_seen_at, ls.battery_pct,
                 (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name
-         FROM robots r JOIN products p ON p.id = r.product_id JOIN v_robot_status s ON s.robot_id = r.robot_id
+         FROM robots r JOIN products p ON p.id = r.product_id JOIN ${ROBOT_STATUS_SQL} s ON s.robot_id = r.robot_id
          LEFT JOIN live_state ls ON ls.robot_id = r.robot_id ${rw.toSql()} ORDER BY r.robot_id`,
         rw.params,
       )

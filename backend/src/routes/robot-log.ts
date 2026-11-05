@@ -56,7 +56,7 @@ const SOURCES: Record<RobotLogKind, string> = {
   audit: `SELECT a.at, 'audit', CASE WHEN a.outcome = 'success' THEN 'info' ELSE 'warning' END, a.action,
                  CASE WHEN a.outcome = 'success' THEN NULL ELSE a.outcome END, a.id::text, a.actor_email
           FROM audit_log a WHERE a.robot_id = $1`,
-  message: `SELECT im.ts, 'message', 'info', im.type, im.transport, im.msg_id::text, NULL
+  message: `SELECT im.ts, 'message', 'info', im.type, left((im.raw->'payload')::text, 8000), im.msg_id::text, NULL
             FROM ingested_messages im WHERE im.robot_id = $1`,
   rejection: `SELECT r.received_at, 'rejection', 'warning', 'Rejected ' || coalesce(r.type, 'message'), r.error, r.id::text, NULL
               FROM ingest_rejections r WHERE r.robot_id = $1`,
@@ -87,7 +87,7 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
     summary: "One robot's activity log: events, missions, hardware, repairs, software, ownership, documents, audit and robot messages merged newest first",
     tag: 'Robots',
     access: { can: 'robot.details', target: robotParam() },
-    query: z.object({ ...pageQuery, kinds: kindsParam, levels: levelsParam, q: z.string().trim().max(200).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), include_messages: optionalBool }),
+    query: z.object({ ...pageQuery, kinds: kindsParam, levels: levelsParam, q: z.string().trim().max(200).optional(), message_type: z.string().trim().max(40).optional(), from: isoDateTime.optional(), to: isoDateTime.optional(), include_messages: optionalBool }),
     handler: async ({ params, query, user }): Promise<RobotLogDto> => {
       // Staff view: a customer user's scope would also need their ownership window applied to every source.
       if (!(await app.perms.can(user, 'robot.details', { type: 'platform' }))) throw forbidden('the activity log is for Arnobot staff');
@@ -104,6 +104,7 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
       const kinds = (query.kinds ?? available).filter((k) => available.includes(k));
 
       const filters = (w: Where) => {
+        if (query.message_type) w.add('l.title = ?', query.message_type);
         if (query.from) w.add('l.ts >= ?', query.from);
         if (query.to) w.add('l.ts < ?', query.to);
         if (query.q) w.add("(l.title || ' ' || coalesce(l.body, '') || ' ' || coalesce(l.actor, '')) ILIKE ?", `%${query.q.replace(/[\\%_]/g, '\\$&')}%`);
@@ -175,7 +176,9 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
         if (k !== 'message' && (!need || (await app.perms.can(user, need, { type: 'robot', id: params.robotId })))) logKinds.push(k);
       }
       const logUnion = logKinds.map((k) => `SELECT x.ts::timestamptz AS ts, x.level::text AS level FROM (${SOURCES[k]}) AS x(ts, kind, level, title, body, ref, actor)`).join(' UNION ALL ');
-      const [rec, mis, ev, det, log] = await Promise.all([
+      // Raw machine messages per day, for the Logs tab's calendar (only with the permission to read them).
+      const canMessages = await app.perms.can(user, EXTRA_PERMISSION.message!, { type: 'robot', id: params.robotId });
+      const [rec, mis, ev, det, log, msg] = await Promise.all([
         db.query<{ d: string; n: number; bytes: string }>(
           `SELECT ${DAY('coalesce(s.started_at, s.created_at)')} AS d, count(*)::int AS n,
                   coalesce(sum((SELECT sum(f.size_bytes) FROM archive_files f WHERE f.session_ref = s.id)), 0)::bigint AS bytes
@@ -202,11 +205,14 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
            FROM (${logUnion}) l WHERE l.ts >= $2 AND l.ts < $3 GROUP BY 1`,
           range,
         ),
+        canMessages
+          ? db.query<{ d: string; n: number }>(`SELECT ${DAY('im.ts')} AS d, count(*)::int AS n FROM ingested_messages im WHERE im.robot_id = $1 AND im.ts >= $2 AND im.ts < $3 GROUP BY 1`, range)
+          : Promise.resolve({ rows: [] as { d: string; n: number }[] }),
       ]);
       const days = new Map<string, RobotActivityDayDto>();
       const day = (d: string) => {
         let row = days.get(d);
-        if (!row) days.set(d, (row = { date: d, recordings: 0, recording_bytes: 0, missions: 0, missions_bad: 0, events: 0, events_critical: 0, detections: 0, log: 0, log_warnings: 0 }));
+        if (!row) days.set(d, (row = { date: d, recordings: 0, recording_bytes: 0, missions: 0, missions_bad: 0, events: 0, events_critical: 0, detections: 0, log: 0, log_warnings: 0, messages: 0 }));
         return row;
       };
       for (const r of rec.rows) Object.assign(day(r.d), { recordings: r.n, recording_bytes: Number(r.bytes) });
@@ -214,6 +220,7 @@ export function robotLogRoutes(f: FastifyInstance, app: AppContext): void {
       for (const r of ev.rows) Object.assign(day(r.d), { events: r.n, events_critical: r.crit });
       for (const r of det.rows) day(r.d).detections = r.n;
       for (const r of log.rows) Object.assign(day(r.d), { log: r.n, log_warnings: r.warn });
+      for (const r of msg.rows) day(r.d).messages = r.n;
       return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
     },
   });

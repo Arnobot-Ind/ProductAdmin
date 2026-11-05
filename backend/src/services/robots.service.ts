@@ -2,6 +2,7 @@ import type { Db, Queryable } from '../db';
 import type { EventSeverity, HealthLevel, LiveStateDto, RobotAttachmentRefDto, RobotSiteRefDto, RobotCategory, RobotDetailDto, RobotListItemDto, RobotStatus } from '../shared';
 import { notFound } from '../lib/errors';
 import { iso, Where } from '../lib/sql';
+import { ROBOT_STATUS_SQL, robotStatusCase } from '../lib/robot-status-sql';
 
 /** A 13-digit robot serial number (0028): category, base model, attachment, running number, random. */
 export const SERIAL_RE = /^[12][0-9]{12}$/;
@@ -44,10 +45,7 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
        (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name,
        ls.health_controller, ls.health_lidar, ls.health_cameras, ls.health_gps,
        coalesce(ls.sw_ver, sw.sw_ver) AS sw_ver, coalesce(ls.fw_ver, sw.fw_ver) AS fw_ver,
-       CASE WHEN ls.last_seen_at IS NULL THEN 'offline'
-            WHEN now() - ls.last_seen_at <  interval '60 seconds' THEN 'online'
-            WHEN now() - ls.last_seen_at <= interval '5 minutes'  THEN 'stale'
-            ELSE 'offline' END AS status,
+       ${robotStatusCase()} AS status,
        ms.total_missions, ms.completed, ms.failed, ms.aborted, ms.in_progress,
        ms.total_distance_m, ms.total_duration_s, ms.avg_duration_s,
        ev.unacked_critical_events,
@@ -208,7 +206,7 @@ export class RobotsService {
   async live(robotId: string): Promise<LiveStateDto> {
     const r = (
       await this.db.query<Record<string, unknown> & { last_seen_at: Date | null; state_ts: Date | null }>(
-        `SELECT ls.*, s.status FROM live_state ls JOIN v_robot_status s ON s.robot_id = ls.robot_id WHERE ls.robot_id = $1`,
+        `SELECT ls.*, s.status FROM live_state ls JOIN ${ROBOT_STATUS_SQL} s ON s.robot_id = ls.robot_id WHERE ls.robot_id = $1`,
         [robotId],
       )
     ).rows[0];
