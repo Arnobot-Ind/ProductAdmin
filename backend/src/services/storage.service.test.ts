@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,6 +70,17 @@ describe('local files shared between servers on one database', () => {
     expect(await sharing.shareLocalFiles(files)).toEqual({ copied: 1, missing: 1 });
     expect(await sharing.shareLocalFiles(files)).toEqual({ copied: 0, missing: 1 });
     expect(await read(server(bucket), old.key)).toBe('old');
+  });
+
+  it('a failed shared copy fails the upload with a clear message and keeps nothing', async () => {
+    const bucket = fakeBucket();
+    bucket.put = async () => {
+      throw Object.assign(new Error('denied'), { name: 'AccessDenied' });
+    };
+    const dir = newDir();
+    const s = new StorageService({ storage: { driver: 'local', localDir: dir, s3: {} } } as unknown as ApiConfig, bucket as unknown as ArchiveStorage);
+    await expect(s.put(tempFile('x'), 'products/x/media', 'a.jpg', 'image/jpeg')).rejects.toMatchObject({ status: 503, code: 'shared_storage_unavailable' });
+    expect(readdirSync(dir, { recursive: true }).filter((f) => String(f).endsWith('a.jpg'))).toEqual([]);
   });
 
   it('a file nobody has is simply not found', async () => {

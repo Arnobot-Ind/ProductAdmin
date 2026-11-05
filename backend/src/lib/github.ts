@@ -12,7 +12,7 @@ const unavailable = (message: string) => new ApiError(502, 'github_unavailable',
 /** The newest version of a repository: its latest release when it has one, else the newest commit on the default branch. */
 export async function latestFromGithub(repoUrl: string, token: string | null): Promise<SoftwareLatestDto> {
   const parsed = parseGithubRepo(repoUrl);
-  if (!parsed) throw badRequest('Auto update works with github.com links only. Check the repository link.');
+  if (!parsed) throw badRequest('Fetching the latest commit works with github.com links only. Check the repository link.');
   const base = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}`;
   const get = async <T>(path: string): Promise<{ status: number; body: T | null }> => {
     let res: Response;
