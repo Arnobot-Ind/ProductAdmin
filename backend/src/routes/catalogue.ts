@@ -25,7 +25,7 @@ const toProduct = (r: Record<string, unknown>): ProductDto => ({
 });
 
 const MEDIA_SELECT = `
-SELECT pm.id, pm.product_id, pm.attachment_id, pm.software_product_id, pm.kind, pm.position, pm.caption, f.filename, f.content_type, f.size_bytes, pm.created_at, u.name AS created_by_name
+SELECT pm.id, pm.product_id, pm.attachment_id, pm.software_product_id, pm.robot_id, pm.kind, pm.position, pm.caption, f.filename, f.content_type, f.size_bytes, pm.created_at, u.name AS created_by_name
 FROM product_media pm JOIN files f ON f.id = pm.file_id LEFT JOIN users u ON u.id = pm.created_by`;
 const toMedia = (r: Record<string, unknown>): ProductMediaDto => ({ ...(r as unknown as ProductMediaDto), created_at: iso(r.created_at as Date)! });
 /** Photos: raster images only (an SVG could carry script). 3D: binary glTF, which the browser viewer reads. */
@@ -201,9 +201,22 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
   const mediaRead = read;
   const mediaOwners = [
     {
+      base: '/robots/:id',
+      column: 'robot_id',
+      what: 'robot',
+      checkId: (_id: string) => undefined,
+      folder: async (id: string, tx: Queryable) => {
+        const r = (await tx.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM robots WHERE robot_id = $1', [id])).rows[0];
+        if (!r) throw notFound('robot');
+        if (r.deleted_at) throw conflict('robot is deleted');
+        return `robots/${id}/media`;
+      },
+    },
+    {
       base: '/products/:id',
       column: 'product_id',
       what: 'product',
+      checkId: assertUuid,
       folder: async (id: string, tx: Queryable) => {
         const p = await productById(id, tx);
         if (p.deleted_at) throw conflict('product is deleted');
@@ -214,6 +227,7 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       base: '/attachments/:id',
       column: 'attachment_id',
       what: 'attachment',
+      checkId: assertUuid,
       folder: async (id: string, tx: Queryable) => {
         assertUuid(id);
         const a = (await tx.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM attachments WHERE id = $1', [id])).rows[0];
@@ -226,6 +240,7 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       base: '/software-products/:id',
       column: 'software_product_id',
       what: 'software',
+      checkId: assertUuid,
       folder: async (id: string, tx: Queryable) => {
         assertUuid(id);
         const s = (await tx.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM software_products WHERE id = $1', [id])).rows[0];
@@ -243,7 +258,7 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       tag,
       access: mediaRead,
       handler: async ({ params }): Promise<ProductMediaDto[]> => {
-        assertUuid(params.id);
+        o.checkId(params.id);
         return (await db.query(`${MEDIA_SELECT} WHERE pm.${o.column} = $1 AND pm.deleted_at IS NULL ORDER BY pm.kind, pm.position, pm.created_at`, [params.id])).rows.map(toMedia);
       },
     });
@@ -286,7 +301,7 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       tag,
       access: write,
       handler: async ({ params }) => {
-        assertUuid(params.id);
+        o.checkId(params.id);
         const res = await db.query(`UPDATE product_media SET deleted_at = now() WHERE ${o.column} = $1 AND kind = 'spin' AND deleted_at IS NULL`, [params.id]);
         return { removed: res.rowCount ?? 0 };
       },
@@ -303,8 +318,8 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
       return withTransaction(db, async (tx) => {
         const m = (
           await tx.query<{ owner: string; col: string }>(
-            `SELECT coalesce(product_id, attachment_id, software_product_id)::text AS owner,
-                    CASE WHEN product_id IS NOT NULL THEN 'product_id' WHEN attachment_id IS NOT NULL THEN 'attachment_id' ELSE 'software_product_id' END AS col
+            `SELECT coalesce(product_id::text, attachment_id::text, software_product_id::text, robot_id) AS owner,
+                    CASE WHEN product_id IS NOT NULL THEN 'product_id' WHEN attachment_id IS NOT NULL THEN 'attachment_id' WHEN robot_id IS NOT NULL THEN 'robot_id' ELSE 'software_product_id' END AS col
              FROM product_media WHERE id = $1 AND kind = 'photo' AND deleted_at IS NULL FOR UPDATE`,
             [params.id],
           )
@@ -314,7 +329,7 @@ export function catalogueRoutes(f: FastifyInstance, app: AppContext): void {
         await tx.query(
           `UPDATE product_media pm SET position = o.n
            FROM (SELECT id, row_number() OVER (ORDER BY (id = $1) DESC, position, created_at) AS n
-                 FROM product_media WHERE ${m.col} = $2::uuid AND kind = 'photo' AND deleted_at IS NULL) o
+                 FROM product_media WHERE ${m.col}::text = $2 AND kind = 'photo' AND deleted_at IS NULL) o
            WHERE pm.id = o.id`,
           [params.id, m.owner],
         );

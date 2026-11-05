@@ -30,7 +30,8 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
                                                                       ORDER BY pm.position, pm.created_at LIMIT 1)) ORDER BY a.name)
                  FROM robot_attachments ra JOIN attachments a ON a.id = ra.attachment_id LEFT JOIN hardware_revisions ah ON ah.id = ra.hardware_revision_id
                  WHERE ra.robot_id = r.robot_id AND ra.removed_at IS NULL), '[]') AS attachments,
-       (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1) AS product_cover_photo_id,
+       coalesce((SELECT pm.id FROM product_media pm WHERE pm.robot_id = r.robot_id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1),
+                (SELECT pm.id FROM product_media pm WHERE pm.product_id = p.id AND pm.kind = 'photo' AND pm.deleted_at IS NULL ORDER BY pm.position, pm.created_at LIMIT 1)) AS product_cover_photo_id,
        p.model_no,
        (SELECT json_build_object('id', ma.id, 'name', ma.name, 'attachment_no', ma.attachment_no) FROM attachments ma WHERE ma.id = r.main_attachment_id) AS main_attachment,
        coalesce((SELECT array_agg(pi.previous_id ORDER BY pi.kind) FROM robot_previous_ids pi WHERE pi.robot_id = r.robot_id), '{}') AS previous_ids,
