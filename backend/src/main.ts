@@ -18,9 +18,11 @@ async function main(): Promise<void> {
   const archiveSync = startArchiveSync(ctx, app.log);
   const dailyStats = startDailyStats(ctx, app.log);
 
+  const fileHandoff = startFileHandoff(ctx, app.log);
   const shutdown = async (signal: string) => {
     app.log.info(`${signal}: shutting down`);
     archiveSync.stop();
+    fileHandoff.stop();
     dailyStats.stop();
     mqttClient?.end();
     await realtime.close();
@@ -37,6 +39,31 @@ async function main(): Promise<void> {
     .shareLocalFiles()
     .then((r) => app.log.info(r, 'shared file copy up to date'))
     .catch((err) => app.log.warn({ err }, 'shared file copy failed'));
+}
+
+/** Moves files other servers handed over to the shared bucket folder. Never two runs at once, failures only logged. */
+function startFileHandoff(ctx: ReturnType<typeof createContext>, log: FastifyBaseLogger): { stop: () => void } {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const moved = await ctx.storage.moveHandedOverFiles();
+      if (moved) log.info({ moved }, 'handed-over files moved to the shared copy');
+    } catch (err) {
+      log.warn({ err }, 'moving handed-over files failed');
+    } finally {
+      running = false;
+    }
+  };
+  const first = setTimeout(run, 5_000);
+  const timer = setInterval(run, 60_000);
+  return {
+    stop: () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    },
+  };
 }
 
 /**

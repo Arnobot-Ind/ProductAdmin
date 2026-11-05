@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { ApiConfig } from '../lib/config';
 import { ObjectNotFound, type ArchiveStorage } from './archive/storage';
+import type { FileHandoff } from './file-handoff';
 import { StorageService } from './storage.service';
 
 /** A bucket in memory, standing in for the shared archive bucket. */
@@ -81,6 +82,39 @@ describe('local files shared between servers on one database', () => {
     const s = new StorageService({ storage: { driver: 'local', localDir: dir, s3: {} } } as unknown as ApiConfig, bucket as unknown as ArchiveStorage);
     await expect(s.put(tempFile('x'), 'products/x/media', 'a.jpg', 'image/jpeg')).rejects.toMatchObject({ status: 503, code: 'shared_storage_unavailable' });
     expect(readdirSync(dir, { recursive: true }).filter((f) => String(f).endsWith('a.jpg'))).toEqual([]);
+  });
+
+  it('a server that may not write hands the file over: others read it, then a server that can write moves it', async () => {
+    const bucket = fakeBucket();
+    const denied = { ...bucket, put: async () => { throw Object.assign(new Error('denied'), { name: 'AccessDenied' }); } };
+    const rows = new Map<string, Buffer>();
+    const handoff = {
+      save: async (key: string, bytes: Buffer) => void rows.set(key, bytes),
+      read: async (key: string) => rows.get(key) ?? null,
+      next: async () => {
+        const first = [...rows][0];
+        return first ? { object_key: first[0], content_type: 'image/webp', bytes: first[1] } : null;
+      },
+      remove: async (key: string) => void rows.delete(key),
+    } as unknown as FileHandoff;
+    const make = (b: unknown, dir = newDir()) => new StorageService({ storage: { driver: 'local', localDir: dir, s3: {} } } as unknown as ApiConfig, b as ArchiveStorage, handoff);
+    const localDisk = newDir();
+    const [local, live] = [make(denied, localDisk), make(bucket)];
+
+    const up = await local.put(tempFile('photo'), 'products/x/media', 'a.webp', 'image/webp');
+    const other = await local.put(tempFile('frame'), 'products/x/media', 'b.webp', 'image/webp');
+    expect(rows.size).toBe(2);
+    expect(readdirSync(localDisk, { recursive: true }).filter((f) => String(f).endsWith('.webp'))).toEqual([]);
+    expect(await read(live, up.key)).toBe('photo');
+    expect(await read(local, up.key)).toBe('photo');
+    expect(await local.moveHandedOverFiles()).toBe(0);
+    expect(rows.size).toBe(2);
+
+    expect(await live.moveHandedOverFiles()).toBe(2);
+    expect(rows.size).toBe(0);
+    expect(await read(live, up.key)).toBe('photo');
+    expect(await read(local, up.key)).toBe('photo');
+    expect(await read(local, other.key)).toBe('frame');
   });
 
   it('a file nobody has is simply not found', async () => {

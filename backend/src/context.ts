@@ -6,6 +6,7 @@ import { AuditService } from './services/audit.service';
 import { AuthService } from './services/auth.service';
 import { DocumentsService } from './services/documents.service';
 import { DailyStatsService } from './services/daily-stats';
+import { FileHandoff } from './services/file-handoff';
 import { FilesService } from './services/files.service';
 import { PermissionsService } from './services/permissions.service';
 import { RobotsService } from './services/robots.service';
@@ -41,7 +42,7 @@ export interface AppContext {
 
 export function createContext(cfg: ApiConfig, db: Db = createPool(cfg.databaseUrl, { application_name: 'pms-backend', max: 30 })): AppContext {
   // No bucket name means no shared copy (development without S3).
-  const storage = new StorageService(cfg, cfg.archive.s3.bucket ? createArchiveStorage(cfg.archive) : null);
+  const storage = new StorageService(cfg, cfg.archive.s3.bucket ? createArchiveStorage(cfg.archive) : null, new FileHandoff(db));
   return {
     cfg,
     db,
