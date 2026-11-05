@@ -90,6 +90,13 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
   },
 ];
 
+/** The repository's name from its link: https://github.com/Arnobot-Ind/saibya.git gives "saibya". */
+function repoName(url: string): string {
+  const github = /github\.com\/[^/]+\/([^/?#]+)/i.exec(url)?.[1];
+  const last = github ?? url.split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop();
+  return last?.replace(/\.git$/i, '') || url;
+}
+
 /** "3 Nov 2026 - 4:55 pm", in IST. */
 function fmtLastSeen(iso: string | null): string {
   if (!iso) return 'never';
@@ -229,7 +236,7 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
                   {robot.sw_ver ?? <span className="font-normal text-muted">Not reported</span>}
                   {robot.repo_url && (
                     <a href={robot.repo_url} target="_blank" rel="noopener noreferrer" className="ml-3 inline-flex items-center gap-1 text-base font-medium text-accent-text hover:underline">
-                      <GitBranch className="size-4" aria-hidden /> Repository <ExternalLink className="size-3.5" aria-hidden />
+                      <GitBranch className="size-4" aria-hidden /> {repoName(robot.repo_url)} <ExternalLink className="size-3.5" aria-hidden />
                     </a>
                   )}
                 </BigFact>
