@@ -40,6 +40,8 @@ export interface ApiConfig {
    * Video / sensor archive (camera recordings). Stored ONLY in S3 (its own bucket, separate from the
    * documents storage): the server keeps no video. Temporary files (MP4 exports) live in tempDir only.
    */
+  /** Read-only GitHub access for private repositories (Auto update). Public ones work without it. */
+  github: { token: string | null };
   archive: {
     s3: S3Settings;
     /** The one folder the server may write temporary archive files to (MP4 builds). Safe to delete. */
@@ -142,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         forcePathStyle: env.S3_FORCE_PATH_STYLE === 'true',
       },
     },
+    github: { token: env.GITHUB_TOKEN?.trim() || null },
     archive: {
       tempDir: env.ARCHIVE_TEMP_DIR || './tmp',
       s3: {

@@ -32,6 +32,11 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   await app.listen({ port: cfg.port, host: cfg.host });
+  // Failures only logged: the next start tries again.
+  void ctx.files
+    .shareLocalFiles()
+    .then((r) => app.log.info(r, 'shared file copy up to date'))
+    .catch((err) => app.log.warn({ err }, 'shared file copy failed'));
 }
 
 /**
