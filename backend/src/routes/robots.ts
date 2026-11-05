@@ -17,6 +17,7 @@ import { z } from 'zod';
 import type { AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { latestFromGithub } from '../lib/github';
+import { deployedSoftware, type SoftwareReport } from '../lib/software';
 import { anyScope, platform, robotParam, route } from '../lib/route';
 import { iso, paginate, Where } from '../lib/sql';
 import { includeDeleted, isoDate, isoDateTime, nullableText, optionalBool, pageQuery, uuidSchema } from '../lib/validation';
@@ -91,8 +92,11 @@ async function softwareDto(robotId: string, q: Queryable): Promise<SoftwareDto> 
     [robotId],
   );
   const history = rows.rows.map((r) => ({ ...r, reported_at: iso(r.reported_at)! }));
-  const installed = history.find((h) => h.commit_id);
-  return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, installed_commit_id: installed?.commit_id ?? null, installed_commit_at: installed?.reported_at ?? null, history };
+  // Robots may send their version with any message, not only at boot: that report counts as well as the history.
+  const live = (await q.query<{ sw_ver: string | null; fw_ver: string | null; at: Date | null }>('SELECT sw_ver, fw_ver, coalesce(sw_ver_at, updated_at) AS at FROM live_state WHERE robot_id = $1 AND sw_ver IS NOT NULL', [robotId])).rows[0];
+  const reports: SoftwareReport[] = history.map((h) => ({ sw_ver: h.sw_ver, fw_ver: h.fw_ver, commit_id: h.commit_id, at: h.reported_at, source: h.source }));
+  if (live?.at) reports.push({ sw_ver: live.sw_ver, fw_ver: live.fw_ver, commit_id: null, at: iso(live.at)!, source: 'robot' });
+  return { current: history[0] ?? null, last_update_at: history[0]?.reported_at ?? null, ...deployedSoftware(reports), history };
 }
 const ownershipBody = z.object({ company_id: uuidSchema, reason: nullableText(500).optional(), valid_from: isoDateTime.optional() });
 const ipField = z.preprocess(

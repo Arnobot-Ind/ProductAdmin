@@ -40,7 +40,7 @@ export interface ApiConfig {
    * Video / sensor archive (camera recordings). Stored ONLY in S3 (its own bucket, separate from the
    * documents storage): the server keeps no video. Temporary files (MP4 exports) live in tempDir only.
    */
-  /** Read-only GitHub access for private repositories (Auto update). Public ones work without it. */
+  /** Read-only GitHub access for private repositories (Fetch latest commit). Public ones work without it. */
   github: { token: string | null };
   archive: {
     s3: S3Settings;

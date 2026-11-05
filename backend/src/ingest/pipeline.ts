@@ -147,6 +147,7 @@ export class IngestPipeline {
       `UPDATE live_state SET
          last_seen_at = now(),
          sw_ver = CASE WHEN last_msg_ts IS NULL OR $2 >= last_msg_ts THEN coalesce($3, sw_ver) ELSE sw_ver END,
+         sw_ver_at = CASE WHEN $3::text IS NOT NULL AND (last_msg_ts IS NULL OR $2 >= last_msg_ts) THEN $2 ELSE sw_ver_at END,
          fw_ver = CASE WHEN last_msg_ts IS NULL OR $2 >= last_msg_ts THEN coalesce($4, fw_ver) ELSE fw_ver END,
          last_msg_ts = greatest(last_msg_ts, $2)
        WHERE robot_id = $1`,

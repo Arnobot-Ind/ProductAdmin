@@ -44,7 +44,7 @@ SELECT r.robot_id, r.serial_number, r.product_id, p.code AS product_code, p.name
        ls.last_seen_at, ls.battery_pct, ls.current_mission_id, ls.odometer_m,
        (SELECT cm.name FROM missions cm WHERE cm.mission_id = ls.current_mission_id) AS current_mission_name,
        ls.health_controller, ls.health_lidar, ls.health_cameras, ls.health_gps,
-       coalesce(ls.sw_ver, sw.sw_ver) AS sw_ver, coalesce(ls.fw_ver, sw.fw_ver) AS fw_ver,
+       CASE WHEN swk.reported_at > coalesce(ls.sw_ver_at, '-infinity') THEN swk.sw_ver ELSE coalesce(ls.sw_ver, swk.sw_ver) END AS sw_ver, coalesce(ls.fw_ver, sw.fw_ver) AS fw_ver,
        ${robotStatusCase()} AS status,
        ms.total_missions, ms.completed, ms.failed, ms.aborted, ms.in_progress,
        ms.total_distance_m, ms.total_duration_s, ms.avg_duration_s,
@@ -62,6 +62,9 @@ LEFT JOIN live_state ls ON ls.robot_id = r.robot_id
 LEFT JOIN LATERAL (
   SELECT sw_ver, fw_ver FROM software_history WHERE robot_id = r.robot_id ORDER BY reported_at DESC LIMIT 1
 ) sw ON true
+LEFT JOIN LATERAL (
+  SELECT sw_ver, reported_at FROM software_history WHERE robot_id = r.robot_id AND sw_ver IS NOT NULL ORDER BY reported_at DESC, created_at DESC LIMIT 1
+) swk ON true
 LEFT JOIN LATERAL (
   SELECT count(*)::int AS total_missions,
          count(*) FILTER (WHERE result = 'completed')::int AS completed,
