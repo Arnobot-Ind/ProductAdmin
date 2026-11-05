@@ -77,7 +77,7 @@ export async function buildApp(ctx: AppContext, makePipeline: (log: FastifyInsta
    * app's own origins (ADMIN_ORIGIN, CLIENT_ORIGIN). The session cookie is SameSite=Lax on the parent domain, and the
    * CSRF hook below still requires X-Requested-With: pms-admin and an allowed Origin.
    */
-  const uploadPath = /^\/api\/v1\/(?:documents(?:\/[0-9a-f-]{36}\/versions)?|releases|(?:products|attachments|software-products)\/[0-9a-f-]{36}\/media)\/?$/;
+  const uploadPath = /^\/api\/v1\/(?:documents(?:\/[0-9a-f-]{36}\/versions)?|releases|(?:products|attachments|software-products)\/[0-9a-f-]{36}\/media|robots\/[\w-]+\/media)\/?$/;
   const uploadOrigin = (origin: string | undefined) =>
     !!origin && [...ctx.cfg.adminOrigins, ...ctx.cfg.clientOrigins].includes(origin);
   app.addHook('onRequest', async (req, reply) => {
