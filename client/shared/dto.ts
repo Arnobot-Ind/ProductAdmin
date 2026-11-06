@@ -843,7 +843,7 @@ export interface TelemetrySeriesDto<T> {
   bucket_s: number;
   points: T[];
 }
-export interface GpsPointDto { ts: string; lat: number; lon: number; alt_m: number | null; speed_mps: number | null; heading_deg: number | null; fix: string | null }
+export interface GpsPointDto { ts: string; segment: number; lat: number; lon: number; alt_m: number | null; speed_mps: number | null; heading_deg: number | null; fix: string | null }
 export interface BatteryPointDto { ts: string; pct: number | null; voltage_v: number | null; current_a: number | null; temp_c: number | null }
 export interface EncoderPointDto { ts: string; encoder: string; ticks: number | null; velocity_mps: number | null; rpm: number | null }
 export interface HealthPointDto extends DeviceHealthDto { ts: string; temp_controller_c: number | null; temp_battery_c: number | null; temp_motors_max_c: number | null }
