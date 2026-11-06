@@ -126,8 +126,11 @@ function haversine(a: GpsPointDto, b: GpsPointDto): number {
 
 /** Runs within this distance of each other count as one place. */
 const PLACE_RADIUS_M = 2000;
+/** A longer break than this at one place starts a new visit, so a visit's times match the hours it ran. */
+const VISIT_BREAK_MS = 30 * 60_000;
 
-interface Place {
+/** One visit to a place: runs close together in time. The same place visited on other days has other visits. */
+interface Visit {
   id: string;
   name: string;
   runs: GpsPointDto[][];
@@ -138,26 +141,41 @@ interface Place {
 }
 
 const runMeters = (run: GpsPointDto[]) => run.slice(1).reduce((d, p, i) => d + haversine(run[i], p), 0);
+const runStart = (run: GpsPointDto[]) => Date.parse(run[0].ts);
+const runEnd = (run: GpsPointDto[]) => Date.parse(run[run.length - 1].ts);
 
-/** Groups runs by where they happened, most recent place first. */
-function groupPlaces(runs: GpsPointDto[][]): Place[] {
-  const groups: { centre: GpsPointDto; runs: GpsPointDto[][] }[] = [];
+/** Groups runs by where they happened, then by when: most recent visit first, and the same place keeps its name. */
+function groupVisits(runs: GpsPointDto[][]): { visits: Visit[]; placeCount: number } {
+  const places: { centre: GpsPointDto; runs: GpsPointDto[][] }[] = [];
   for (const run of runs) {
     const centre = run[run.length >> 1];
-    const near = groups.find((g) => haversine(g.centre, centre) <= PLACE_RADIUS_M);
+    const near = places.find((g) => haversine(g.centre, centre) <= PLACE_RADIUS_M);
     if (near) near.runs.push(run);
-    else groups.push({ centre, runs: [run] });
+    else places.push({ centre, runs: [run] });
   }
-  return groups
-    .map((g) => ({
-      runs: g.runs,
-      meters: g.runs.reduce((sum, r) => sum + runMeters(r), 0),
-      seconds: g.runs.reduce((sum, r) => sum + (Date.parse(r[r.length - 1].ts) - Date.parse(r[0].ts)) / 1000, 0),
-      from: Math.min(...g.runs.map((r) => Date.parse(r[0].ts))),
-      to: Math.max(...g.runs.map((r) => Date.parse(r[r.length - 1].ts))),
-    }))
-    .sort((a, b) => b.to - a.to)
-    .map((p, i) => ({ ...p, id: String(p.from), name: `Place ${i + 1}` }));
+  const latest = (g: { runs: GpsPointDto[][] }) => Math.max(...g.runs.map(runEnd));
+  const ordered = [...places].sort((a, b) => latest(b) - latest(a));
+  const visits = ordered.flatMap((place, i) => {
+    const groups: GpsPointDto[][][] = [];
+    for (const run of [...place.runs].sort((a, b) => runStart(a) - runStart(b))) {
+      const open = groups[groups.length - 1];
+      if (open && runStart(run) - Math.max(...open.map(runEnd)) <= VISIT_BREAK_MS) open.push(run);
+      else groups.push([run]);
+    }
+    return groups.map((group) => {
+      const from = runStart(group[0]);
+      return {
+        id: String(from),
+        name: `Place ${i + 1}`,
+        runs: group,
+        meters: group.reduce((sum, r) => sum + runMeters(r), 0),
+        seconds: group.reduce((sum, r) => sum + (runEnd(r) - runStart(r)) / 1000, 0),
+        from,
+        to: Math.max(...group.map(runEnd)),
+      };
+    });
+  });
+  return { visits: visits.sort((a, b) => b.to - a.to), placeCount: places.length };
 }
 
 /** Size of the picture on a place card, in map pixels. */
@@ -176,6 +194,15 @@ function worldPixel(lat: number, lon: number, zoom: number): [number, number] {
  * a browser allows only a few live maps on a page, and this card only has to be looked at and clicked.
  */
 function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
+  // A robot can have many visits: its satellite images load only when the card scrolls into view.
+  const box = useRef<HTMLSpanElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen || !box.current) return;
+    const watch = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setSeen(true), { rootMargin: '300px' });
+    watch.observe(box.current);
+    return () => watch.disconnect();
+  }, [seen]);
   const all = runs.flat();
   const [minLat, maxLat] = [Math.min(...all.map((p) => p.lat)), Math.max(...all.map((p) => p.lat))];
   const [minLon, maxLon] = [Math.min(...all.map((p) => p.lon)), Math.max(...all.map((p) => p.lon))];
@@ -202,9 +229,9 @@ function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
       })
       .join(' ');
   return (
-    <span className="relative block">
+    <span ref={box} className="relative block">
       <svg viewBox={`0 0 ${CARD_W} ${CARD_H}`} className="block aspect-[8/5] w-full rounded-md bg-surface-2" aria-hidden>
-        {tiles.map((t) => (
+        {seen && tiles.map((t) => (
           <image key={`${t.x}-${t.y}`} href={`https://mt${(t.x + t.y) & 3}.google.com/vt/lyrs=s&x=${t.x}&y=${t.y}&z=${zoom}`} x={t.x * 256 - left} y={t.y * 256 - top} width="257" height="257" />
         ))}
         {runs.map((run) => (
@@ -219,23 +246,23 @@ function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
   );
 }
 
-/** When a place was used: the day and times, or the days when it spans more than one. */
-function placeWhen(p: Place): string {
+/** When a visit was: the day and times, or both days when it runs past midnight. */
+function placeWhen(p: Visit): string {
   const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST_ZONE });
   const time = (t: number) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
   return day(p.from) === day(p.to) ? `${day(p.to)}, ${time(p.from)} – ${time(p.to)}` : `${day(p.from)}, ${time(p.from)} – ${day(p.to)}, ${time(p.to)}`;
 }
 
-const placeFacts = (p: Place) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
+const placeFacts = (p: Visit) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
 
 function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId: string }) {
   // Each minute's refresh returns a new list. The same readings keep the same list, so the map is not redrawn.
   const held = useRef(latest);
   if (held.current.length !== latest.length || held.current[held.current.length - 1]?.ts !== latest[latest.length - 1]?.ts || held.current[0]?.ts !== latest[0]?.ts) held.current = latest;
   const points = held.current;
-  /** The place on the big map: the most recent one until another is clicked, or every place together. */
+  /** The visit on the big map: the most recent one until another is clicked, or everything together. */
   const [chosen, setChosen] = useState<string | 'all' | null>(null);
-  const { allRuns, places } = useMemo(() => {
+  const { allRuns, visits, placeCount } = useMemo(() => {
     // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a run.
     const bySegment = new Map<number, GpsPointDto[]>();
     for (const p of points) {
@@ -244,9 +271,9 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       else bySegment.set(p.segment, [p]);
     }
     const runs = [...bySegment.values()].filter((x) => x.length > 1);
-    return { allRuns: runs, places: groupPlaces(runs) };
+    return { allRuns: runs, ...groupVisits(runs) };
   }, [points]);
-  const place = chosen === 'all' ? null : (places.find((p) => p.id === chosen) ?? places[0] ?? null);
+  const place = chosen === 'all' ? null : (visits.find((p) => p.id === chosen) ?? visits[0] ?? null);
   const { lines, markers, dist } = useMemo(() => {
     const runs = place ? place.runs : allRuns;
     const kept = runs.length ? runs.flat() : points;
@@ -272,18 +299,20 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
 
     </>
   );
-  if (places.length < 2) return bigMap;
+  if (visits.length < 2) return bigMap;
   return (
     <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-base font-medium">{places.length} places</p>
+          <p className="text-base font-medium">
+            {visits.length} visits · {placeCount} {placeCount === 1 ? 'place' : 'places'}
+          </p>
           <Button size="sm" onClick={() => setChosen('all')} disabled={!place}>
             Show all
           </Button>
         </div>
         <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pr-1">
-          {places.map((p) => (
+          {visits.map((p) => (
             <button
               key={p.id}
               type="button"
