@@ -3,6 +3,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Readable } from 'node:stream';
 import type { ApiConfig } from '../../lib/config';
+import type { StorageFileType } from '../../shared';
 
 export interface ObjectInfo {
   key: string;
@@ -21,6 +22,23 @@ export interface ObjectStream {
 }
 
 const IST_OFFSET_MS = 5.5 * 3_600_000;
+
+const TYPES_BY_EXTENSION: Record<StorageFileType, string[]> = {
+  videos: ['ts', 'mp4', 'mov', 'mkv', 'avi', 'm4v', 'webm'],
+  images: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp', 'tif', 'tiff'],
+  documents: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'md'],
+  sensors: ['bin', 'npz', 'npy', 'jsonl', 'pcap', 'bag', 'mcap'],
+  models: ['ply', 'obj', 'glb', 'gltf', 'splat', 'usdz', 'stl'],
+  archives: ['zip', 'gz', 'tar', 'tgz', '7z', 'rar'],
+  other: [],
+};
+const TYPE_OF_EXTENSION = new Map(Object.entries(TYPES_BY_EXTENSION).flatMap(([type, list]) => list.map((e) => [e, type as StorageFileType] as const)));
+
+/** What kind of file an object is, from its extension. */
+export function fileType(key: string): StorageFileType {
+  const name = key.split('/').pop() ?? '';
+  return TYPE_OF_EXTENSION.get(name.includes('.') ? (name.split('.').pop() ?? '').toLowerCase() : '') ?? 'other';
+}
 
 export class ObjectNotFound extends Error {}
 export class RangeNotSatisfiable extends Error {
@@ -91,9 +109,10 @@ export class ArchiveStorage {
     return out;
   }
 
-  /** Every object in the bucket added up per upload day (IST), without keeping the listing in memory. */
-  async usageByDay(): Promise<{ objects: number; bytes: number; days: Map<string, number> }> {
-    const days = new Map<string, number>();
+  /** Every object in the bucket added up per upload day (IST) and per type, without keeping the listing in memory. */
+  async usageByDay(): Promise<{ objects: number; bytes: number; days: Map<string, Partial<Record<StorageFileType, number>>>; types: Map<StorageFileType, { bytes: number; files: number }> }> {
+    const days = new Map<string, Partial<Record<StorageFileType, number>>>();
+    const types = new Map<StorageFileType, { bytes: number; files: number }>();
     let objects = 0;
     let bytes = 0;
     let token: string | undefined;
@@ -102,13 +121,20 @@ export class ArchiveStorage {
       for (const o of res.Contents ?? []) {
         const size = o.Size ?? 0;
         const day = new Date((o.LastModified ?? new Date(0)).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
-        days.set(day, (days.get(day) ?? 0) + size);
+        const type = fileType(o.Key ?? '');
+        const onDay = days.get(day) ?? {};
+        onDay[type] = (onDay[type] ?? 0) + size;
+        days.set(day, onDay);
+        const inType = types.get(type) ?? { bytes: 0, files: 0 };
+        inType.bytes += size;
+        inType.files += 1;
+        types.set(type, inType);
         objects += 1;
         bytes += size;
       }
       token = res.IsTruncated ? res.NextContinuationToken : undefined;
     } while (token);
-    return { objects, bytes, days };
+    return { objects, bytes, days, types };
   }
 
   /** Streams a body into the bucket (multipart above 5 MB, so memory stays flat and nothing touches disk). */
