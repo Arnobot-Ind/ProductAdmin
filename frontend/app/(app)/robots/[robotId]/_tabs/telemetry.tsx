@@ -313,7 +313,16 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
 
     </>
   );
-  if (places.length < 2 && (places[0]?.missions.length ?? 0) < 2) return bigMap;
+  const shown = mission ?? place;
+  const heading = shown ? `${place?.name} · ${missionWhen(shown)} · ${mission || !place ? '' : `${place.missions.length} ${place.missions.length === 1 ? 'mission' : 'missions'} · `}${facts(shown)}` : allRuns.length ? `All places · ${missionWhen(summarise(allRuns))} · ${facts(summarise(allRuns))}` : 'All places';
+  if (places.length < 2 && (places[0]?.missions.length ?? 0) < 2) {
+    return (
+      <>
+        <p className="mb-2 text-base font-bold">{heading}</p>
+        {bigMap}
+      </>
+    );
+  }
   return (
     <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
@@ -337,6 +346,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
             >
               <PlaceMap runs={p.runs} />
               <span className="mt-1.5 block font-medium">{p.name}</span>
+              <span className="block text-sm text-muted">{missionWhen(p)}</span>
               <span className="block text-sm text-muted">{facts(p)}</span>
             </button>
           ))}
@@ -345,7 +355,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-base font-bold">
-            {!place ? 'All places' : mission ? `${place.name} · ${missionWhen(mission)} · ${facts(mission)}` : `${place.name} · ${place.missions.length} ${place.missions.length === 1 ? 'mission' : 'missions'} · ${facts(place)}`}
+            {heading}
           </p>
           {several && !showList && (
             <Button size="sm" onClick={() => setMissionId(null)}>
@@ -358,6 +368,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
             <button type="button" onClick={() => setMissionId('all')} className={missionCard}>
               <PlaceMap runs={place.runs} />
               <span className="mt-1.5 block font-medium">All {place.missions.length} missions</span>
+              <span className="block text-sm text-muted">{missionWhen(place)}</span>
               <span className="block text-sm text-muted">{facts(place)}</span>
             </button>
             {place.missions.map((m) => (
