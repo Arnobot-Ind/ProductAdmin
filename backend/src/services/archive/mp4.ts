@@ -11,7 +11,7 @@
  * Chunks are joined with a stream copy when the codec allows, so a build costs disk and network, not an encode.
  */
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ApiConfig } from '../../lib/config';
@@ -23,6 +23,18 @@ export interface Mp4Segment {
 }
 
 const NET = ['-protocol_whitelist', 'file,http,https,tcp,tls,crypto'];
+
+/** What people watch and download on the web: 480p at 15 fps, to save network. The originals in the bucket never change. */
+const LOW_VIDEO = ['-vf', "scale=-2:'min(480,ih)',fps=15", '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '450k', '-maxrate', '600k', '-bufsize', '1200k', '-pix_fmt', 'yuv420p'];
+export type VideoQuality = 'low' | 'original';
+/** Length of one playback piece. Only the pieces someone watches are ever made or sent. */
+export const LOW_PIECE_SECONDS = 10;
+/** Pieces made in one pass. Finding a position in a file on S3 is the slow part (seconds); reading on from it is not. */
+const PIECES_PER_PASS = 6;
+/** When fewer pieces than this are ready ahead of what is being watched, the next pass starts, so playback never waits. */
+const READY_AHEAD = 3;
+/** Passes running at the same time. More wait, so playback cannot use up the server. */
+const MAX_PASSES = 4;
 
 function safe(s: string): string {
   return s.replace(/[^A-Za-z0-9_-]/g, '_');
@@ -48,6 +60,11 @@ function run(cmd: string, args: string[]): Promise<string> {
 export class Mp4Builder {
   private readonly building = new Map<string, Promise<string>>();
   private readonly cacheDir: string;
+  private readonly passQueue: (() => void)[] = [];
+  private passes = 0;
+  /** Running or queued passes: which pieces of which file they will make. */
+  private readonly planned = new Set<{ key: string; from: number; to: number }>();
+  private readonly pieceWaiters = new Map<string, ((file: string | null) => void)[]>();
   private probed: Promise<{ available: boolean; version: string | null }> | null = null;
 
   constructor(
@@ -67,10 +84,10 @@ export class Mp4Builder {
   }
 
   /** The cached MP4 for these chunks, building it first if needed. Concurrent requests share one build. */
-  async build(robotId: string, sessionId: string, camera: string, segments: Mp4Segment[]): Promise<string> {
+  async build(robotId: string, sessionId: string, camera: string, segments: Mp4Segment[], quality: VideoQuality = 'original'): Promise<string> {
     // The name covers every chunk key and size: a session that gained chunks gets a new file, never a stale one.
     const hash = createHash('sha256')
-      .update(segments.map((s) => `${s.key}:${s.size}`).join('\n'))
+      .update(quality + segments.map((s) => `${s.key}:${s.size}`).join('\n'))
       .digest('hex')
       .slice(0, 16);
     const file = path.join(this.cacheDir, `${safe(robotId)}__${safe(sessionId)}__${safe(camera)}__${hash}.mp4`);
@@ -82,13 +99,111 @@ export class Mp4Builder {
     }
     let job = this.building.get(file);
     if (!job) {
-      job = this.make(segments, file).finally(() => this.building.delete(file));
+      job = this.make(segments, file, quality).finally(() => this.building.delete(file));
       this.building.set(file, job);
     }
     return job;
   }
 
-  private async make(segments: Mp4Segment[], file: string): Promise<string> {
+  private pieceFile(key: string, size: number, index: number): string {
+    const hash = createHash('sha256').update(`${key}:${size}:${index}`).digest('hex').slice(0, 32);
+    return path.join(this.cacheDir, `piece__${hash}.ts`);
+  }
+
+  private async pieceReady(file: string): Promise<boolean> {
+    return stat(file).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /**
+   * One short piece of a recording in low quality, kept for MP4_CACHE_HOURS. Null when the file ends before it (a
+   * recording that stopped early). Pieces come from passes that read on through the file, ahead of what is watched.
+   */
+  async lowPiece(key: string, size: number, index: number, total: number): Promise<string | null> {
+    const file = this.pieceFile(key, size, index);
+    if (!(await this.pieceReady(file))) {
+      const made = new Promise<string | null>((done) => this.pieceWaiters.set(file, [...(this.pieceWaiters.get(file) ?? []), done]));
+      if (![...this.planned].some((p) => p.key === key && p.from <= index && index <= p.to)) this.startPass(key, size, index, total);
+      if (!(await made)) return null;
+    }
+    void this.readAhead(key, size, index, total);
+    return file;
+  }
+
+  private async readAhead(key: string, size: number, index: number, total: number): Promise<void> {
+    for (let i = index + 1; i <= Math.min(index + READY_AHEAD, total - 1); i++) {
+      if ([...this.planned].some((p) => p.key === key && p.from <= i && i <= p.to)) continue;
+      if (!(await this.pieceReady(this.pieceFile(key, size, i)))) {
+        this.startPass(key, size, i, total);
+        return;
+      }
+    }
+  }
+
+  private startPass(key: string, size: number, from: number, total: number): void {
+    const plan = { key, from, to: Math.min(from + PIECES_PER_PASS, total) - 1 };
+    this.planned.add(plan);
+    void this.runPass(plan, size).finally(() => this.planned.delete(plan));
+  }
+
+  private async runPass(plan: { key: string; from: number; to: number }, size: number): Promise<void> {
+    if (this.passes >= MAX_PASSES) await new Promise<void>((go) => this.passQueue.push(go));
+    else this.passes += 1;
+    const { key, from, to } = plan;
+    const prefix = path.join(this.cacheDir, `pass__${randomUUID()}_`);
+    const written = (i: number) => `${prefix}${String(i).padStart(3, '0')}.ts`;
+    let next = 0;
+    // A piece is finished once the one after it has started, or the pass has ended.
+    const collect = async (ended: boolean) => {
+      for (;;) {
+        const piece = from + next;
+        if (piece > to || !(await this.pieceReady(written(next)))) return;
+        if (!ended && !(await this.pieceReady(written(next + 1)))) return;
+        const file = this.pieceFile(key, size, piece);
+        await rename(written(next), file);
+        for (const done of this.pieceWaiters.get(file) ?? []) done(file);
+        this.pieceWaiters.delete(file);
+        next += 1;
+      }
+    };
+    let collecting = Promise.resolve();
+    const watch = setInterval(() => {
+      collecting = collecting.then(() => collect(false)).catch(() => undefined);
+    }, 150);
+    try {
+      await mkdir(this.cacheDir, { recursive: true });
+      void this.sweep();
+      await run(this.cfg.ffmpegPath, [
+        '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+        ...NET, '-ss', String(from * LOW_PIECE_SECONDS), '-i', await this.storage.ffmpegInput(key), '-t', String((to - from + 1) * LOW_PIECE_SECONDS),
+        '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'aac', '-b:a', '64k',
+        ...LOW_VIDEO,
+        '-force_key_frames', `expr:gte(t,n_forced*${LOW_PIECE_SECONDS})`,
+        // Pieces of one file continue each other's timeline, so the player sees one unbroken video.
+        '-output_ts_offset', String(from * LOW_PIECE_SECONDS), '-muxdelay', '0',
+        '-f', 'segment', '-segment_time', String(LOW_PIECE_SECONDS), '-segment_format', 'mpegts', `${prefix}%03d.ts`,
+      ]);
+    } catch {
+      // Reading past the end of a file is normal here; pieces that were made are still used.
+    } finally {
+      clearInterval(watch);
+      await collecting;
+      await collect(true).catch(() => undefined);
+      // Whatever this pass did not make does not exist.
+      for (let i = from; i <= to; i++) {
+        const file = this.pieceFile(key, size, i);
+        for (const done of this.pieceWaiters.get(file) ?? []) done(null);
+        this.pieceWaiters.delete(file);
+      }
+      const go = this.passQueue.shift();
+      if (go) go();
+      else this.passes -= 1;
+    }
+  }
+
+  private async make(segments: Mp4Segment[], file: string, quality: VideoQuality): Promise<string> {
     await mkdir(this.cacheDir, { recursive: true });
     void this.sweep();
     // ffmpeg reads the segments straight from S3 through short-lived URLs; only the result is written here.
@@ -102,7 +217,7 @@ export class Mp4Builder {
       const video = streams.find((s) => s.codec_type === 'video');
       const hasAudio = streams.some((s) => s.codec_type === 'audio');
       const eightBit420 = !video?.pix_fmt || video.pix_fmt === 'yuv420p' || video.pix_fmt === 'yuvj420p';
-      const vcodec =
+      const vcodec = quality === 'low' ? [...LOW_VIDEO, '-tag:v', 'avc1'] :
         video?.codec_name === 'h264' && eightBit420
           ? ['-c:v', 'copy', '-tag:v', 'avc1']
           : video?.codec_name === 'hevc' && eightBit420

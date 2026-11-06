@@ -24,7 +24,7 @@ import { anyScope, assertCan, platform, robotParam, robotVia, route } from '../l
 import { nullableText, optionalBool, pageQuery, robotIdSchema } from '../lib/validation';
 import type { AuthUser } from '../services/auth.service';
 import { contentTypeFor, isCameraName } from '../services/archive/keys';
-import { mp4Name } from '../services/archive/mp4';
+import { mp4Name, LOW_PIECE_SECONDS } from '../services/archive/mp4';
 import { ObjectNotFound, parseRange, RangeNotSatisfiable, type ObjectStream } from '../services/archive/storage';
 
 const listQuery = z.object({
@@ -71,6 +71,12 @@ function storageError(err: unknown, reply: FastifyReply): never | FastifyReply {
 
 /** A Range request that does not start at byte 0 continues a download already counted. */
 const firstBytes = (req: FastifyRequest) => !req.headers.range || /^bytes=0-/.test(req.headers.range);
+
+/** A file cut into pieces for the low-quality player. */
+function lowPieces(durationS: number): { index: number; start: number; duration: number }[] {
+  const count = Math.max(1, Math.ceil(durationS / LOW_PIECE_SECONDS));
+  return Array.from({ length: count }, (_, index) => ({ index, start: index * LOW_PIECE_SECONDS, duration: index === count - 1 ? durationS - index * LOW_PIECE_SECONDS : LOW_PIECE_SECONDS }));
+}
 
 export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
   const tag = 'Archive';
@@ -216,11 +222,24 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'HLS VOD playlist over one camera’s .ts segments (for the synced web player)',
     tag,
     access: { can: 'robot.details', target: sessionRobot },
-    handler: async ({ params, reply, user }) => {
+    query: z.object({ quality: z.enum(['low', 'original']).optional() }),
+    handler: async ({ params, query, reply, user }) => {
       await visibleSession(user, params.id);
       if (!isCameraName(params.camera)) throw badRequest('invalid camera name');
       const { segments } = await archive.cameraTrack(params.id, params.camera);
       if (!segments.length) throw notFound('video for this camera');
+      if (query.quality !== 'original' && (await archive.mp4.ffmpeg()).available) {
+        // Low quality by default: short pieces, so only what is watched is sent, not whole 10-minute files.
+        const pieces = `/api/v1/archive/sessions/${params.id}/cameras/${encodeURIComponent(params.camera)}/low`;
+        const lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-PLAYLIST-TYPE:VOD', `#EXT-X-TARGETDURATION:${LOW_PIECE_SECONDS + 2}`, '#EXT-X-MEDIA-SEQUENCE:0'];
+        segments.forEach((s, i) => {
+          if (i > 0) lines.push('#EXT-X-DISCONTINUITY');
+          lines.push(`#EXT-X-PROGRAM-DATE-TIME:${new Date(s.start).toISOString()}`);
+          for (const p of lowPieces(s.duration)) lines.push(`#EXTINF:${p.duration.toFixed(3)},`, `${pieces}/${i}/${p.index}`);
+        });
+        lines.push('#EXT-X-ENDLIST', '');
+        return reply.header('Content-Type', 'application/vnd.apple.mpegurl').header('Cache-Control', 'no-store').send(lines.join('\n'));
+      }
       const base = `/api/v1/archive/sessions/${params.id}/files/`;
       // Direct playback: each segment is a signed bucket link (hours, so a paused player can resume), so the player
       // fetches video from S3 without a request to this server per segment.
@@ -240,11 +259,32 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
 
   route(f, app, {
     method: 'GET',
+    path: '/archive/sessions/:id/cameras/:camera/low/:chunk/:piece',
+    summary: 'One short low-quality piece of a camera recording (for the web player). Made on first request, then cached',
+    tag,
+    access: { can: 'robot.details', target: sessionRobot },
+    handler: async ({ params, reply, user }) => {
+      await visibleSession(user, params.id);
+      if (!isCameraName(params.camera)) throw badRequest('invalid camera name');
+      const { segments } = await archive.cameraTrack(params.id, params.camera);
+      const segment = segments[Number(params.chunk)];
+      const pieces = segment ? lowPieces(segment.duration) : [];
+      const piece = pieces[Number(params.piece)];
+      if (!piece) throw notFound('video piece');
+      const file = await archive.mp4.lowPiece(segment.key, segment.size, piece.index, pieces.length);
+      // Past the real end of a recording that stopped early: nothing to play, and the player moves on.
+      if (!file) return reply.header('Content-Type', 'video/mp2t').header('Content-Length', '0').send('');
+      return reply.header('Content-Type', 'video/mp2t').header('Cache-Control', 'private, max-age=3600').header('Content-Length', String((await stat(file)).size)).send(createReadStream(file));
+    },
+  });
+
+  route(f, app, {
+    method: 'GET',
     path: '/archive/sessions/:id/cameras/:camera/mp4',
-    summary: 'One camera as a single MP4 download (plays on Windows, macOS, phones). Built with ffmpeg on first request, then cached',
+    summary: 'One camera as a single MP4 download (plays on Windows, macOS, phones), low quality unless quality=original. Built with ffmpeg on first request, then cached',
     tag,
     access: { can: 'data.download', target: sessionRobot },
-    query: z.object({ download: optionalBool }),
+    query: z.object({ download: optionalBool, quality: z.enum(['low', 'original']).optional() }),
     handler: async ({ params, query, req, reply, user }) => {
       const owner = await visibleSession(user, params.id);
       if (!isCameraName(params.camera)) throw badRequest('invalid camera name');
@@ -253,7 +293,7 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
       if (!segments.length) throw notFound('video for this camera');
       let file: string;
       try {
-        file = await archive.mp4.build(session.robot_id, session.session_id, params.camera, segments);
+        file = await archive.mp4.build(session.robot_id, session.session_id, params.camera, segments, query.quality ?? 'low');
       } catch (err) {
         req.log.error({ err }, 'mp4 build failed');
         throw new ApiError(502, 'mp4_failed', 'Could not build the MP4 from this camera’s video');
