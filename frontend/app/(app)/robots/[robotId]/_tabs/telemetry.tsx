@@ -158,32 +158,62 @@ function groupPlaces(runs: GpsPointDto[][]): Place[] {
     .map((p, i) => ({ ...p, id: String(i), name: `Place ${i + 1}` }));
 }
 
-/** The route's own shape, scaled to fill the card, so a small route stays visible however far apart the places are. */
-function RouteSketch({ runs }: { runs: GpsPointDto[][] }) {
-  const lats = runs.flat().map((p) => p.lat);
-  const lons = runs.flat().map((p) => p.lon);
-  const [minLat, maxLat, minLon, maxLon] = [Math.min(...lats), Math.max(...lats), Math.min(...lons), Math.max(...lons)];
-  const squeeze = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
-  const w = (maxLon - minLon) * squeeze;
-  const h = maxLat - minLat;
-  const scale = Math.min(88 / (w || 1e-9), 48 / (h || 1e-9));
-  const x = (lon: number) => 50 + ((lon - (minLon + maxLon) / 2) * squeeze * scale);
-  const y = (lat: number) => 30 - ((lat - (minLat + maxLat) / 2) * scale);
+/** Size of the picture on a place card, in map pixels. */
+const CARD_W = 640;
+const CARD_H = 400;
+
+/** Web Mercator: a position in pixels of the whole world map at this zoom. */
+function worldPixel(lat: number, lon: number, zoom: number): [number, number] {
+  const size = 256 * 2 ** zoom;
+  const sin = Math.sin((lat * Math.PI) / 180);
+  return [((lon + 180) / 360) * size, (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size];
+}
+
+/**
+ * The real satellite picture of a place with its route on top, zoomed to fit the route. Plain images, not a live map:
+ * a browser allows only a few live maps on a page, and this card only has to be looked at and clicked.
+ */
+function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
+  const all = runs.flat();
+  const [minLat, maxLat] = [Math.min(...all.map((p) => p.lat)), Math.max(...all.map((p) => p.lat))];
+  const [minLon, maxLon] = [Math.min(...all.map((p) => p.lon)), Math.max(...all.map((p) => p.lon))];
+  let zoom = 19;
+  while (zoom > 1) {
+    const [x0, y0] = worldPixel(maxLat, minLon, zoom);
+    const [x1, y1] = worldPixel(minLat, maxLon, zoom);
+    if (x1 - x0 <= CARD_W - 60 && y1 - y0 <= CARD_H - 60) break;
+    zoom -= 1;
+  }
+  const [cx0, cy0] = worldPixel(maxLat, minLon, zoom);
+  const [cx1, cy1] = worldPixel(minLat, maxLon, zoom);
+  const left = (cx0 + cx1) / 2 - CARD_W / 2;
+  const top = (cy0 + cy1) / 2 - CARD_H / 2;
+  const tiles: { x: number; y: number }[] = [];
+  for (let x = Math.floor(left / 256); x <= Math.floor((left + CARD_W) / 256); x++) {
+    for (let y = Math.floor(top / 256); y <= Math.floor((top + CARD_H) / 256); y++) tiles.push({ x, y });
+  }
+  const route = (run: GpsPointDto[]) =>
+    run
+      .map((p) => {
+        const [x, y] = worldPixel(p.lat, p.lon, zoom);
+        return `${(x - left).toFixed(1)},${(y - top).toFixed(1)}`;
+      })
+      .join(' ');
   return (
-    <svg viewBox="0 0 100 60" className="h-24 w-full rounded-md bg-surface-2" aria-hidden>
-      {runs.map((run) => (
-        <polyline
-          key={run[0].ts}
-          points={run.map((p) => `${x(p.lon).toFixed(2)},${y(p.lat).toFixed(2)}`).join(' ')}
-          fill="none"
-          stroke="var(--map-actual)"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-        />
-      ))}
-    </svg>
+    <span className="relative block">
+      <svg viewBox={`0 0 ${CARD_W} ${CARD_H}`} className="block aspect-[8/5] w-full rounded-md bg-surface-2" aria-hidden>
+        {tiles.map((t) => (
+          <image key={`${t.x}-${t.y}`} href={`https://mt${(t.x + t.y) & 3}.google.com/vt/lyrs=s&x=${t.x}&y=${t.y}&z=${zoom}`} x={t.x * 256 - left} y={t.y * 256 - top} width="257" height="257" />
+        ))}
+        {runs.map((run) => (
+          <g key={run[0].ts} fill="none" strokeLinejoin="round" strokeLinecap="round">
+            <polyline points={route(run)} stroke="#000000" strokeOpacity="0.55" strokeWidth="6" />
+            <polyline points={route(run)} stroke="#ffd60a" strokeWidth="3" />
+          </g>
+        ))}
+      </svg>
+      <span className="absolute right-1 bottom-1 rounded bg-black/55 px-1 text-[11px] text-white">Map data © Google</span>
+    </span>
   );
 }
 
@@ -231,14 +261,14 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
               Show all on the map
             </Button>
           </div>
-          <div className="grid max-h-[26rem] grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {places.map((p) => (
               <button key={p.id} type="button" aria-pressed={p.id === chosen} onClick={() => setChosen(p.id)} className={cn(card, p.id === chosen ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}>
-                <RouteSketch runs={p.runs} />
-                <span className="mt-1.5 block font-medium">
+                <PlaceMap runs={p.runs} />
+                <span className="mt-2 block text-lg font-medium">
                   {p.name} · {placeWhen(p)}
                 </span>
-                <span className="block text-sm text-muted">
+                <span className="block text-base text-muted">
                   {fmtDistance(p.meters)} · {fmtDuration(p.seconds)} · {p.runs.length} {p.runs.length === 1 ? 'run' : 'runs'}
                 </span>
               </button>
