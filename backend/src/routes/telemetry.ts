@@ -11,6 +11,8 @@ const RAW_LIMIT = 5000;
 const TARGET_POINTS = 1000;
 const BUCKETS = [30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
 const MAX_RANGE_DAYS = 400;
+/** About how many points a GPS track returns: enough to follow the route. */
+const GPS_TARGET_POINTS = 5000;
 
 const rangeQuery = z.object({
   from: isoDateTime.optional(),
@@ -66,25 +68,47 @@ export function telemetryRoutes(f: FastifyInstance, app: AppContext): void {
     };
   }
   const W = 'WHERE robot_id = $1 AND ts >= $2 AND ts < $3';
+  /**
+   * Numbers the GPS readings into segments. A new one starts after a gap (over 10 s, or 3 times this robot's usual
+   * spacing if that is longer: robots report at different rates) or a jump no robot can make (over 50 m/s: a bad fix).
+   */
+  const GPS_SEGMENTS = `WITH s AS (
+      SELECT ts, lat, lon, alt_m, speed_mps, heading_deg, fix_quality, lag(ts) OVER w AS pt, lag(lat) OVER w AS pa, lag(lon) OVER w AS po
+      FROM telemetry_gps ${W} WINDOW w AS (ORDER BY ts)),
+    usual AS (SELECT coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM ts - pt)), 1) AS dt FROM s),
+    g AS (
+      SELECT s.*, (count(*) FILTER (WHERE pt IS NULL
+          OR extract(epoch FROM ts - pt) > greatest(10, 3 * usual.dt)
+          OR 111320 * sqrt((lat - pa) ^ 2 + ((lon - po) * cos(radians(lat))) ^ 2) > 50 * greatest(extract(epoch FROM ts - pt), 1)
+        ) OVER (ORDER BY ts))::int AS segment
+      FROM s, usual)`;
   const BIN = `date_bin($4::interval, ts, TIMESTAMPTZ '2000-01-01')`;
 
   route(f, app, {
     method: 'GET',
     path: '/robots/:robotId/telemetry/gps',
-    summary: 'GPS track (averaged per bucket)',
+    summary: 'GPS track, split into segments that have no gap or impossible jump inside (averaged per bucket)',
     tag,
     access,
     query: rangeQuery,
-    handler: ({ params, query, user }) =>
-      series<GpsPointDto>(
+    handler: async ({ params, query, user }) => {
+      // The step follows how much GPS there is, not the length of the range, so short runs in a long range still show.
+      let bucketS = query.bucket_s;
+      if (bucketS === undefined) {
+        const { from, to } = resolveRange(query);
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM telemetry_gps ${W}`, [params.robotId, from, to])).rows[0].n;
+        bucketS = n <= GPS_TARGET_POINTS ? 0 : (BUCKETS.find((b) => n / b <= GPS_TARGET_POINTS) ?? 86400);
+      }
+      return series<GpsPointDto>(
         user,
         params.robotId,
-        query,
-        `SELECT ts, lat, lon, alt_m, speed_mps, heading_deg, fix_quality AS fix FROM telemetry_gps ${W} ORDER BY ts`,
-        `SELECT ${BIN} AS ts, avg(lat) AS lat, avg(lon) AS lon, avg(alt_m)::real AS alt_m, avg(speed_mps)::real AS speed_mps,
-                (array_agg(heading_deg ORDER BY ts DESC))[1] AS heading_deg, (array_agg(fix_quality ORDER BY ts DESC))[1] AS fix
-         FROM telemetry_gps ${W} GROUP BY 1 ORDER BY 1`,
-      ),
+        { ...query, bucket_s: bucketS },
+        `${GPS_SEGMENTS} SELECT ts, lat, lon, alt_m, speed_mps, heading_deg, fix_quality AS fix, segment FROM g ORDER BY ts`,
+        `${GPS_SEGMENTS} SELECT ${BIN} AS ts, avg(lat) AS lat, avg(lon) AS lon, avg(alt_m)::real AS alt_m, avg(speed_mps)::real AS speed_mps,
+                (array_agg(heading_deg ORDER BY g.ts DESC))[1] AS heading_deg, (array_agg(fix_quality ORDER BY g.ts DESC))[1] AS fix, segment
+         FROM g GROUP BY segment, 1 ORDER BY min(g.ts)`,
+      );
+    },
   });
 
   route(f, app, {
