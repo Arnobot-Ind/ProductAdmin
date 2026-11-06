@@ -138,28 +138,30 @@ function StorageTile() {
   return (
     <section className="min-w-0 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm text-muted">Storage on AWS · {insights ? 'what uses the space' : chosen.title}</h2>
+        <h2 className="text-sm text-muted">Storage on AWS · {insights ? 'by type' : chosen.title}</h2>
         <div className="flex items-center gap-2">
+          <div className={cn(insights && 'invisible')}>
+            <OptionFilter label="Storage" value={period} options={STORAGE_PERIODS} onChange={setPeriod} />
+          </div>
           {q.data && (
-            <button type="button" onClick={() => setInsights(!insights)} className="rounded-md border border-border bg-surface px-2.5 py-1 text-sm hover:bg-surface-2">
+            <button type="button" onClick={() => setInsights(!insights)} className="w-28 rounded-md border border-border bg-surface py-1 text-sm hover:bg-surface-2">
               {insights ? 'Back' : 'More insights'}
             </button>
           )}
-          {!insights && <OptionFilter label="Storage" value={period} options={STORAGE_PERIODS} onChange={setPeriod} />}
         </div>
       </div>
       <p className="mb-1 text-3xl leading-none font-semibold tabular-nums">{q.data ? fmtBytes(q.data.total_bytes) : q.isError ? '–' : '…'}</p>
       {q.isError && <p className="text-sm text-muted">Could not read the storage from AWS.</p>}
-      {q.data && !insights && (
-        <>
+      {/* Both views share one space, so switching never changes the size of this box or the ones beside it. */}
+      {q.data && (
+        <div className="grid">
+        <div className={cn('[grid-area:1/1] min-w-0', insights && 'invisible')}>
           <p className="mb-2 text-sm text-muted">
             S3 files {fmtBytes(q.data.files_bytes)} · Database {fmtBytes(q.data.database_bytes)} · {fmtBytes(added)} added in this period
           </p>
           <TrendChart rows={rows} label="S3 files filled" per="day" format={fmtBytes} color="var(--accent)" unit={unit} />
-        </>
-      )}
-      {q.data && insights && (
-        <ul className="mt-3 flex flex-col gap-2.5">
+        </div>
+        <ul className={cn('[grid-area:1/1] mt-3 flex min-w-0 flex-col gap-2.5', !insights && 'invisible')}>
           {[...q.data.types.map((t) => ({ label: t.label, bytes: t.bytes, files: t.files as number | null })), { label: 'Database', bytes: q.data.database_bytes, files: null }]
             .sort((a, b) => b.bytes - a.bytes)
             .map((t) => (
@@ -173,6 +175,7 @@ function StorageTile() {
               </li>
             ))}
         </ul>
+        </div>
       )}
     </section>
   );
