@@ -72,9 +72,9 @@ function storageError(err: unknown, reply: FastifyReply): never | FastifyReply {
 /** A Range request that does not start at byte 0 continues a download already counted. */
 const firstBytes = (req: FastifyRequest) => !req.headers.range || /^bytes=0-/.test(req.headers.range);
 
-/** A file cut into pieces for the low-quality player. A very short tail joins the piece before it. */
+/** A file cut into pieces for the low-quality player. */
 function lowPieces(durationS: number): { index: number; start: number; duration: number }[] {
-  const count = Math.max(1, Math.floor((durationS + LOW_PIECE_SECONDS - 2) / LOW_PIECE_SECONDS));
+  const count = Math.max(1, Math.ceil(durationS / LOW_PIECE_SECONDS));
   return Array.from({ length: count }, (_, index) => ({ index, start: index * LOW_PIECE_SECONDS, duration: index === count - 1 ? durationS - index * LOW_PIECE_SECONDS : LOW_PIECE_SECONDS }));
 }
 
@@ -263,20 +263,17 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
     summary: 'One short low-quality piece of a camera recording (for the web player). Made on first request, then cached',
     tag,
     access: { can: 'robot.details', target: sessionRobot },
-    handler: async ({ params, req, reply, user }) => {
+    handler: async ({ params, reply, user }) => {
       await visibleSession(user, params.id);
       if (!isCameraName(params.camera)) throw badRequest('invalid camera name');
       const { segments } = await archive.cameraTrack(params.id, params.camera);
       const segment = segments[Number(params.chunk)];
-      const piece = segment && lowPieces(segment.duration)[Number(params.piece)];
+      const pieces = segment ? lowPieces(segment.duration) : [];
+      const piece = pieces[Number(params.piece)];
       if (!piece) throw notFound('video piece');
-      let file: string;
-      try {
-        file = await archive.mp4.lowPiece(segment.key, segment.size, piece.start, piece.duration);
-      } catch (err) {
-        req.log.error({ err }, 'low quality piece failed');
-        throw new ApiError(502, 'video_failed', 'Could not prepare this part of the video');
-      }
+      const file = await archive.mp4.lowPiece(segment.key, segment.size, piece.index, pieces.length);
+      // Past the real end of a recording that stopped early: nothing to play, and the player moves on.
+      if (!file) return reply.header('Content-Type', 'video/mp2t').header('Content-Length', '0').send('');
       return reply.header('Content-Type', 'video/mp2t').header('Cache-Control', 'private, max-age=3600').header('Content-Length', String((await stat(file)).size)).send(createReadStream(file));
     },
   });
