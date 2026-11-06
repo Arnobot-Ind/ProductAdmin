@@ -111,10 +111,6 @@ export function ActivityCalendar({
               {METRIC.events.label(selected?.events ?? 0)}
               {selected?.events_critical ? <span className="text-cal-fault"> · {selected.events_critical} critical</span> : null}
             </DayLine>
-            <DayLine on={metric === 'log'} onOpen={onOpen && (() => onOpen('log'))}>
-              {METRIC.log.label(selected?.log ?? 0)}
-              {selected?.log_warnings ? <span className="text-cal-fault"> · {selected.log_warnings} warnings</span> : null}
-            </DayLine>
           </ul>
         </div>
       )}

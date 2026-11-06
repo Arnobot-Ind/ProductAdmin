@@ -12,7 +12,7 @@ import { Card, QueryView } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
-import { fmtBytes, fmtDistance, fmtDuration } from '@/lib/format';
+import { fmtBytes, fmtDuration } from '@/lib/format';
 import { useDocumentTitle } from '@/lib/hooks';
 import { periodBounds } from '@/lib/periods';
 
@@ -50,7 +50,7 @@ function More({ href, children }: { href: string; children: ReactNode }) {
 
 const categoryColor = (c: string) => CATEGORIES.find((x) => x.key === c)?.color;
 
-/** The fleet's status, large and clickable, beside the storage used on AWS (staff) or what the fleet is made of; below, drive and flight distance and time, each on its own. */
+/** The fleet's status, large and clickable, beside the storage used on AWS (staff) or what the fleet is made of; below, drive and flight time, each on its own. */
 function FleetView({ d }: { d: DashboardDto }) {
   const can = useCan();
   return (
@@ -60,8 +60,6 @@ function FleetView({ d }: { d: DashboardDto }) {
         {can('system.read') ? <StorageTile /> : <ModelsTile d={d} />}
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <TrendTile title="Drive distance" category="ugv" metric="driven_m" format={fmtDistance} />
-        <TrendTile title="Flight distance" category="uav" metric="driven_m" format={fmtDistance} />
         <TrendTile title="Drive time" category="ugv" metric="moving_s" format={fmtDuration} />
         <TrendTile title="Flight time" category="uav" metric="moving_s" format={fmtDuration} />
       </div>

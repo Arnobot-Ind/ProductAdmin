@@ -29,7 +29,6 @@ import { HardwareTab } from './_tabs/hardware';
 import { MaintenanceTab } from './_tabs/maintenance';
 import { RobotEventsTab, RobotMissionsTab } from './_tabs/lists';
 import { MissionStatsCard, RobotMonthCharts } from './_tabs/overview';
-import { RobotLogTab } from './_tabs/log';
 import { AttachmentsTab } from './_tabs/attachments';
 import { SoftwareTab } from './_tabs/software';
 import { TelemetryTab } from './_tabs/telemetry';
@@ -41,10 +40,10 @@ import { fmtDistance, fmtWhen } from '@/lib/format';
 /**
  * The robot record. The header says what the robot is (name, category, status, description, serial number, owner,
  * lifetime distance and missions, software version and repository, last seen, pictures). Below it, sections in the
- * order people use them: Sensor history, Logs, Recordings, Software (with SSH access), then Hardware.
+ * order people use them: Sensor history, Recordings, Software (with SSH access), then Hardware.
  * ?tab= keeps the view's id, so old links still work.
  */
-/** Which count the activity calendar shades for each Recordings tab (and Logs), and back. */
+/** Which count the activity calendar shades for each Recordings tab, and back. */
 const TAB_METRIC: Record<string, ActivityMetric> = { videos: 'recordings', detections: 'detections', missions: 'missions', events: 'events', log: 'log' };
 const METRIC_TAB: Record<ActivityMetric, string> = { recordings: 'videos', detections: 'detections', missions: 'missions', events: 'events', log: 'log' };
 
@@ -57,7 +56,6 @@ const SECTIONS: { id: string; label: string; tabs: { id: string; label: string; 
       { id: 'track', label: 'Map' },
     ],
   },
-  { id: 'logs', label: 'Logs', tabs: [{ id: 'log', label: 'Machine logs' }] },
   {
     id: 'recordings',
     label: 'Recordings',
@@ -301,7 +299,6 @@ function RobotDetail({ robot }: { robot: RobotDetailDto }) {
             {tab === 'events' && <RobotEventsTab robotId={robot.robot_id} day={day} />}
           </CalendarLayout>
         )}
-        {tab === 'log' && <RobotLogTab robotId={robot.robot_id} day={day} />}
         {/* One element for both views, so the chosen time range stays when moving between them. */}
         {section.id === 'history' && <TelemetryTab robotId={robot.robot_id} view={tab === 'track' ? 'map' : 'graphs'} />}
         {tab === 'keys' && <IngestClientsPanel robotIds={[robot.robot_id]} scopeLabel={robot.robot_id} />}
