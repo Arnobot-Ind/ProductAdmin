@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { fmtSerial, fmtDuration } from '@/lib/format';
-import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
+import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, LiveStateDto, TelemetrySeriesDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -51,7 +51,7 @@ export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs
   const shared = { robotId, range, onRange: setRange, from: bounds.from!, to: bounds.to! };
   if (view === 'map') {
     return (
-      <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" prominent empty="No position data in this time range.">
+      <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" prominent showEmpty empty="No position data in this time range.">
         {(s) => <GpsTrack points={s.points} robotId={robotId} />}
       </RangeCard>
     );
@@ -86,7 +86,7 @@ export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs
 }
 
 /** A map or graph with the Filter button at its top right; the time range itself is shared by the whole tab. */
-function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, prominent, children }: { robotId: string; kind: string; title: string; prominent?: boolean; empty: string; range: RangeId; onRange: (r: RangeId) => void; from: string; to: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
+function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, prominent, showEmpty, children }: { robotId: string; kind: string; title: string; prominent?: boolean; /** Also show the content when the range has no data. */ showEmpty?: boolean; empty: string; range: RangeId; onRange: (r: RangeId) => void; from: string; to: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
   const q = useSeries<T>(robotId, kind, from, to);
   const chosen = RANGES.find((r) => r.id === range)!;
   return (
@@ -104,17 +104,17 @@ function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, p
       }
       actions={<OptionFilter label={title} value={range} options={RANGES} onChange={onRange} prominent={prominent} />}
     >
-      <Section q={q} empty={empty}>
+      <Section q={q} empty={empty} showEmpty={showEmpty}>
         {children}
       </Section>
     </Card>
   );
 }
 
-function Section<T>({ q, empty, children }: { q: { data?: TelemetrySeriesDto<T>; isLoading: boolean; error: unknown; refetch: () => unknown }; empty: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
+function Section<T>({ q, empty, showEmpty, children }: { q: { data?: TelemetrySeriesDto<T>; isLoading: boolean; error: unknown; refetch: () => unknown }; empty: string; showEmpty?: boolean; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
-  if (!q.data || q.data.points.length === 0) return <EmptyState title={empty} description="Choose a longer time range with Filter." />;
+  if (!q.data || (q.data.points.length === 0 && !showEmpty)) return <EmptyState title={empty} description="Choose a longer time range with Filter." />;
   return <>{children(q.data)}</>;
 }
 
@@ -275,8 +275,17 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
   const held = useRef(latest);
   if (held.current.length !== latest.length || held.current[held.current.length - 1]?.ts !== latest[latest.length - 1]?.ts || held.current[0]?.ts !== latest[0]?.ts) held.current = latest;
   const points = held.current;
-  /** The place on the big map: the most recent one until another is clicked, or every place together. */
-  const [chosen, setChosen] = useState<string | 'all' | null>(null);
+  /** The place on the big map: the most recent one until another is clicked. */
+  const [chosen, setChosen] = useState<string | null>(null);
+  /** The big map shows where the robot is now instead of a place. */
+  const [live, setLive] = useState(false);
+  const liveState = useQuery({
+    queryKey: ['robot', robotId, 'live'],
+    queryFn: () => api.get<LiveStateDto>(`/robots/${robotId}/live`),
+    refetchInterval: live ? 5_000 : 30_000,
+  });
+  const position = liveState.data?.position ?? null;
+  const online = liveState.data?.status === 'online';
   /** What the big area shows for that place: its list of missions (null), all of them on the map, or one of them. */
   const [missionId, setMissionId] = useState<string | 'all' | null>(null);
   const { allRuns, places } = useMemo(() => {
@@ -290,13 +299,19 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
     const runs = [...bySegment.values()].filter((x) => x.length > 1);
     return { allRuns: runs, places: groupPlaces(runs) };
   }, [points]);
-  const place = chosen === 'all' ? null : (places.find((p) => p.id === chosen) ?? places[0] ?? null);
+  const place = places.find((p) => p.id === chosen) ?? places[0] ?? null;
   const mission = place?.missions.find((m) => m.id === missionId) ?? null;
   const several = !!place && place.missions.length > 1;
-  const showList = several && missionId === null;
+  const showList = several && missionId === null && !live;
   const { lines, markers, dist } = useMemo(() => {
+    if (live) {
+      // The id follows the area (about 100 m), so the map moves with the robot but keeps the user's zoom in between.
+      const here = position && { id: `now-${position.lat.toFixed(3)},${position.lon.toFixed(3)}`, lon: position.lon, lat: position.lat, color: online ? '#16a34a' : '#6b7280', label: online ? 'Live' : 'Last seen' };
+      return { lines: [], markers: here ? [here] : [], dist: 0 };
+    }
     const runs = mission ? mission.runs : place ? place.runs : allRuns;
     const kept = runs.length ? runs.flat() : points;
+    if (!kept.length) return { lines: [], markers: [], dist: 0 };
     const first = kept[0];
     const last = kept[kept.length - 1];
     return {
@@ -307,24 +322,39 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       ],
       dist: runs.reduce((sum, r) => sum + runMeters(r), 0),
     };
-  }, [place, mission, allRuns, points]);
-  const bigMap = (
-    <>
-      <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
-      <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
-        <span className="font-semibold">About {fmtDistance(dist)}</span>
-        <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#16a34a]" aria-hidden /> Start</span>
-        <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#dc2626]" aria-hidden /> End</span>
-      </p>
-
-    </>
+  }, [live, position, online, place, mission, allRuns, points]);
+  const liveButton = (
+    <Button size="sm" variant={live ? 'primary' : 'secondary'} aria-pressed={live} onClick={() => setLive(!live)} icon={<span className={cn('size-2.5 rounded-full', online ? 'bg-[#16a34a]' : 'bg-[#6b7280]')} aria-hidden />}>
+      Live
+    </Button>
   );
+  const liveLine = !liveState.data ? 'Finding the robot…' : !position ? 'No location reported by this robot yet' : `${online ? 'Live now' : 'Offline · last seen location'} · ${fmtDateTime(liveState.data.state_ts ?? liveState.data.last_seen_at)}${online && position.speed_mps !== null ? ` · ${position.speed_mps.toFixed(1)} m/s` : ''}`;
+  const bigMap =
+    live && !position ? (
+      <EmptyState title="No location reported by this robot yet" />
+    ) : !lines.length && !markers.length ? (
+      <EmptyState title="No position data in this time range." description="Choose a longer time range with Filter, or press Live." />
+    ) : (
+      <>
+        <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
+        {!live && (
+        <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
+          <span className="font-semibold">About {fmtDistance(dist)}</span>
+          <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#16a34a]" aria-hidden /> Start</span>
+          <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#dc2626]" aria-hidden /> End</span>
+        </p>
+        )}
+      </>
+    );
   const shown = mission ?? place;
-  const heading = shown ? `${place?.name} · ${missionWhen(shown)} · ${mission || !place ? '' : `${place.missions.length} ${place.missions.length === 1 ? 'mission' : 'missions'} · `}${facts(shown)}` : allRuns.length ? `All places · ${missionWhen(summarise(allRuns))} · ${facts(summarise(allRuns))}` : 'All places';
+  const heading = live ? liveLine : shown && place ? `${place.name} · ${missionWhen(shown)} · ${mission ? '' : `${place.missions.length} ${place.missions.length === 1 ? 'mission' : 'missions'} · `}${facts(shown)}` : 'Where it ran';
   if (places.length < 2 && (places[0]?.missions.length ?? 0) < 2) {
     return (
       <>
-        <p className="mb-2 text-base font-bold">{heading}</p>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-base font-bold">{heading}</p>
+          {liveButton}
+        </div>
         {bigMap}
       </>
     );
@@ -334,21 +364,20 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
         <div className="flex items-center justify-between gap-2">
           <p className="text-base font-medium">{places.length} {places.length === 1 ? 'place' : 'places'}</p>
-          <Button size="sm" onClick={() => { setChosen('all'); setMissionId(null); }} disabled={!place}>
-            Show all
-          </Button>
+          {liveButton}
         </div>
         <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pr-1">
           {places.map((p) => (
             <button
               key={p.id}
               type="button"
-              aria-pressed={p.id === place?.id}
+              aria-pressed={!live && p.id === place?.id}
               onClick={() => {
+                setLive(false);
                 setChosen(p.id);
                 setMissionId(null);
               }}
-              className={cn('w-64 shrink-0 rounded-lg border p-2 text-left lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}
+              className={cn('w-64 shrink-0 rounded-lg border p-2 text-left lg:w-full', !live && p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}
             >
               <PlaceMap runs={p.runs} />
               <span className="mt-1.5 block font-medium">{p.name}</span>
@@ -363,7 +392,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
           <p className="text-base font-bold">
             {heading}
           </p>
-          {several && !showList && (
+          {several && !showList && !live && (
             <Button size="sm" onClick={() => setMissionId(null)}>
               Back to missions
             </Button>
