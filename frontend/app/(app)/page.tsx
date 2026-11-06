@@ -1,10 +1,10 @@
 'use client';
 
-import type { DashboardDto, FleetHourlyDto, StorageUsageDto } from '@arnobot/message-schema';
+import type { DashboardDto, FleetHourlyDto, StorageFileType, StorageUsageDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowRight, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useId, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { axis, CATEGORIES, dayLabel, Donut, fmtTick, RankBars } from '@/components/domain/charts';
 import { useDashboard, useFleetReport } from '@/components/domain/dashboard';
 import { OptionFilter } from '@/components/ui/filter-menu';
@@ -161,15 +161,13 @@ function StorageTile() {
           </p>
           <TrendChart rows={rows} label="S3 files filled" per="day" format={fmtBytes} color="var(--accent)" unit={unit} />
         </div>
-        <ul className={cn('[grid-area:1/1] mt-3 flex min-w-0 flex-col gap-2.5', !insights && 'invisible')}>
-          {[...q.data.types.map((t) => ({ label: t.label, bytes: t.bytes, files: t.files as number | null })), { label: 'Database', bytes: q.data.database_bytes, files: null }]
+        <ul className={cn('[grid-area:1/1] mt-2 flex min-w-0 flex-col gap-1', !insights && 'invisible')}>
+          {[...q.data.types.map((t) => ({ key: t.key as StorageFileType | null, label: t.label, bytes: t.bytes, files: t.files as number | null })), { key: null, label: 'Database', bytes: q.data.database_bytes, files: null }]
             .sort((a, b) => b.bytes - a.bytes)
             .map((t) => (
-              <li key={t.label} className="grid grid-cols-[9rem_minmax(0,1fr)_5.5rem] items-center gap-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_5.5rem_6rem]">
+              <li key={t.label} className="grid h-8 grid-cols-[9rem_minmax(0,1fr)_5.5rem] items-center gap-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_5.5rem_6rem]">
                 <span className="truncate">{t.label}</span>
-                <span className="block h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-                  <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max((t.bytes / q.data.total_bytes) * 100, 1)}%` }} />
-                </span>
+                {t.key ? <TypeLine label={t.label} daily={daily} type={t.key} /> : <span className="text-center text-xs text-muted">Size now only</span>}
                 <span className="text-right font-medium tabular-nums">{fmtBytes(t.bytes)}</span>
                 <span className="hidden text-right text-muted tabular-nums sm:block">{t.files === null ? '' : `${t.files.toLocaleString('en-IN')} files`}</span>
               </li>
@@ -178,6 +176,39 @@ function StorageTile() {
         </div>
       )}
     </section>
+  );
+}
+
+/** How one type of file grew, on its own scale so a small type is still readable. The size beside it gives the amount. Hover for any day. */
+function TypeLine({ label, daily, type }: { label: string; daily: StorageUsageDto['daily']; type: StorageFileType }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const days = useMemo(() => {
+    let total = 0;
+    return daily.map((x) => ({ date: x.date, total: (total += x.added_by_type[type] ?? 0) }));
+  }, [daily, type]);
+  if (days.length < 2) return <span />;
+  const top = days[days.length - 1].total || 1;
+  const x = (i: number) => (i / (days.length - 1)) * 100;
+  const y = (v: number) => 94 - (v / top) * 88;
+  const h = hover === null ? null : days[hover];
+  const pick = (e: MouseEvent<HTMLSpanElement>) => {
+    const b = e.currentTarget.getBoundingClientRect();
+    setHover(Math.max(0, Math.min(days.length - 1, Math.round(((e.clientX - b.left) / b.width) * (days.length - 1)))));
+  };
+  return (
+    <span className="relative block h-6 cursor-crosshair" onMouseMove={pick} onMouseLeave={() => setHover(null)} role="img" aria-label={`${label} over time, now ${fmtBytes(top)}`}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" aria-hidden>
+        <polyline points={days.map((d, i) => `${x(i)},${y(d.total)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      {h && hover !== null && (
+        <>
+          <span className="pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent" style={{ left: `${x(hover)}%`, top: `${y(h.total)}%` }} aria-hidden />
+          <span className={cn('pointer-events-none absolute bottom-full z-10 mb-1 w-max rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-lg', x(hover) > 60 ? '-translate-x-full' : '')} style={{ left: `${x(hover)}%` }}>
+            <span className="font-semibold">{fmtBytes(h.total)}</span> · {dayLabel(h.date, { day: 'numeric', month: 'short' })}
+          </span>
+        </>
+      )}
+    </span>
   );
 }
 
