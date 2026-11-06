@@ -3,8 +3,8 @@
 import { Button } from '@/components/ui/button';
 import { fmtSerial, fmtDuration } from '@/lib/format';
 import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { GeoMap } from '@/components/domain/geo-map';
 import { OptionFilter } from '@/components/ui/filter-menu';
@@ -29,6 +29,8 @@ function useSeries<T>(robotId: string, kind: string, from: string, to: string) {
     queryKey: ['robot', robotId, 'telemetry', kind, from, to],
     queryFn: () => api.get<TelemetrySeriesDto<T>>(`/robots/${robotId}/telemetry/${kind}`, { from, to }),
     staleTime: 15_000,
+    // The window moves on every minute: what is on screen stays until the new data arrives, so nothing reloads visibly.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -226,7 +228,11 @@ function placeWhen(p: Place): string {
 
 const placeFacts = (p: Place) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
 
-function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string }) {
+function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId: string }) {
+  // Each minute's refresh returns a new list. The same readings keep the same list, so the map is not redrawn.
+  const held = useRef(latest);
+  if (held.current.length !== latest.length || held.current[held.current.length - 1]?.ts !== latest[latest.length - 1]?.ts || held.current[0]?.ts !== latest[0]?.ts) held.current = latest;
+  const points = held.current;
   /** The place on the big map: the most recent one until another is clicked, or every place together. */
   const [chosen, setChosen] = useState<string | 'all' | null>(null);
   const { allRuns, places } = useMemo(() => {
@@ -247,7 +253,7 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
     const first = kept[0];
     const last = kept[kept.length - 1];
     return {
-      lines: runs.map((x) => ({ id: `track-${x[0].segment}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
+      lines: runs.map((x) => ({ id: `track-${x[0].segment}`, coordinates: x.map((p) => [p.lon, p.lat]), color: '#ffd60a', width: 3 })),
       markers: [
         { id: 'first', lon: first.lon, lat: first.lat, color: '#16a34a', label: 'First' },
         { id: 'last', lon: last.lon, lat: last.lat, color: '#dc2626', label: 'Latest' },
@@ -294,14 +300,8 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
         </div>
       </div>
       <div className="min-w-0">
-        <p className="mb-2 text-base">
-          <span className="font-medium">{place ? place.name : 'All places'}</span>
-          {place && (
-            <span className="text-muted">
-              {' '}
-              · {placeWhen(place)} · {placeFacts(place)}
-            </span>
-          )}
+        <p className="mb-2 rounded-lg border border-accent bg-accent-soft px-4 py-2.5 text-lg font-semibold text-fg">
+          {place ? `${place.name} · ${placeWhen(place)} · ${placeFacts(place)}` : 'All places'}
         </p>
         {bigMap}
       </div>

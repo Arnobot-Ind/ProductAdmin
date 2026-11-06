@@ -94,8 +94,8 @@ export function GeoMap({
   clickRef.current = onPointClick;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  // Only points (where robots are now): satellite shows the site; the roadmap is blank away from roads.
-  const [base, setBase] = useState<BaseLayer>(() => (lines.length ? 'road' : 'satellite'));
+  // Satellite shows the real site; the roadmap is blank away from roads.
+  const [base, setBase] = useState<BaseLayer>('satellite');
 
   useEffect(() => {
     let cancelled = false;
