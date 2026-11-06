@@ -271,7 +271,9 @@ export function archiveRoutes(f: FastifyInstance, app: AppContext): void {
       const pieces = segment ? lowPieces(segment.duration) : [];
       const piece = pieces[Number(params.piece)];
       if (!piece) throw notFound('video piece');
-      const file = await archive.mp4.lowPiece(segment.key, segment.size, piece.index, pieces.length);
+      const viewerGone = new AbortController();
+      reply.raw.once('close', () => viewerGone.abort());
+      const file = await archive.mp4.lowPiece(segment.key, segment.size, piece.index, pieces.length, viewerGone.signal);
       // Past the real end of a recording that stopped early: nothing to play, and the player moves on.
       if (!file) return reply.header('Content-Type', 'video/mp2t').header('Content-Length', '0').send('');
       return reply.header('Content-Type', 'video/mp2t').header('Cache-Control', 'private, max-age=3600').header('Content-Length', String((await stat(file)).size)).send(createReadStream(file));
