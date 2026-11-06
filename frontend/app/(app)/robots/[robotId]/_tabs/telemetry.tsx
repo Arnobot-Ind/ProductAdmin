@@ -1,6 +1,7 @@
 'use client';
 
-import { fmtSerial } from '@/lib/format';
+import { Button } from '@/components/ui/button';
+import { fmtSerial, fmtDuration } from '@/lib/format';
 import type { BatteryPointDto, EncoderPointDto, GpsPointDto, HealthLevel, HealthPointDto, TelemetrySeriesDto } from '@arnobot/message-schema';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -121,26 +122,130 @@ function haversine(a: GpsPointDto, b: GpsPointDto): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/** Runs within this distance of each other count as one place. */
+const PLACE_RADIUS_M = 2000;
+
+interface Place {
+  id: string;
+  name: string;
+  runs: GpsPointDto[][];
+  meters: number;
+  seconds: number;
+  from: number;
+  to: number;
+}
+
+const runMeters = (run: GpsPointDto[]) => run.slice(1).reduce((d, p, i) => d + haversine(run[i], p), 0);
+
+/** Groups runs by where they happened, most recent place first. */
+function groupPlaces(runs: GpsPointDto[][]): Place[] {
+  const groups: { centre: GpsPointDto; runs: GpsPointDto[][] }[] = [];
+  for (const run of runs) {
+    const centre = run[run.length >> 1];
+    const near = groups.find((g) => haversine(g.centre, centre) <= PLACE_RADIUS_M);
+    if (near) near.runs.push(run);
+    else groups.push({ centre, runs: [run] });
+  }
+  return groups
+    .map((g) => ({
+      runs: g.runs,
+      meters: g.runs.reduce((sum, r) => sum + runMeters(r), 0),
+      seconds: g.runs.reduce((sum, r) => sum + (Date.parse(r[r.length - 1].ts) - Date.parse(r[0].ts)) / 1000, 0),
+      from: Math.min(...g.runs.map((r) => Date.parse(r[0].ts))),
+      to: Math.max(...g.runs.map((r) => Date.parse(r[r.length - 1].ts))),
+    }))
+    .sort((a, b) => b.to - a.to)
+    .map((p, i) => ({ ...p, id: String(i), name: `Place ${i + 1}` }));
+}
+
+/** The route's own shape, scaled to fill the card, so a small route stays visible however far apart the places are. */
+function RouteSketch({ runs }: { runs: GpsPointDto[][] }) {
+  const lats = runs.flat().map((p) => p.lat);
+  const lons = runs.flat().map((p) => p.lon);
+  const [minLat, maxLat, minLon, maxLon] = [Math.min(...lats), Math.max(...lats), Math.min(...lons), Math.max(...lons)];
+  const squeeze = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+  const w = (maxLon - minLon) * squeeze;
+  const h = maxLat - minLat;
+  const scale = Math.min(88 / (w || 1e-9), 48 / (h || 1e-9));
+  const x = (lon: number) => 50 + ((lon - (minLon + maxLon) / 2) * squeeze * scale);
+  const y = (lat: number) => 30 - ((lat - (minLat + maxLat) / 2) * scale);
+  return (
+    <svg viewBox="0 0 100 60" className="h-24 w-full rounded-md bg-surface-2" aria-hidden>
+      {runs.map((run) => (
+        <polyline
+          key={run[0].ts}
+          points={run.map((p) => `${x(p.lon).toFixed(2)},${y(p.lat).toFixed(2)}`).join(' ')}
+          fill="none"
+          stroke="var(--map-actual)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
+  );
+}
+
+function placeWhen(p: Place): string {
+  const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST_ZONE });
+  return day(p.from) === day(p.to) ? day(p.to) : `${day(p.from)} – ${day(p.to)}`;
+}
+
 function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string }) {
-  const { lines, markers, dist } = useMemo(() => {
-    // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a piece.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const { allRuns, places } = useMemo(() => {
+    // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a run.
     const bySegment = new Map<number, GpsPointDto[]>();
-    for (const p of points) bySegment.set(p.segment, [...(bySegment.get(p.segment) ?? []), p]);
-    const pieces = [...bySegment.values()].filter((x) => x.length > 1);
-    const kept = pieces.length ? pieces.flat() : points;
+    for (const p of points) {
+      const run = bySegment.get(p.segment);
+      if (run) run.push(p);
+      else bySegment.set(p.segment, [p]);
+    }
+    const runs = [...bySegment.values()].filter((x) => x.length > 1);
+    return { allRuns: runs, places: groupPlaces(runs) };
+  }, [points]);
+  const place = places.find((p) => p.id === chosen) ?? null;
+  const { lines, markers, dist } = useMemo(() => {
+    const runs = place ? place.runs : allRuns;
+    const kept = runs.length ? runs.flat() : points;
     const first = kept[0];
     const last = kept[kept.length - 1];
     return {
-      lines: pieces.map((x, i) => ({ id: `track-${i}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
+      lines: runs.map((x) => ({ id: `track-${x[0].segment}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
       markers: [
         { id: 'first', lon: first.lon, lat: first.lat, color: '#16a34a', label: 'First' },
         { id: 'last', lon: last.lon, lat: last.lat, color: '#dc2626', label: 'Latest' },
       ],
-      dist: pieces.reduce((sum, x) => sum + x.slice(1).reduce((d, p, i) => d + haversine(x[i], p), 0), 0),
+      dist: runs.reduce((sum, r) => sum + runMeters(r), 0),
     };
-  }, [points]);
+  }, [place, allRuns, points]);
+  const card = 'rounded-lg border p-2 text-left transition-colors';
   return (
     <>
+      {places.length > 1 && (
+        <div className="mb-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-base font-medium">Ran in {places.length} places</p>
+            <Button size="sm" onClick={() => setChosen(null)} disabled={!place}>
+              Show all on the map
+            </Button>
+          </div>
+          <div className="grid max-h-[26rem] grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3 xl:grid-cols-4">
+            {places.map((p) => (
+              <button key={p.id} type="button" aria-pressed={p.id === chosen} onClick={() => setChosen(p.id)} className={cn(card, p.id === chosen ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}>
+                <RouteSketch runs={p.runs} />
+                <span className="mt-1.5 block font-medium">
+                  {p.name} · {placeWhen(p)}
+                </span>
+                <span className="block text-sm text-muted">
+                  {fmtDistance(p.meters)} · {fmtDuration(p.seconds)} · {p.runs.length} {p.runs.length === 1 ? 'run' : 'runs'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
       <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
         <span className="font-semibold">About {fmtDistance(dist)}</span>
