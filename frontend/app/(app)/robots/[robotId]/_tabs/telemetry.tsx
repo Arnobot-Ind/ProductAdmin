@@ -300,7 +300,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
         </div>
       </div>
       <div className="min-w-0">
-        <p className="mb-2 rounded-lg border border-accent bg-accent-soft px-4 py-2.5 text-lg font-semibold text-fg">
+        <p className="mb-2 text-base font-bold">
           {place ? `${place.name} · ${placeWhen(place)} · ${placeFacts(place)}` : 'All places'}
         </p>
         {bigMap}
