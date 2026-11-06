@@ -10,6 +10,7 @@ import { GeoMap } from '@/components/domain/geo-map';
 import { OptionFilter } from '@/components/ui/filter-menu';
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui/misc';
 import { api } from '@/lib/api';
+import { Select } from '@/components/ui/field';
 import { cn } from '@/lib/cn';
 import { fmtDateTime, fmtDistance } from '@/lib/format';
 import { periodBounds } from '@/lib/periods';
@@ -129,10 +130,9 @@ const PLACE_RADIUS_M = 2000;
 /** A longer break than this at one place starts a new visit, so a visit's times match the hours it ran. */
 const VISIT_BREAK_MS = 30 * 60_000;
 
-/** One visit to a place: runs close together in time. The same place visited on other days has other visits. */
+/** One visit to a place: runs close together in time, so its times match the hours it ran. */
 interface Visit {
   id: string;
-  name: string;
   runs: GpsPointDto[][];
   meters: number;
   seconds: number;
@@ -140,42 +140,50 @@ interface Visit {
   to: number;
 }
 
+/** A place has one small map, whichever day it was used; its visits are picked from a list. */
+interface Place extends Visit {
+  name: string;
+  /** Most recent first. */
+  visits: Visit[];
+}
+
 const runMeters = (run: GpsPointDto[]) => run.slice(1).reduce((d, p, i) => d + haversine(run[i], p), 0);
 const runStart = (run: GpsPointDto[]) => Date.parse(run[0].ts);
 const runEnd = (run: GpsPointDto[]) => Date.parse(run[run.length - 1].ts);
 
-/** Groups runs by where they happened, then by when: most recent visit first, and the same place keeps its name. */
-function groupVisits(runs: GpsPointDto[][]): { visits: Visit[]; placeCount: number } {
-  const places: { centre: GpsPointDto; runs: GpsPointDto[][] }[] = [];
+function summarise(runs: GpsPointDto[][]): Visit {
+  const from = Math.min(...runs.map(runStart));
+  return {
+    id: String(from),
+    runs,
+    meters: runs.reduce((sum, r) => sum + runMeters(r), 0),
+    seconds: runs.reduce((sum, r) => sum + (runEnd(r) - runStart(r)) / 1000, 0),
+    from,
+    to: Math.max(...runs.map(runEnd)),
+  };
+}
+
+/** Groups runs by where they happened, most recent place first, and each place's runs by when. */
+function groupPlaces(runs: GpsPointDto[][]): Place[] {
+  const groups: { centre: GpsPointDto; runs: GpsPointDto[][] }[] = [];
   for (const run of runs) {
     const centre = run[run.length >> 1];
-    const near = places.find((g) => haversine(g.centre, centre) <= PLACE_RADIUS_M);
+    const near = groups.find((g) => haversine(g.centre, centre) <= PLACE_RADIUS_M);
     if (near) near.runs.push(run);
-    else places.push({ centre, runs: [run] });
+    else groups.push({ centre, runs: [run] });
   }
-  const latest = (g: { runs: GpsPointDto[][] }) => Math.max(...g.runs.map(runEnd));
-  const ordered = [...places].sort((a, b) => latest(b) - latest(a));
-  const visits = ordered.flatMap((place, i) => {
-    const groups: GpsPointDto[][][] = [];
-    for (const run of [...place.runs].sort((a, b) => runStart(a) - runStart(b))) {
-      const open = groups[groups.length - 1];
-      if (open && runStart(run) - Math.max(...open.map(runEnd)) <= VISIT_BREAK_MS) open.push(run);
-      else groups.push([run]);
-    }
-    return groups.map((group) => {
-      const from = runStart(group[0]);
-      return {
-        id: String(from),
-        name: `Place ${i + 1}`,
-        runs: group,
-        meters: group.reduce((sum, r) => sum + runMeters(r), 0),
-        seconds: group.reduce((sum, r) => sum + (runEnd(r) - runStart(r)) / 1000, 0),
-        from,
-        to: Math.max(...group.map(runEnd)),
-      };
-    });
-  });
-  return { visits: visits.sort((a, b) => b.to - a.to), placeCount: places.length };
+  return groups
+    .map((g) => {
+      const visits: GpsPointDto[][][] = [];
+      for (const run of [...g.runs].sort((a, b) => runStart(a) - runStart(b))) {
+        const open = visits[visits.length - 1];
+        if (open && runStart(run) - Math.max(...open.map(runEnd)) <= VISIT_BREAK_MS) open.push(run);
+        else visits.push([run]);
+      }
+      return { ...summarise(g.runs), visits: visits.map(summarise).sort((a, b) => b.to - a.to) };
+    })
+    .sort((a, b) => b.to - a.to)
+    .map((p, i) => ({ ...p, name: `Place ${i + 1}` }));
 }
 
 /** Size of the picture on a place card, in map pixels. */
@@ -247,22 +255,24 @@ function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
 }
 
 /** When a visit was: the day and times, or both days when it runs past midnight. */
-function placeWhen(p: Visit): string {
+function visitWhen(p: Visit): string {
   const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST_ZONE });
   const time = (t: number) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
   return day(p.from) === day(p.to) ? `${day(p.to)}, ${time(p.from)} – ${time(p.to)}` : `${day(p.from)}, ${time(p.from)} – ${day(p.to)}, ${time(p.to)}`;
 }
 
-const placeFacts = (p: Visit) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
+const facts = (p: Visit) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
 
 function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId: string }) {
   // Each minute's refresh returns a new list. The same readings keep the same list, so the map is not redrawn.
   const held = useRef(latest);
   if (held.current.length !== latest.length || held.current[held.current.length - 1]?.ts !== latest[latest.length - 1]?.ts || held.current[0]?.ts !== latest[0]?.ts) held.current = latest;
   const points = held.current;
-  /** The visit on the big map: the most recent one until another is clicked, or everything together. */
+  /** The place on the big map: the most recent one until another is clicked, or every place together. */
   const [chosen, setChosen] = useState<string | 'all' | null>(null);
-  const { allRuns, visits, placeCount } = useMemo(() => {
+  /** One visit of that place, or null for all of its visits. */
+  const [visitId, setVisitId] = useState<string | null>(null);
+  const { allRuns, places } = useMemo(() => {
     // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a run.
     const bySegment = new Map<number, GpsPointDto[]>();
     for (const p of points) {
@@ -271,11 +281,12 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       else bySegment.set(p.segment, [p]);
     }
     const runs = [...bySegment.values()].filter((x) => x.length > 1);
-    return { allRuns: runs, ...groupVisits(runs) };
+    return { allRuns: runs, places: groupPlaces(runs) };
   }, [points]);
-  const place = chosen === 'all' ? null : (visits.find((p) => p.id === chosen) ?? visits[0] ?? null);
+  const place = chosen === 'all' ? null : (places.find((p) => p.id === chosen) ?? places[0] ?? null);
+  const visit = place?.visits.find((v) => v.id === visitId) ?? null;
   const { lines, markers, dist } = useMemo(() => {
-    const runs = place ? place.runs : allRuns;
+    const runs = visit ? visit.runs : place ? place.runs : allRuns;
     const kept = runs.length ? runs.flat() : points;
     const first = kept[0];
     const last = kept[kept.length - 1];
@@ -287,7 +298,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       ],
       dist: runs.reduce((sum, r) => sum + runMeters(r), 0),
     };
-  }, [place, allRuns, points]);
+  }, [place, visit, allRuns, points]);
   const bigMap = (
     <>
       <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
@@ -299,38 +310,57 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
 
     </>
   );
-  if (visits.length < 2) return bigMap;
+  if (places.length < 2 && (places[0]?.visits.length ?? 0) < 2) return bigMap;
   return (
     <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-base font-medium">
-            {visits.length} visits · {placeCount} {placeCount === 1 ? 'place' : 'places'}
-          </p>
-          <Button size="sm" onClick={() => setChosen('all')} disabled={!place}>
+          <p className="text-base font-medium">{places.length} {places.length === 1 ? 'place' : 'places'}</p>
+          <Button size="sm" onClick={() => { setChosen('all'); setVisitId(null); }} disabled={!place}>
             Show all
           </Button>
         </div>
         <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pr-1">
-          {visits.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              aria-pressed={p.id === place?.id}
-              onClick={() => setChosen(p.id)}
-              className={cn('w-64 shrink-0 rounded-lg border p-2 text-left transition-colors lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}
-            >
-              <PlaceMap runs={p.runs} />
-              <span className="mt-1.5 block font-medium">{p.name}</span>
-              <span className="block text-sm text-muted">{placeWhen(p)}</span>
-              <span className="block text-sm text-muted">{placeFacts(p)}</span>
-            </button>
+          {places.map((p) => (
+            <div key={p.id} className={cn('w-64 shrink-0 rounded-lg border p-2 lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border')}>
+              <button
+                type="button"
+                aria-pressed={p.id === place?.id && !visit}
+                onClick={() => {
+                  setChosen(p.id);
+                  setVisitId(null);
+                }}
+                className="block w-full cursor-pointer text-left"
+              >
+                <PlaceMap runs={p.runs} />
+                <span className="mt-1.5 block font-medium">{p.name}</span>
+                <span className="block text-sm text-muted">{facts(p)}</span>
+              </button>
+              {p.visits.length > 1 && (
+                <Select
+                  aria-label={`Visits to ${p.name}`}
+                  value={p.id === place?.id ? (visit?.id ?? '') : ''}
+                  onChange={(e) => {
+                    setChosen(p.id);
+                    setVisitId(e.target.value || null);
+                  }}
+                  className="mt-2"
+                >
+                  <option value="">All {p.visits.length} visits</option>
+                  {p.visits.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {visitWhen(v)} · {fmtDuration(v.seconds)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
           ))}
         </div>
       </div>
       <div className="min-w-0">
         <p className="mb-2 text-base font-bold">
-          {place ? `${place.name} · ${placeWhen(place)} · ${placeFacts(place)}` : 'All places'}
+          {!place ? 'All places' : visit ? `${place.name} · ${visitWhen(visit)} · ${facts(visit)}` : `${place.name} · ${place.visits.length} ${place.visits.length === 1 ? 'visit' : 'visits'} · ${facts(place)}`}
         </p>
         {bigMap}
       </div>
