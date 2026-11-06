@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { StorageUsageDto, SystemStatusDto } from '../shared';
+import type { StorageFileType, StorageUsageDto, SystemStatusDto } from '../shared';
 import type { AppContext } from '../context';
 import { platform, route } from '../lib/route';
 import { ROBOT_STATUS_SQL } from '../lib/robot-status-sql';
@@ -20,8 +20,18 @@ const VERSION = (() => {
 /** The whole bucket is listed to measure it, so one result serves everyone for an hour. */
 const STORAGE_CACHE_MS = 3_600_000;
 
+const STORAGE_TYPE_LABELS: Record<StorageFileType, string> = {
+  videos: 'Videos',
+  images: 'Images',
+  documents: 'Documents & PDFs',
+  sensors: 'Sensor data',
+  models: '3D models',
+  archives: 'Zip files',
+  other: 'Other files',
+};
+
 /** Fills in the days with no uploads, so the running total is a continuous line up to today. */
-function storageDaily(days: Map<string, number>, today: string): StorageUsageDto['daily'] {
+function storageDaily(days: Map<string, Partial<Record<StorageFileType, number>>>, today: string): StorageUsageDto['daily'] {
   const first = [...days.keys()].sort()[0];
   if (!first) return [];
   const out: StorageUsageDto['daily'] = [];
@@ -29,9 +39,10 @@ function storageDaily(days: Map<string, number>, today: string): StorageUsageDto
   for (let t = Date.parse(first); ; t += 86_400_000) {
     const date = new Date(t).toISOString().slice(0, 10);
     if (date > today) break;
-    const added = days.get(date) ?? 0;
+    const byType = days.get(date) ?? {};
+    const added = Object.values(byType).reduce((sum, b) => sum + (b ?? 0), 0);
     total += added;
-    out.push({ date, added_bytes: added, total_bytes: total });
+    out.push({ date, added_bytes: added, total_bytes: total, added_by_type: byType });
   }
   return out;
 }
@@ -52,6 +63,9 @@ export function systemRoutes(f: FastifyInstance, app: AppContext): void {
       files_bytes: bucket.bytes,
       files_count: bucket.objects,
       database_bytes: database,
+      types: [...bucket.types]
+        .map(([key, t]) => ({ key, label: STORAGE_TYPE_LABELS[key], ...t }))
+        .sort((a, b) => b.bytes - a.bytes),
       daily: storageDaily(bucket.days, now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })),
     };
   };
