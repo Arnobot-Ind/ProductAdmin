@@ -1452,9 +1452,12 @@ export interface StorageUsageDto {
   files_bytes: number;
   files_count: number;
   database_bytes: number;
-  /** Every day (IST) from the first upload to today: bytes uploaded that day and the bucket's running total. */
-  daily: { date: string; added_bytes: number; total_bytes: number }[];
+  /** What the bucket holds, by type of file, largest first. */
+  types: { key: StorageFileType; label: string; bytes: number; files: number }[];
+  /** Every day (IST) from the first upload to today: bytes uploaded that day, by type, and the bucket's running total. */
+  daily: { date: string; added_bytes: number; total_bytes: number; added_by_type: Partial<Record<StorageFileType, number>> }[];
 }
+export type StorageFileType = 'videos' | 'images' | 'documents' | 'sensors' | 'models' | 'archives' | 'other';
 
 // ── system status (Settings page) ──────────────────────────────────────────
 export interface SystemStatusDto {
