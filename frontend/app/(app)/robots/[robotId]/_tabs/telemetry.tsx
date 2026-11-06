@@ -49,7 +49,7 @@ export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs
   if (view === 'map') {
     return (
       <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" empty="No position data in this time range.">
-        {(s) => <GpsTrack points={s.points} robotId={robotId} bucketS={s.bucket_s} />}
+        {(s) => <GpsTrack points={s.points} robotId={robotId} />}
       </RangeCard>
     );
   }
@@ -121,29 +121,24 @@ function haversine(a: GpsPointDto, b: GpsPointDto): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-function GpsTrack({ points, robotId, bucketS }: { points: GpsPointDto[]; robotId: string; bucketS: number }) {
+function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string }) {
   const { lines, markers, dist } = useMemo(() => {
-    // Only join readings that follow each other: no line is drawn across a time with no data.
-    const pieces: GpsPointDto[][] = [];
-    let d = 0;
-    points.forEach((p, i) => {
-      const prev = points[i - 1];
-      if (prev && Date.parse(p.ts) - Date.parse(prev.ts) <= gapMs(bucketS)) {
-        pieces[pieces.length - 1].push(p);
-        d += haversine(prev, p);
-      } else pieces.push([p]);
-    });
-    const first = points[0];
-    const last = points[points.length - 1];
+    // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a piece.
+    const bySegment = new Map<number, GpsPointDto[]>();
+    for (const p of points) bySegment.set(p.segment, [...(bySegment.get(p.segment) ?? []), p]);
+    const pieces = [...bySegment.values()].filter((x) => x.length > 1);
+    const kept = pieces.length ? pieces.flat() : points;
+    const first = kept[0];
+    const last = kept[kept.length - 1];
     return {
-      lines: pieces.filter((x) => x.length > 1).map((x, i) => ({ id: `track-${i}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
+      lines: pieces.map((x, i) => ({ id: `track-${i}`, coordinates: x.map((p) => [p.lon, p.lat]), color: 'var(--map-actual)', width: 3 })),
       markers: [
         { id: 'first', lon: first.lon, lat: first.lat, color: '#16a34a', label: 'First' },
         { id: 'last', lon: last.lon, lat: last.lat, color: '#dc2626', label: 'Latest' },
       ],
-      dist: d,
+      dist: pieces.reduce((sum, x) => sum + x.slice(1).reduce((d, p, i) => d + haversine(x[i], p), 0), 0),
     };
-  }, [points, bucketS]);
+  }, [points]);
   return (
     <>
       <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
