@@ -45,9 +45,9 @@ export function mp4Name(robotId: string, sessionId: string, camera: string): str
   return `${safe(robotId)}_${safe(sessionId)}_${safe(camera)}.mp4`;
 }
 
-function run(cmd: string, args: string[]): Promise<string> {
+function run(cmd: string, args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, signal });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => (out += d));
@@ -57,13 +57,21 @@ function run(cmd: string, args: string[]): Promise<string> {
   });
 }
 
+interface Pass {
+  key: string;
+  size: number;
+  from: number;
+  to: number;
+  cancel: AbortController;
+}
+
 export class Mp4Builder {
   private readonly building = new Map<string, Promise<string>>();
   private readonly cacheDir: string;
   private readonly passQueue: (() => void)[] = [];
   private passes = 0;
   /** Running or queued passes: which pieces of which file they will make. */
-  private readonly planned = new Set<{ key: string; from: number; to: number }>();
+  private readonly planned = new Set<Pass>();
   private readonly pieceWaiters = new Map<string, ((file: string | null) => void)[]>();
   private probed: Promise<{ available: boolean; version: string | null }> | null = null;
 
@@ -121,37 +129,63 @@ export class Mp4Builder {
    * One short piece of a recording in low quality, kept for MP4_CACHE_HOURS. Null when the file ends before it (a
    * recording that stopped early). Pieces come from passes that read on through the file, ahead of what is watched.
    */
-  async lowPiece(key: string, size: number, index: number, total: number): Promise<string | null> {
+  async lowPiece(key: string, size: number, index: number, total: number, viewerGone?: AbortSignal): Promise<string | null> {
     const file = this.pieceFile(key, size, index);
     if (!(await this.pieceReady(file))) {
-      const made = new Promise<string | null>((done) => this.pieceWaiters.set(file, [...(this.pieceWaiters.get(file) ?? []), done]));
-      if (![...this.planned].some((p) => p.key === key && p.from <= index && index <= p.to)) this.startPass(key, size, index, total);
+      const made = new Promise<string | null>((done) => {
+        this.pieceWaiters.set(file, [...(this.pieceWaiters.get(file) ?? []), done]);
+        // A viewer who jumped elsewhere no longer waits, so the pass making this piece can be dropped.
+        viewerGone?.addEventListener('abort', () => {
+          const left = (this.pieceWaiters.get(file) ?? []).filter((w) => w !== done);
+          if (left.length) this.pieceWaiters.set(file, left);
+          else this.pieceWaiters.delete(file);
+          done(null);
+        });
+      });
+      // Finished while this request was checking: its pass has already told everyone who was waiting then.
+      if (await this.pieceReady(file)) {
+        for (const done of this.pieceWaiters.get(file) ?? []) done(file);
+        this.pieceWaiters.delete(file);
+      } else if (![...this.planned].some((p) => !p.cancel.signal.aborted && p.key === key && p.from <= index && index <= p.to)) {
+        // A viewer who jumped no longer needs this file's other passes. Others are only dropped when none can start.
+        const idle = [...this.planned].filter((p) => !p.cancel.signal.aborted && !this.anyoneWaiting(p));
+        for (const p of idle) if (p.key === key) p.cancel.abort();
+        if (this.passes >= MAX_PASSES) idle.find((p) => p.key !== key)?.cancel.abort();
+        this.startPass(key, size, index, total, true);
+      }
       if (!(await made)) return null;
     }
     void this.readAhead(key, size, index, total);
     return file;
   }
 
+  private anyoneWaiting(p: Pass): boolean {
+    for (let i = p.from; i <= p.to; i++) if (this.pieceWaiters.has(this.pieceFile(p.key, p.size, i))) return true;
+    return false;
+  }
+
   private async readAhead(key: string, size: number, index: number, total: number): Promise<void> {
     for (let i = index + 1; i <= Math.min(index + READY_AHEAD, total - 1); i++) {
-      if ([...this.planned].some((p) => p.key === key && p.from <= i && i <= p.to)) continue;
+      if ([...this.planned].some((p) => !p.cancel.signal.aborted && p.key === key && p.from <= i && i <= p.to)) continue;
       if (!(await this.pieceReady(this.pieceFile(key, size, i)))) {
-        this.startPass(key, size, i, total);
+        this.startPass(key, size, i, total, false);
         return;
       }
     }
   }
 
-  private startPass(key: string, size: number, from: number, total: number): void {
-    const plan = { key, from, to: Math.min(from + PIECES_PER_PASS, total) - 1 };
+  private startPass(key: string, size: number, from: number, total: number, wanted: boolean): void {
+    const plan: Pass = { key, size, from, to: Math.min(from + PIECES_PER_PASS, total) - 1, cancel: new AbortController() };
     this.planned.add(plan);
-    void this.runPass(plan, size).finally(() => this.planned.delete(plan));
+    void this.runPass(plan, wanted).finally(() => this.planned.delete(plan));
   }
 
-  private async runPass(plan: { key: string; from: number; to: number }, size: number): Promise<void> {
-    if (this.passes >= MAX_PASSES) await new Promise<void>((go) => this.passQueue.push(go));
-    else this.passes += 1;
-    const { key, from, to } = plan;
+  private async runPass(plan: Pass, wanted: boolean): Promise<void> {
+    if (this.passes >= MAX_PASSES) {
+      // Someone waiting goes ahead of reading ahead.
+      await new Promise<void>((go) => (wanted ? this.passQueue.unshift(go) : this.passQueue.push(go)));
+    } else this.passes += 1;
+    const { key, size, from, to, cancel } = plan;
     const prefix = path.join(this.cacheDir, `pass__${randomUUID()}_`);
     const written = (i: number) => `${prefix}${String(i).padStart(3, '0')}.ts`;
     let next = 0;
@@ -175,6 +209,7 @@ export class Mp4Builder {
     try {
       await mkdir(this.cacheDir, { recursive: true });
       void this.sweep();
+      if (cancel.signal.aborted) return;
       await run(this.cfg.ffmpegPath, [
         '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
         ...NET, '-ss', String(from * LOW_PIECE_SECONDS), '-i', await this.storage.ffmpegInput(key), '-t', String((to - from + 1) * LOW_PIECE_SECONDS),
@@ -184,13 +219,15 @@ export class Mp4Builder {
         // Pieces of one file continue each other's timeline, so the player sees one unbroken video.
         '-output_ts_offset', String(from * LOW_PIECE_SECONDS), '-muxdelay', '0',
         '-f', 'segment', '-segment_time', String(LOW_PIECE_SECONDS), '-segment_format', 'mpegts', `${prefix}%03d.ts`,
-      ]);
+      ], cancel.signal);
     } catch {
       // Reading past the end of a file is normal here; pieces that were made are still used.
     } finally {
       clearInterval(watch);
       await collecting;
-      await collect(true).catch(() => undefined);
+      // A cancelled pass stopped in the middle of a piece: only pieces already finished are kept.
+      await collect(!cancel.signal.aborted).catch(() => undefined);
+      for (let i = next; i <= to - from + 1; i++) await rm(written(i), { force: true });
       // Whatever this pass did not make does not exist.
       for (let i = from; i <= to; i++) {
         const file = this.pieceFile(key, size, i);
