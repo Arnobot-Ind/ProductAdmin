@@ -10,7 +10,6 @@ import { GeoMap } from '@/components/domain/geo-map';
 import { OptionFilter } from '@/components/ui/filter-menu';
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui/misc';
 import { api } from '@/lib/api';
-import { Select } from '@/components/ui/field';
 import { cn } from '@/lib/cn';
 import { fmtDateTime, fmtDistance } from '@/lib/format';
 import { periodBounds } from '@/lib/periods';
@@ -127,11 +126,11 @@ function haversine(a: GpsPointDto, b: GpsPointDto): number {
 
 /** Runs within this distance of each other count as one place. */
 const PLACE_RADIUS_M = 2000;
-/** A longer break than this at one place starts a new visit, so a visit's times match the hours it ran. */
-const VISIT_BREAK_MS = 30 * 60_000;
+/** A longer break than this at one place starts a new mission, so a mission's times match the hours it ran. */
+const MISSION_BREAK_MS = 30 * 60_000;
 
-/** One visit to a place: runs close together in time, so its times match the hours it ran. */
-interface Visit {
+/** One mission at a place: runs close together in time, so its times match the hours it ran. */
+interface Mission {
   id: string;
   runs: GpsPointDto[][];
   meters: number;
@@ -140,18 +139,18 @@ interface Visit {
   to: number;
 }
 
-/** A place has one small map, whichever day it was used; its visits are picked from a list. */
-interface Place extends Visit {
+/** A place has one small map, whichever day it was used; its missions are listed beside it. */
+interface Place extends Mission {
   name: string;
   /** Most recent first. */
-  visits: Visit[];
+  missions: Mission[];
 }
 
 const runMeters = (run: GpsPointDto[]) => run.slice(1).reduce((d, p, i) => d + haversine(run[i], p), 0);
 const runStart = (run: GpsPointDto[]) => Date.parse(run[0].ts);
 const runEnd = (run: GpsPointDto[]) => Date.parse(run[run.length - 1].ts);
 
-function summarise(runs: GpsPointDto[][]): Visit {
+function summarise(runs: GpsPointDto[][]): Mission {
   const from = Math.min(...runs.map(runStart));
   return {
     id: String(from),
@@ -174,13 +173,13 @@ function groupPlaces(runs: GpsPointDto[][]): Place[] {
   }
   return groups
     .map((g) => {
-      const visits: GpsPointDto[][][] = [];
+      const missions: GpsPointDto[][][] = [];
       for (const run of [...g.runs].sort((a, b) => runStart(a) - runStart(b))) {
-        const open = visits[visits.length - 1];
-        if (open && runStart(run) - Math.max(...open.map(runEnd)) <= VISIT_BREAK_MS) open.push(run);
-        else visits.push([run]);
+        const open = missions[missions.length - 1];
+        if (open && runStart(run) - Math.max(...open.map(runEnd)) <= MISSION_BREAK_MS) open.push(run);
+        else missions.push([run]);
       }
-      return { ...summarise(g.runs), visits: visits.map(summarise).sort((a, b) => b.to - a.to) };
+      return { ...summarise(g.runs), missions: missions.map(summarise).sort((a, b) => b.to - a.to) };
     })
     .sort((a, b) => b.to - a.to)
     .map((p, i) => ({ ...p, name: `Place ${i + 1}` }));
@@ -202,7 +201,7 @@ function worldPixel(lat: number, lon: number, zoom: number): [number, number] {
  * a browser allows only a few live maps on a page, and this card only has to be looked at and clicked.
  */
 function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
-  // A robot can have many visits: its satellite images load only when the card scrolls into view.
+  // A robot can have many missions: their satellite images load only when a card scrolls into view.
   const box = useRef<HTMLSpanElement>(null);
   const [seen, setSeen] = useState(false);
   useEffect(() => {
@@ -254,14 +253,16 @@ function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
   );
 }
 
-/** When a visit was: the day and times, or both days when it runs past midnight. */
-function visitWhen(p: Visit): string {
+/** When a mission was: the day and times, or both days when it runs past midnight. */
+function missionWhen(p: Mission): string {
   const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST_ZONE });
   const time = (t: number) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
   return day(p.from) === day(p.to) ? `${day(p.to)}, ${time(p.from)} – ${time(p.to)}` : `${day(p.from)}, ${time(p.from)} – ${day(p.to)}, ${time(p.to)}`;
 }
 
-const facts = (p: Visit) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
+const facts = (p: Mission) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
+
+const missionCard = 'h-full rounded-lg border border-border p-2 text-left hover:border-muted';
 
 function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId: string }) {
   // Each minute's refresh returns a new list. The same readings keep the same list, so the map is not redrawn.
@@ -270,8 +271,8 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
   const points = held.current;
   /** The place on the big map: the most recent one until another is clicked, or every place together. */
   const [chosen, setChosen] = useState<string | 'all' | null>(null);
-  /** One visit of that place, or null for all of its visits. */
-  const [visitId, setVisitId] = useState<string | null>(null);
+  /** What the big area shows for that place: its list of missions (null), all of them on the map, or one of them. */
+  const [missionId, setMissionId] = useState<string | 'all' | null>(null);
   const { allRuns, places } = useMemo(() => {
     // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a run.
     const bySegment = new Map<number, GpsPointDto[]>();
@@ -284,9 +285,11 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
     return { allRuns: runs, places: groupPlaces(runs) };
   }, [points]);
   const place = chosen === 'all' ? null : (places.find((p) => p.id === chosen) ?? places[0] ?? null);
-  const visit = place?.visits.find((v) => v.id === visitId) ?? null;
+  const mission = place?.missions.find((m) => m.id === missionId) ?? null;
+  const several = !!place && place.missions.length > 1;
+  const showList = several && missionId === null;
   const { lines, markers, dist } = useMemo(() => {
-    const runs = visit ? visit.runs : place ? place.runs : allRuns;
+    const runs = mission ? mission.runs : place ? place.runs : allRuns;
     const kept = runs.length ? runs.flat() : points;
     const first = kept[0];
     const last = kept[kept.length - 1];
@@ -298,7 +301,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
       ],
       dist: runs.reduce((sum, r) => sum + runMeters(r), 0),
     };
-  }, [place, visit, allRuns, points]);
+  }, [place, mission, allRuns, points]);
   const bigMap = (
     <>
       <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
@@ -310,59 +313,64 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
 
     </>
   );
-  if (places.length < 2 && (places[0]?.visits.length ?? 0) < 2) return bigMap;
+  if (places.length < 2 && (places[0]?.missions.length ?? 0) < 2) return bigMap;
   return (
     <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
         <div className="flex items-center justify-between gap-2">
           <p className="text-base font-medium">{places.length} {places.length === 1 ? 'place' : 'places'}</p>
-          <Button size="sm" onClick={() => { setChosen('all'); setVisitId(null); }} disabled={!place}>
+          <Button size="sm" onClick={() => { setChosen('all'); setMissionId(null); }} disabled={!place}>
             Show all
           </Button>
         </div>
         <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pr-1">
           {places.map((p) => (
-            <div key={p.id} className={cn('w-64 shrink-0 rounded-lg border p-2 lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border')}>
-              <button
-                type="button"
-                aria-pressed={p.id === place?.id && !visit}
-                onClick={() => {
-                  setChosen(p.id);
-                  setVisitId(null);
-                }}
-                className="block w-full cursor-pointer text-left"
-              >
-                <PlaceMap runs={p.runs} />
-                <span className="mt-1.5 block font-medium">{p.name}</span>
-                <span className="block text-sm text-muted">{facts(p)}</span>
-              </button>
-              {p.visits.length > 1 && (
-                <Select
-                  aria-label={`Visits to ${p.name}`}
-                  value={p.id === place?.id ? (visit?.id ?? '') : ''}
-                  onChange={(e) => {
-                    setChosen(p.id);
-                    setVisitId(e.target.value || null);
-                  }}
-                  className="mt-2"
-                >
-                  <option value="">All {p.visits.length} visits</option>
-                  {p.visits.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {visitWhen(v)} · {fmtDuration(v.seconds)}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
+            <button
+              key={p.id}
+              type="button"
+              aria-pressed={p.id === place?.id}
+              onClick={() => {
+                setChosen(p.id);
+                setMissionId(null);
+              }}
+              className={cn('w-64 shrink-0 rounded-lg border p-2 text-left lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}
+            >
+              <PlaceMap runs={p.runs} />
+              <span className="mt-1.5 block font-medium">{p.name}</span>
+              <span className="block text-sm text-muted">{facts(p)}</span>
+            </button>
           ))}
         </div>
       </div>
       <div className="min-w-0">
-        <p className="mb-2 text-base font-bold">
-          {!place ? 'All places' : visit ? `${place.name} · ${visitWhen(visit)} · ${facts(visit)}` : `${place.name} · ${place.visits.length} ${place.visits.length === 1 ? 'visit' : 'visits'} · ${facts(place)}`}
-        </p>
-        {bigMap}
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-base font-bold">
+            {!place ? 'All places' : mission ? `${place.name} · ${missionWhen(mission)} · ${facts(mission)}` : `${place.name} · ${place.missions.length} ${place.missions.length === 1 ? 'mission' : 'missions'} · ${facts(place)}`}
+          </p>
+          {several && !showList && (
+            <Button size="sm" onClick={() => setMissionId(null)}>
+              Back to missions
+            </Button>
+          )}
+        </div>
+        {showList && place ? (
+          <div className="grid h-[75vh] min-h-[480px] auto-rows-max grid-cols-1 gap-3 overflow-y-auto p-0.5 sm:grid-cols-2 xl:grid-cols-3">
+            <button type="button" onClick={() => setMissionId('all')} className={missionCard}>
+              <PlaceMap runs={place.runs} />
+              <span className="mt-1.5 block font-medium">All {place.missions.length} missions</span>
+              <span className="block text-sm text-muted">{facts(place)}</span>
+            </button>
+            {place.missions.map((m) => (
+              <button key={m.id} type="button" onClick={() => setMissionId(m.id)} className={missionCard}>
+                <PlaceMap runs={m.runs} />
+                <span className="mt-1.5 block font-medium">{missionWhen(m)}</span>
+                <span className="block text-sm text-muted">{facts(m)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          bigMap
+        )}
       </div>
     </div>
   );
