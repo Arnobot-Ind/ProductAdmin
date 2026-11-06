@@ -24,6 +24,14 @@ export interface Mp4Segment {
 
 const NET = ['-protocol_whitelist', 'file,http,https,tcp,tls,crypto'];
 
+/** What people watch and download on the web: 480p at 15 fps, to save network. The originals in the bucket never change. */
+const LOW_VIDEO = ['-vf', "scale=-2:'min(480,ih)',fps=15", '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '450k', '-maxrate', '600k', '-bufsize', '1200k', '-pix_fmt', 'yuv420p'];
+export type VideoQuality = 'low' | 'original';
+/** Length of one playback piece. Only the pieces someone watches are ever made or sent. */
+export const LOW_PIECE_SECONDS = 10;
+/** Pieces made at the same time. More requests wait, so playback cannot use up the server. */
+const MAX_PIECE_JOBS = 4;
+
 function safe(s: string): string {
   return s.replace(/[^A-Za-z0-9_-]/g, '_');
 }
@@ -48,6 +56,8 @@ function run(cmd: string, args: string[]): Promise<string> {
 export class Mp4Builder {
   private readonly building = new Map<string, Promise<string>>();
   private readonly cacheDir: string;
+  private readonly pieceWaiters: (() => void)[] = [];
+  private pieceJobs = 0;
   private probed: Promise<{ available: boolean; version: string | null }> | null = null;
 
   constructor(
@@ -67,10 +77,10 @@ export class Mp4Builder {
   }
 
   /** The cached MP4 for these chunks, building it first if needed. Concurrent requests share one build. */
-  async build(robotId: string, sessionId: string, camera: string, segments: Mp4Segment[]): Promise<string> {
+  async build(robotId: string, sessionId: string, camera: string, segments: Mp4Segment[], quality: VideoQuality = 'original'): Promise<string> {
     // The name covers every chunk key and size: a session that gained chunks gets a new file, never a stale one.
     const hash = createHash('sha256')
-      .update(segments.map((s) => `${s.key}:${s.size}`).join('\n'))
+      .update(quality + segments.map((s) => `${s.key}:${s.size}`).join('\n'))
       .digest('hex')
       .slice(0, 16);
     const file = path.join(this.cacheDir, `${safe(robotId)}__${safe(sessionId)}__${safe(camera)}__${hash}.mp4`);
@@ -82,13 +92,56 @@ export class Mp4Builder {
     }
     let job = this.building.get(file);
     if (!job) {
-      job = this.make(segments, file).finally(() => this.building.delete(file));
+      job = this.make(segments, file, quality).finally(() => this.building.delete(file));
       this.building.set(file, job);
     }
     return job;
   }
 
-  private async make(segments: Mp4Segment[], file: string): Promise<string> {
+  /** One short piece of a recording in low quality, made when first asked for and kept for MP4_CACHE_HOURS. */
+  async lowPiece(key: string, size: number, startS: number, durationS: number): Promise<string> {
+    const hash = createHash('sha256').update(`${key}:${size}:${startS}:${durationS}`).digest('hex').slice(0, 32);
+    const file = path.join(this.cacheDir, `piece__${hash}.ts`);
+    try {
+      await stat(file);
+      return file;
+    } catch {
+      // not made yet
+    }
+    let job = this.building.get(file);
+    if (!job) {
+      job = this.makePiece(key, startS, durationS, file).finally(() => this.building.delete(file));
+      this.building.set(file, job);
+    }
+    return job;
+  }
+
+  private async makePiece(key: string, startS: number, durationS: number, file: string): Promise<string> {
+    if (this.pieceJobs >= MAX_PIECE_JOBS) await new Promise<void>((go) => this.pieceWaiters.push(go));
+    else this.pieceJobs += 1;
+    const part = `${file}.part`;
+    try {
+      await mkdir(this.cacheDir, { recursive: true });
+      void this.sweep();
+      await run(this.cfg.ffmpegPath, [
+        '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+        ...NET, '-ss', String(startS), '-i', await this.storage.ffmpegInput(key), '-t', String(durationS),
+        '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'aac', '-b:a', '64k',
+        ...LOW_VIDEO,
+        // Pieces of one file continue each other's timeline, so the player sees one unbroken video.
+        '-output_ts_offset', String(startS), '-muxdelay', '0', '-f', 'mpegts', part,
+      ]);
+      await rename(part, file);
+      return file;
+    } finally {
+      await rm(part, { force: true });
+      const next = this.pieceWaiters.shift();
+      if (next) next();
+      else this.pieceJobs -= 1;
+    }
+  }
+
+  private async make(segments: Mp4Segment[], file: string, quality: VideoQuality): Promise<string> {
     await mkdir(this.cacheDir, { recursive: true });
     void this.sweep();
     // ffmpeg reads the segments straight from S3 through short-lived URLs; only the result is written here.
@@ -102,7 +155,7 @@ export class Mp4Builder {
       const video = streams.find((s) => s.codec_type === 'video');
       const hasAudio = streams.some((s) => s.codec_type === 'audio');
       const eightBit420 = !video?.pix_fmt || video.pix_fmt === 'yuv420p' || video.pix_fmt === 'yuvj420p';
-      const vcodec =
+      const vcodec = quality === 'low' ? [...LOW_VIDEO, '-tag:v', 'avc1'] :
         video?.codec_name === 'h264' && eightBit420
           ? ['-c:v', 'copy', '-tag:v', 'avc1']
           : video?.codec_name === 'hevc' && eightBit420
