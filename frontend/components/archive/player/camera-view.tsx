@@ -41,6 +41,16 @@ function mediaTimeAt(segments: Segment[], t: number): number | null {
 }
 
 /** One camera tile: an HLS stream that follows the shared session clock. */
+/** A piece can take many seconds to prepare after a jump. Giving up sooner would only start the work over again. */
+const PIECE_LOAD_POLICY = {
+  default: {
+    maxTimeToFirstByteMs: 60_000,
+    maxLoadTimeMs: 120_000,
+    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    errorRetry: { maxNumRetry: 3, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+  },
+};
+
 export function CameraView({ camera, index, segments, playlistUrl, time, playing, rate, hidden, compact, fill, style, onSelect, selectHint }: Props) {
   const hlsRef = useRef<Hls | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -66,7 +76,7 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
       const { default: HlsLib } = await import('hls.js');
       if (cancelled) return;
       if (HlsLib.isSupported()) {
-        hls = new HlsLib({ maxBufferLength: 20, backBufferLength: 30 });
+        hls = new HlsLib({ maxBufferLength: 20, backBufferLength: 30, fragLoadPolicy: PIECE_LOAD_POLICY });
         hls.on(HlsLib.Events.ERROR, (_e, data) => {
           if (!data.fatal) return;
           setError(
