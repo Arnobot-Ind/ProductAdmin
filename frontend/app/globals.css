@@ -43,6 +43,14 @@
   --cat-uav: #0f8f80;
   --cal-ok: #15803d;
   --cal-fault: #b91c1c;
+  /* Storage by type: a validated categorical set, in fixed order. Each type keeps its colour. */
+  --store-videos: #2a78d6;
+  --store-models: #eb6834;
+  --store-sensors: #1baf7a;
+  --store-archives: #eda100;
+  --store-images: #e87ba4;
+  --store-other: #008300;
+  --store-documents: #6250d6;
   color-scheme: light;
 }
 
@@ -76,6 +84,13 @@
   --cat-uav: #25a898;
   --cal-ok: #4ade80;
   --cal-fault: #f87171;
+  --store-videos: #3987e5;
+  --store-models: #d95926;
+  --store-sensors: #199e70;
+  --store-archives: #c98500;
+  --store-images: #d55181;
+  --store-other: #008300;
+  --store-documents: #9085e9;
   color-scheme: dark;
 }
 
