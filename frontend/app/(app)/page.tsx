@@ -1,10 +1,10 @@
 'use client';
 
-import type { DashboardDto, FleetHourlyDto, StorageFileType, StorageUsageDto } from '@arnobot/message-schema';
+import type { DashboardDto, FleetHourlyDto, StorageUsageDto } from '@arnobot/message-schema';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowRight, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useState, type MouseEvent, type ReactNode } from 'react';
 import { axis, CATEGORIES, dayLabel, Donut, fmtTick, RankBars } from '@/components/domain/charts';
 import { useDashboard, useFleetReport } from '@/components/domain/dashboard';
 import { OptionFilter } from '@/components/ui/filter-menu';
@@ -123,82 +123,58 @@ const STORAGE_PERIODS = [
 type StoragePeriod = (typeof STORAGE_PERIODS)[number]['id'];
 const GB = 1024 ** 3;
 
-/** How much is filled on AWS: the total now, what it is made of, and how it grew. A click on a type shows only that type. */
+/** How much is filled on AWS: the total and how it grew, or with More insights, what the space is used for. */
 function StorageTile() {
   const [period, setPeriod] = useState<StoragePeriod>('all');
-  const [type, setType] = useState<StorageFileType | null>(null);
+  const [insights, setInsights] = useState(false);
   const chosen = STORAGE_PERIODS.find((p) => p.id === period)!;
   const q = useQuery({ queryKey: ['storage-usage'], queryFn: () => api.get<StorageUsageDto>('/system/storage'), staleTime: 600_000 });
-  const running = useMemo(() => {
-    let total = 0;
-    return (q.data?.daily ?? []).map((x) => {
-      const added = type ? (x.added_by_type[type] ?? 0) : x.added_bytes;
-      total += added;
-      return { date: x.date, added, total };
-    });
-  }, [q.data, type]);
-  const shown = 'days' in chosen ? running.slice(-chosen.days) : running;
-  const rows: TrendRow[] = shown.map((x) => ({ key: x.date, value: x.total, tick: dayLabel(x.date, { day: 'numeric', month: 'short' }), when: dayLabel(x.date, { weekday: 'short', day: 'numeric', month: 'short' }) }));
-  const added = shown.reduce((s, x) => s + x.added, 0);
+  const daily = q.data?.daily ?? [];
+  const shown = 'days' in chosen ? daily.slice(-chosen.days) : daily;
+  const rows: TrendRow[] = shown.map((x) => ({ key: x.date, value: x.total_bytes, tick: dayLabel(x.date, { day: 'numeric', month: 'short' }), when: dayLabel(x.date, { weekday: 'short', day: 'numeric', month: 'short' }) }));
+  const added = shown.reduce((s, x) => s + x.added_bytes, 0);
   const top = Math.max(0, ...rows.map((r) => r.value));
   const unit = top > 0 && top < GB ? { name: 'MB', factor: 1 / 1024 ** 2 } : { name: 'GB', factor: 1 / GB };
-  const selected = q.data?.types.find((t) => t.key === type);
-  const largest = q.data ? Math.max(q.data.database_bytes, ...q.data.types.map((t) => t.bytes), 1) : 1;
   return (
     <section className="min-w-0 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm text-muted">
-          Storage on AWS{selected ? ` · ${selected.label}` : ''} · {chosen.title}
-        </h2>
-        <OptionFilter label="Storage" value={period} options={STORAGE_PERIODS} onChange={setPeriod} />
+        <h2 className="text-sm text-muted">Storage on AWS · {insights ? 'what uses the space' : chosen.title}</h2>
+        <div className="flex items-center gap-2">
+          {q.data && (
+            <button type="button" onClick={() => setInsights(!insights)} className="rounded-md border border-border bg-surface px-2.5 py-1 text-sm hover:bg-surface-2">
+              {insights ? 'Back' : 'More insights'}
+            </button>
+          )}
+          {!insights && <OptionFilter label="Storage" value={period} options={STORAGE_PERIODS} onChange={setPeriod} />}
+        </div>
       </div>
-      <p className="mb-1 text-3xl leading-none font-semibold tabular-nums">{q.data ? fmtBytes(selected ? selected.bytes : q.data.total_bytes) : q.isError ? '–' : '…'}</p>
+      <p className="mb-1 text-3xl leading-none font-semibold tabular-nums">{q.data ? fmtBytes(q.data.total_bytes) : q.isError ? '–' : '…'}</p>
       {q.isError && <p className="text-sm text-muted">Could not read the storage from AWS.</p>}
-      {q.data && (
+      {q.data && !insights && (
         <>
           <p className="mb-2 text-sm text-muted">
-            {selected ? `${selected.files.toLocaleString('en-IN')} files · ` : ''}
-            {fmtBytes(added)} added in this period
+            S3 files {fmtBytes(q.data.files_bytes)} · Database {fmtBytes(q.data.database_bytes)} · {fmtBytes(added)} added in this period
           </p>
-          <ul className="mb-3 flex flex-col gap-0.5">
-            <li>
-              <button type="button" aria-pressed={!type} onClick={() => setType(null)} className={storageRow(!type)}>
-                <span className="font-medium">All files</span>
-                <span />
-                <span className="text-right tabular-nums">{fmtBytes(q.data.files_bytes)}</span>
-              </button>
-            </li>
-            {q.data.types.map((t) => (
-              <li key={t.key}>
-                <button type="button" aria-pressed={type === t.key} onClick={() => setType(t.key)} title={`${t.files.toLocaleString('en-IN')} files`} className={storageRow(type === t.key)}>
-                  <span className="truncate">{t.label}</span>
-                  <StorageBar share={t.bytes / largest} />
-                  <span className="text-right tabular-nums">{fmtBytes(t.bytes)}</span>
-                </button>
-              </li>
-            ))}
-            <li className={cn(STORAGE_ROW, 'text-muted')} title="The size now; its history is not recorded, so it has no graph">
-              <span className="truncate">Database</span>
-              <StorageBar share={q.data.database_bytes / largest} />
-              <span className="text-right tabular-nums">{fmtBytes(q.data.database_bytes)}</span>
-            </li>
-          </ul>
-          <TrendChart rows={rows} label={selected ? selected.label : 'S3 files filled'} per="day" format={fmtBytes} color="var(--accent)" unit={unit} height={150} />
+          <TrendChart rows={rows} label="S3 files filled" per="day" format={fmtBytes} color="var(--accent)" unit={unit} />
         </>
       )}
+      {q.data && insights && (
+        <ul className="mt-3 flex flex-col gap-2.5">
+          {[...q.data.types.map((t) => ({ label: t.label, bytes: t.bytes, files: t.files as number | null })), { label: 'Database', bytes: q.data.database_bytes, files: null }]
+            .sort((a, b) => b.bytes - a.bytes)
+            .map((t) => (
+              <li key={t.label} className="grid grid-cols-[9rem_minmax(0,1fr)_5.5rem] items-center gap-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_5.5rem_6rem]">
+                <span className="truncate">{t.label}</span>
+                <span className="block h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+                  <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max((t.bytes / q.data.total_bytes) * 100, 1)}%` }} />
+                </span>
+                <span className="text-right font-medium tabular-nums">{fmtBytes(t.bytes)}</span>
+                <span className="hidden text-right text-muted tabular-nums sm:block">{t.files === null ? '' : `${t.files.toLocaleString('en-IN')} files`}</span>
+              </li>
+            ))}
+        </ul>
+      )}
     </section>
-  );
-}
-
-const STORAGE_ROW = 'grid w-full grid-cols-[9rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded-md px-2 py-1 text-left text-sm';
-const storageRow = (on: boolean) => cn(STORAGE_ROW, on ? 'bg-accent-soft font-medium' : 'hover:bg-surface-2');
-
-/** A very small type still shows a sliver, so no type looks missing. */
-function StorageBar({ share }: { share: number }) {
-  return (
-    <span className="block h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-      <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(share * 100, 1)}%` }} />
-    </span>
   );
 }
 
