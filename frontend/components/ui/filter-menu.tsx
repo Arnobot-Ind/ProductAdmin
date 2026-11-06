@@ -64,7 +64,7 @@ export function FilterChoice({ label, value, onChange, options }: { label: strin
 }
 
 /** A small Filter button whose options open on click, for one chart. Picking one, Esc or a click outside closes them. */
-export function OptionFilter<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly { id: T; label: string }[]; onChange: (id: T) => void }) {
+export function OptionFilter<T extends string>({ label, value, options, onChange, prominent }: { label: string; value: T; options: readonly { id: T; label: string }[]; prominent?: boolean; onChange: (id: T) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -80,7 +80,7 @@ export function OptionFilter<T extends string>({ label, value, options, onChange
   }, [open]);
   return (
     <div ref={box} className="relative">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={`Filter ${label} by time`} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-sm hover:bg-surface-2">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={`Filter ${label} by time`} className={cn('inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm', prominent ? 'bg-accent font-medium text-accent-fg hover:opacity-90' : 'border border-border bg-surface hover:bg-surface-2')}>
         <ListFilter className="size-4" aria-hidden /> Filter
       </button>
       {open && (

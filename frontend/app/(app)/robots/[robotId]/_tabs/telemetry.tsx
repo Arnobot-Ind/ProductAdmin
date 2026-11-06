@@ -51,7 +51,7 @@ export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs
   const shared = { robotId, range, onRange: setRange, from: bounds.from!, to: bounds.to! };
   if (view === 'map') {
     return (
-      <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" empty="No position data in this time range.">
+      <RangeCard<GpsPointDto> {...shared} kind="gps" title="Where it ran" prominent empty="No position data in this time range.">
         {(s) => <GpsTrack points={s.points} robotId={robotId} />}
       </RangeCard>
     );
@@ -86,17 +86,23 @@ export function TelemetryTab({ robotId, view }: { robotId: string; view: 'graphs
 }
 
 /** A map or graph with the Filter button at its top right; the time range itself is shared by the whole tab. */
-function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, children }: { robotId: string; kind: string; title: string; empty: string; range: RangeId; onRange: (r: RangeId) => void; from: string; to: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
+function RangeCard<T>({ robotId, kind, title, empty, range, onRange, from, to, prominent, children }: { robotId: string; kind: string; title: string; prominent?: boolean; empty: string; range: RangeId; onRange: (r: RangeId) => void; from: string; to: string; children: (s: TelemetrySeriesDto<T>) => ReactNode }) {
   const q = useSeries<T>(robotId, kind, from, to);
   const chosen = RANGES.find((r) => r.id === range)!;
   return (
     <Card
       title={
-        <>
-          {title} <span className="font-normal text-muted">· {chosen.title}</span>
-        </>
+        prominent ? (
+          <span className="font-bold">
+            {title} · {chosen.title}
+          </span>
+        ) : (
+          <>
+            {title} <span className="font-normal text-muted">· {chosen.title}</span>
+          </>
+        )
       }
-      actions={<OptionFilter label={title} value={range} options={RANGES} onChange={onRange} />}
+      actions={<OptionFilter label={title} value={range} options={RANGES} onChange={onRange} prominent={prominent} />}
     >
       <Section q={q} empty={empty}>
         {children}
