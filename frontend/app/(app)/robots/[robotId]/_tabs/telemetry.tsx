@@ -325,7 +325,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
   }, [live, position, online, place, mission, allRuns, points]);
   const liveButton = (
     <Button size="sm" variant={live ? 'primary' : 'secondary'} aria-pressed={live} onClick={() => setLive(!live)} icon={<span className={cn('size-2.5 rounded-full', online ? 'bg-[#16a34a]' : 'bg-[#6b7280]')} aria-hidden />}>
-      Live
+      Live Location
     </Button>
   );
   const liveLine = !liveState.data ? 'Finding the robot…' : !position ? 'No location reported by this robot yet' : `${online ? 'Live now' : 'Offline · last seen location'} · ${fmtDateTime(liveState.data.state_ts ?? liveState.data.last_seen_at)}${online && position.speed_mps !== null ? ` · ${position.speed_mps.toFixed(1)} m/s` : ''}`;
@@ -333,7 +333,7 @@ function GpsTrack({ points: latest, robotId }: { points: GpsPointDto[]; robotId:
     live && !position ? (
       <EmptyState title="No location reported by this robot yet" />
     ) : !lines.length && !markers.length ? (
-      <EmptyState title="No position data in this time range." description="Choose a longer time range with Filter, or press Live." />
+      <EmptyState title="No position data in this time range." description="Choose a longer time range with Filter, or press Live Location." />
     ) : (
       <>
         <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
