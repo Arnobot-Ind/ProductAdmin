@@ -155,7 +155,7 @@ function groupPlaces(runs: GpsPointDto[][]): Place[] {
       to: Math.max(...g.runs.map((r) => Date.parse(r[r.length - 1].ts))),
     }))
     .sort((a, b) => b.to - a.to)
-    .map((p, i) => ({ ...p, id: String(i), name: `Place ${i + 1}` }));
+    .map((p, i) => ({ ...p, id: String(p.from), name: `Place ${i + 1}` }));
 }
 
 /** Size of the picture on a place card, in map pixels. */
@@ -217,13 +217,18 @@ function PlaceMap({ runs }: { runs: GpsPointDto[][] }) {
   );
 }
 
+/** When a place was used: the day and times, or the days when it spans more than one. */
 function placeWhen(p: Place): string {
   const day = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST_ZONE });
-  return day(p.from) === day(p.to) ? day(p.to) : `${day(p.from)} – ${day(p.to)}`;
+  const time = (t: number) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_ZONE });
+  return day(p.from) === day(p.to) ? `${day(p.to)}, ${time(p.from)} – ${time(p.to)}` : `${day(p.from)}, ${time(p.from)} – ${day(p.to)}, ${time(p.to)}`;
 }
 
+const placeFacts = (p: Place) => `${fmtDistance(p.meters)} · ${fmtDuration(p.seconds)} · ${p.runs.length} ${p.runs.length === 1 ? 'run' : 'runs'}`;
+
 function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string }) {
-  const [chosen, setChosen] = useState<string | null>(null);
+  /** The place on the big map: the most recent one until another is clicked, or every place together. */
+  const [chosen, setChosen] = useState<string | 'all' | null>(null);
   const { allRuns, places } = useMemo(() => {
     // The server splits the track where GPS was missing or a reading was impossible; a line is drawn only inside a run.
     const bySegment = new Map<number, GpsPointDto[]>();
@@ -235,7 +240,7 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
     const runs = [...bySegment.values()].filter((x) => x.length > 1);
     return { allRuns: runs, places: groupPlaces(runs) };
   }, [points]);
-  const place = places.find((p) => p.id === chosen) ?? null;
+  const place = chosen === 'all' ? null : (places.find((p) => p.id === chosen) ?? places[0] ?? null);
   const { lines, markers, dist } = useMemo(() => {
     const runs = place ? place.runs : allRuns;
     const kept = runs.length ? runs.flat() : points;
@@ -250,39 +255,57 @@ function GpsTrack({ points, robotId }: { points: GpsPointDto[]; robotId: string 
       dist: runs.reduce((sum, r) => sum + runMeters(r), 0),
     };
   }, [place, allRuns, points]);
-  const card = 'rounded-lg border p-2 text-left transition-colors';
-  return (
+  const bigMap = (
     <>
-      {places.length > 1 && (
-        <div className="mb-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-base font-medium">Ran in {places.length} places</p>
-            <Button size="sm" onClick={() => setChosen(null)} disabled={!place}>
-              Show all on the map
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {places.map((p) => (
-              <button key={p.id} type="button" aria-pressed={p.id === chosen} onClick={() => setChosen(p.id)} className={cn(card, p.id === chosen ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}>
-                <PlaceMap runs={p.runs} />
-                <span className="mt-2 block text-lg font-medium">
-                  {p.name} · {placeWhen(p)}
-                </span>
-                <span className="block text-base text-muted">
-                  {fmtDistance(p.meters)} · {fmtDuration(p.seconds)} · {p.runs.length} {p.runs.length === 1 ? 'run' : 'runs'}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       <GeoMap lines={lines} points={markers} className="h-[75vh] min-h-[480px]" ariaLabel={`GPS track of ${fmtSerial(robotId)}: ${points.length} points, about ${fmtDistance(dist)}`} />
       <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
         <span className="font-semibold">About {fmtDistance(dist)}</span>
         <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#16a34a]" aria-hidden /> Start</span>
         <span className="inline-flex items-center gap-1.5 text-muted"><span className="size-3 rounded-full bg-[#dc2626]" aria-hidden /> End</span>
       </p>
+
     </>
+  );
+  if (places.length < 2) return bigMap;
+  return (
+    <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-2 lg:h-[75vh] lg:min-h-[480px]">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-base font-medium">{places.length} places</p>
+          <Button size="sm" onClick={() => setChosen('all')} disabled={!place}>
+            Show all
+          </Button>
+        </div>
+        <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pr-1">
+          {places.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              aria-pressed={p.id === place?.id}
+              onClick={() => setChosen(p.id)}
+              className={cn('w-64 shrink-0 rounded-lg border p-2 text-left transition-colors lg:w-full', p.id === place?.id ? 'border-accent ring-2 ring-accent' : 'border-border hover:border-muted')}
+            >
+              <PlaceMap runs={p.runs} />
+              <span className="mt-1.5 block font-medium">{p.name}</span>
+              <span className="block text-sm text-muted">{placeWhen(p)}</span>
+              <span className="block text-sm text-muted">{placeFacts(p)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className="mb-2 text-base">
+          <span className="font-medium">{place ? place.name : 'All places'}</span>
+          {place && (
+            <span className="text-muted">
+              {' '}
+              · {placeWhen(place)} · {placeFacts(place)}
+            </span>
+          )}
+        </p>
+        {bigMap}
+      </div>
+    </div>
   );
 }
 
