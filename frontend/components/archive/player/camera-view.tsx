@@ -42,6 +42,7 @@ function mediaTimeAt(segments: Segment[], t: number): number | null {
 
 /** One camera tile: an HLS stream that follows the shared session clock. */
 export function CameraView({ camera, index, segments, playlistUrl, time, playing, rate, hidden, compact, fill, style, onSelect, selectHint }: Props) {
+  const hlsRef = useRef<Hls | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
     if (!video || !loadedCount) return;
     const src = `${playlistUrl}?n=${loadedCount}`;
     let hls: Hls | null = null;
+    hlsRef.current = null;
     let cancelled = false;
     void (async () => {
       const { default: HlsLib } = await import('hls.js');
@@ -75,6 +77,7 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
         });
         hls.loadSource(src);
         hls.attachMedia(video);
+        hlsRef.current = hls;
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = src; // Safari plays HLS natively
       } else {
@@ -86,6 +89,12 @@ export function CameraView({ camera, index, segments, playlistUrl, time, playing
       hls?.destroy();
     };
   }, [playlistUrl, loadedCount]);
+
+  // A camera that is not on screen downloads nothing.
+  useEffect(() => {
+    if (hidden) hlsRef.current?.stopLoad();
+    else hlsRef.current?.startLoad(-1);
+  }, [hidden]);
 
   // follow the session clock
   useEffect(() => {
